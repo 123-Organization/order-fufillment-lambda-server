@@ -5,15 +5,17 @@
   "main": "lambda.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "start": "set DEBUG=app:* & node app.js"
+    "start": "set DEBUG=app:* & node lambda.js"
   },
   "author": "",
   "license": "ISC",
   "dependencies": {
     "@aws-sdk/client-s3": "^3.511.0",
+    "add": "^2.0.6",
     "aws-lambda": "^1.0.7",
     "axios": "^1.6.7",
     "body-parser": "^1.20.2",
+    "braintree": "^3.21.0",
     "cors": "^2.8.5",
     "debug": "^4.3.4",
     "dotenv": "^16.4.2",
@@ -23,6 +25,11 @@
     "node-fetch": "^3.3.2",
     "nodemon": "^2.0.22",
     "serverless-http": "^3.2.0",
-    "uuidv4": "^6.2.13"
+    "sharp": "^0.33.2",
+    "uuidv4": "^6.2.13",
+    "yarn": "^1.22.22"
+  },
+  "devDependencies": {
+    "serverless-build-plugin": "^3.2.0"
   }
 }

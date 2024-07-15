@@ -5,8 +5,8 @@ require('dotenv').config();
 const http = require('http');
 app.use(cors({
     origin: '*', // Allow requests from this origin
-    methods: ['GET', 'POST', 'DELETE', 'OPTIONS'], // Allow only specified methods
-    allowedHeaders: ['Content-Type', 'Authorization'], // Allow only specified headers
+    methods: ['*'], // Allow only specified methods
+    allowedHeaders: ['*'], // Allow only specified headers
     credentials: true // Allow credentials (e.g., cookies)
 }));
 app.options('*', cors());
@@ -15,9 +15,11 @@ app.use(express.urlencoded({extended: true}));
 const apiRoutes = require('./src/controllers/routes');
 const server = http.createServer(app);
 app.use('/api', apiRoutes);
+const debug = require('debug');
+const log = debug('app:appIndex');
 app.get('/', (req, res) => {
-    res.send('OrderFullfillment App will run on this port');
-});
+    res.send('File Management App will run on this port');
+  });
 // const port = 5000;
 // server.listen(port, () => {
 //     log(`start application on port ${port}`)

@@ -28,9 +28,18 @@ exports.updateCompanyInformation = async (req, res) => {
           /** check for the validations for the billing_info */
           payloadForCompanyInformation.billing_info = reqBody.billing_info;
       }
+      if(reqBody.shipping_preferences){
+        payloadForCompanyInformation.shipping_preferences = reqBody.shipping_preferences;
+      }
 
       const updateInformation = await finerworksService.UPDATE_INFO(payloadForCompanyInformation);
-
+      if(!updateInformation?.status){
+        res.status(400).json({
+          statusCode: 400,
+          status: false,
+          message: updateInformation.message,
+        });
+      }
       if (updateInformation) {
           res.status(200).json({
               statusCode: 200,
@@ -40,11 +49,10 @@ exports.updateCompanyInformation = async (req, res) => {
           });
       }
   } catch (error) {
-      console.log("error is", error);
-      res.status(400).json({
+    res.status(400).json({
           statusCode: 400,
           status: false,
-          message: JSON.stringify(error),
+          message: error.response.data,
       });
   }
 };

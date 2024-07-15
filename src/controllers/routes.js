@@ -1,7 +1,18 @@
 const { Router } = require('express');
 const { updateCompanyInformation } = require('./update-company-information');
 const { getCompanyInformation } = require('./get-company-information');
+const { getClientToken, addPaymentCard, createCustomer, getFullCustomerDetails } = require('./payment-information');
+const { uploadOrdersFromExcel, viewAllOrders, getOrderPrice, getProductDetails, listShippingOptions } = require('./upload-orders'); 
 const app = Router();
 app.put('/update-company-information',updateCompanyInformation);
 app.get('/get-info', getCompanyInformation);
+app.get('/get-client-token', getClientToken);
+app.post('/create-customer', createCustomer);
+app.post('/add-payment-card', addPaymentCard);
+app.get('/get-customer-details', getFullCustomerDetails);
+app.post('/upload-order-excel', uploadOrdersFromExcel);
+app.post('/get-order-price', getOrderPrice);
+app.post('/get-product-details', getProductDetails);
+app.post('/view-all-orders', viewAllOrders);
+app.post('/shipping-options', listShippingOptions);
 module.exports = app;

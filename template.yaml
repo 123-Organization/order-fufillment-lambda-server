@@ -1,6 +1,6 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
-Description: Node.js Lambda function for file management serverless apis
+Description: Node.js Lambda function for file management serverless APIs
 
 Resources:
   MyApiGateway:
@@ -63,22 +63,75 @@ Resources:
             RestApiId: !Ref MyApiGateway
             Path: /
             Method: GET
-        GetAllListImages:
+        UpdateCompanyInformation:
           Type: Api
           Properties:
             RestApiId: !Ref MyApiGateway
             Method: PUT
             Path: "/api/update-company-information"
-        UpdateImage:
+        GetCompanyInformation:
           Type: Api
           Properties:
             RestApiId: !Ref MyApiGateway
             Method: GET
             Path: "/api/get-info"
-        
+        GetClientToken:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Method: GET
+            Path: "/api/get-client-token"
+        CreateCustomer:
           Type: Api
           Properties:
             RestApiId: !Ref MyApiGateway
             Method: POST
-            Path: "/api/uploadimageurl" 
-  
+            Path: "/api/create-customer"
+        AddPaymentCard:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Method: POST
+            Path: "/api/add-payment-card"
+        GetCustomerDetails:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: GET
+            Path: /api/get-customer-details
+        UploadOrdersExcel:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: POST
+            Path: /api/upload-order-excel
+        viewAllOrders:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: POST
+            Path: /api/view-all-orders
+        getProductDetails:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: POST
+            Path: /api/get-product-details
+        getOrderPrice:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: POST
+            Path: /api/get-order-price
+        lisShippingOptions:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: POST
+            Path: /api/shipping-options

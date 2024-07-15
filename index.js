@@ -6,6 +6,7 @@ const app = express();
 const cors = require('cors');
 require('dotenv').config();
 app.use(cors());
+
 // Define a route for GET requests to the root URL
 app.get('/', (req, res) => {
     res.send('Hello from Express in Lambda!');
