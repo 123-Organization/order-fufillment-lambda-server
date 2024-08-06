@@ -135,3 +135,24 @@ Resources:
               Ref: MyApiGateway
             Method: POST
             Path: /api/shipping-options
+        listVirtualInventory:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: POST
+            Path: /api/list-virtual-inventory
+        updateVirtualInventory:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: PUT
+            Path: /api/update-virtual-inventory
+        deleteVirtualInventory:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: DELETE
+            Path: /api/delete-virtual-inventory

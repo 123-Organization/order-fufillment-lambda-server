@@ -8,6 +8,7 @@ const finerworksService = require('../helpers/finerworks-service');
 //     publicKey: 'cybd68b4cqvkkqv3',
 //     privateKey: 'c0a5b9010c6c7f80f9aa1be4e18c7986'
 // });
+// Create a new instance of the BraintreeGateway with the provided credentials
 const gateway = new braintree.BraintreeGateway({
     environment: braintree.Environment.Sandbox,
     merchantId: 'h5wcnvynttcdssyn',
@@ -55,12 +56,14 @@ exports.createCustomer = async(req, res) => {
             }
             if (result.success) {
                 log('Customer created successfully:', result.customer.id);
+                
                 // get User Details
                 const getInformation = await finerworksService.GET_INFO(reqBody);
                 let payloadForCompanyInformation = {};
                 payloadForCompanyInformation.account_key = reqBody.account_key;
                 payloadForCompanyInformation = getInformation.user_account;
                 payloadForCompanyInformation.payment_profile_id = result.customer.id;
+                log('payloadForCompanyInformation', JSON.stringify(payloadForCompanyInformation));
                 const updateData = await finerworksService.UPDATE_INFO(payloadForCompanyInformation);
                 log('check if data updates', JSON.stringify(updateData));
                 log('Customer Id update in the api:', JSON.stringify(payloadForCompanyInformation));

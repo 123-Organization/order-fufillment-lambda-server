@@ -3,6 +3,13 @@ const debug = require('debug');
 const log = debug('app:getCompanyInformation');
 const finerworksService = require('../helpers/finerworks-service');
 log('get company information api');
+/**
+ * Retrieves company information.
+ *
+ * @param {Object} req - The request object.
+ * @param {Object} res - The response object.
+ * @returns {Promise<void>} - A promise that resolves when the company information is retrieved.
+ */
 exports.getCompanyInformation = async (req, res) => {
     try {
         const reqBody = JSON.parse(JSON.stringify(req.body));
