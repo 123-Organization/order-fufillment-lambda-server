@@ -31,6 +31,10 @@ exports.updateCompanyInformation = async (req, res) => {
       if(reqBody.shipping_preferences){
         payloadForCompanyInformation.shipping_preferences = reqBody.shipping_preferences;
       }
+      /** Check for connections */
+      if(reqBody.connections){
+        payloadForCompanyInformation.connections = reqBody.connections;
+      }
 
       const updateInformation = await finerworksService.UPDATE_INFO(payloadForCompanyInformation);
       if(!updateInformation?.status){

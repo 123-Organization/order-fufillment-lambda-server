@@ -54,7 +54,7 @@ Resources:
         - MyLambdaExecutionRole
         - Arn
       Runtime: nodejs18.x
-      CodeUri: s3://order-fullfilment-app-lambda-server/b6738982dc9465a4f2792aed0391d07d
+      CodeUri: s3://order-fullfilment-app-lambda-server/0c684b52d471a7c76a7b87f0d86505e5
       MemorySize: 3008
       Timeout: 900
       Environment:
@@ -166,5 +166,12 @@ Resources:
               Ref: MyApiGateway
             Method: DELETE
             Path: /api/delete-virtual-inventory
+        addProducts:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: POST
+            Path: /api/add-product
     Metadata:
       SamResourceId: OrderFullFillmentServerLessDevServer

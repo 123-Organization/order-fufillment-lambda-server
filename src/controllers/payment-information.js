@@ -15,6 +15,7 @@ const gateway = new braintree.BraintreeGateway({
     publicKey: 'zhj2v8cwpv3692ys',
     privateKey: 'f951c0861c75fff83f212c421924aa45'
 });
+
 exports.getClientToken = async (req, res) => {
     try {
         gateway.clientToken.generate({}, (err, response) => {

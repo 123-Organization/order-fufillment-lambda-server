@@ -3,6 +3,7 @@ const finerworksService = require('../helpers/finerworks-service');
 const debug = require('debug');
 const log = debug('app:uploadOrders');
 log('Upload order');
+
 exports.viewAllOrders = async (req, res) => {
     try {
         const reqBody = JSON.parse(JSON.stringify(req.body));
@@ -49,15 +50,13 @@ exports.uploadOrdersFromExcel = async (req, res) => {
             });
         } else {
             const orders = reqBody.orders;
-            log("reqBody.orders", JSON.stringify(orders));
             const consolidatedOrdersData = consolidateOrderItems(orders);
             const payloadToBeSubmitted = {
                 "orders": consolidatedOrdersData.orders,
-                "validate_only": true,
+                "validate_only": false,
                 "payment_token": reqBody.payment_token
 
             }
-            console.log("consolidatedOrdersData", JSON.stringify(consolidatedOrdersData));
             // insert to fineworks with FulfillmentSubmitted 0 //
             const urlEncodedData = urlEncodeJSON(payloadToBeSubmitted);
             const insertPayload = {
@@ -86,7 +85,7 @@ exports.uploadOrdersFromExcel = async (req, res) => {
                             "where": `FulfillmentID=${getFullFillmentId}`
                         }
                         const updateOrders = await finerworksService.UPDATE_QUERY_FINERWORKS(updatePayload);
-                        log("updatePayload", JSON.stringify(updatePayload));
+                        log("updatePayload", JSON.stringify(updatePayload), JSON.stringify(updateOrders));
                     }
                 }
                 if (submitOrders) {
@@ -102,10 +101,11 @@ exports.uploadOrdersFromExcel = async (req, res) => {
         }
 
     } catch (error) {
+        log("error during upload order", JSON.stringify(error));
         res.status(400).json({
             statusCode: 400,
             status: false,
-            message: error.response.data,
+            message: error,
         });
     }
 };
