@@ -105,7 +105,7 @@ exports.uploadOrdersFromExcel = async (req, res) => {
         res.status(400).json({
             statusCode: 400,
             status: false,
-            message: error,
+            message: "Something went wrong with the orders you are trying to submit. Please re verify your orders.",
         });
     }
 };
