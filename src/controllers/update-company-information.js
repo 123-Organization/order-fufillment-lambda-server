@@ -3,6 +3,16 @@ const finerworksService = require('../helpers/finerworks-service');
 const debug = require('debug');
 const log = debug('app:updateCompanyInformation');
 log('Update company information');
+const Joi = require('joi');
+
+/**
+ * Updates the company information.
+ * 
+ * @param {Object} req - The request object.
+ * @param {Object} res - The response object.
+ * @returns {Promise<void>} - A promise that resolves when the company information is updated.
+ * @throws {Error} - If there is an error updating the company information.
+ */
 exports.updateCompanyInformation = async (req, res) => {
   try {
       const reqBody = JSON.parse(JSON.stringify(req.body));
