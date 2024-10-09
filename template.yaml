@@ -163,3 +163,10 @@ Resources:
               Ref: MyApiGateway
             Method: POST
             Path: /api/add-product
+        GetUserDetails:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: GET
+            Path: /api/get-user-details

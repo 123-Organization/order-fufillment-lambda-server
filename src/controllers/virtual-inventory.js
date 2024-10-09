@@ -46,7 +46,10 @@ exports.listVirtualInventory = async (req, res) => {
             res.status(200).json({
                 statusCode: 200,
                 status: true,
-                data: getInformation?.products
+                data: getInformation?.products,
+                page_number: getInformation?.page_number,
+                per_page: getInformation?.per_page,
+                count: getInformation?.count
             });
         } else {
             res.status(400).json({
