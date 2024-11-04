@@ -54,7 +54,7 @@ Resources:
         - MyLambdaExecutionRole
         - Arn
       Runtime: nodejs18.x
-      CodeUri: s3://order-fullfilment-app-lambda-server/2a68960745a0d6a9fa7909b4e383fa04
+      CodeUri: s3://order-fullfilment-app-lambda-server/e3db4949db8566010be356db36c46769
       MemorySize: 3008
       Timeout: 900
       Environment:
@@ -116,7 +116,7 @@ Resources:
             RestApiId:
               Ref: MyApiGateway
             Method: POST
-            Path: /api/upload-order-excel
+            Path: /api/upload-orders
         viewAllOrders:
           Type: Api
           Properties:

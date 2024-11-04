@@ -106,7 +106,7 @@ Resources:
             RestApiId:
               Ref: MyApiGateway
             Method: POST
-            Path: /api/upload-order-excel
+            Path: /api/upload-orders
         viewAllOrders:
           Type: Api
           Properties:

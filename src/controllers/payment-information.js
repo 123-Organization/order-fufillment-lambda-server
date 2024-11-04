@@ -139,8 +139,11 @@ exports.getFullCustomerDetails = async (req, res) => {
         }
         gateway.customer.find(req.query.customerId, (err, customer) => {
             if (err) {
-                console.error('Error:', err);
-                return;
+                res.status(400).json({
+                    statusCode: 400,
+                    status: false,
+                    data: "Invalid customer id"
+                });
             }
         
             if (customer) {

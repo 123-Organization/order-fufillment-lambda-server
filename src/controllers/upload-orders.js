@@ -2,7 +2,7 @@ const createEvent = require("../helpers/create-event");
 const finerworksService = require("../helpers/finerworks-service");
 const debug = require("debug");
 const log = debug("app:uploadOrders");
-const Joi = require('joi');
+const Joi = require("joi");
 log("Upload order");
 // # region Validate order schema
 const guidRegex =
@@ -22,8 +22,8 @@ const ordersSchema = Joi.object({
         test_mode: Joi.boolean().required(),
         order_status: Joi.string().allow(""),
         customs_tax_info: Joi.object({
-            tax_id: Joi.string().max(50).allow(""),
-            tax_type: Joi.number().valid(0, 1, 2),
+          tax_id: Joi.string().max(50).allow(""),
+          tax_type: Joi.number().valid(0, 1, 2),
         }),
         webhook_order_status_url: Joi.string().allow(""),
         document_url: Joi.string().max(200).allow(""),
@@ -80,15 +80,14 @@ const ordersSchema = Joi.object({
                   date_added: Joi.string().allow(""),
                   date_expires: Joi.string().allow(""),
                   active: Joi.boolean(),
-                  products: Joi.array()
-                  .items(
+                  products: Joi.array().items(
                     Joi.object({
-                    monetary_format: Joi.string().allow(""),
-                    quantity: Joi.number(),
-                    quantity_in_stock: Joi.number(),
-                    sku: Joi.string().allow(""),
-                    product_code: Joi.string().allow(""),
-                    price_details: Joi.object({
+                      monetary_format: Joi.string().allow(""),
+                      quantity: Joi.number(),
+                      quantity_in_stock: Joi.number(),
+                      sku: Joi.string().allow(""),
+                      product_code: Joi.string().allow(""),
+                      price_details: Joi.object({
                         product_qty: Joi.number(),
                         product_sku: Joi.string(),
                         product_code: Joi.string(),
@@ -99,31 +98,31 @@ const ordersSchema = Joi.object({
                         add_mat_1_price: Joi.number().precision(2),
                         add_mat_2_price: Joi.number().precision(2),
                         add_glazing_price: Joi.number().precision(2),
-                        add_color_correct_price : Joi.number().precision(2),
+                        add_color_correct_price: Joi.number().precision(2),
                         total_price: Joi.number().precision(2),
-                        info: Joi.string()
-                    }),
-                    per_item_price: Joi.number().precision(2),
-                    total_price: Joi.number().precision(2),
-                    asking_price: Joi.number().precision(2),
-                    name: Joi.string().allow(""),
-                    description_short: Joi.string().allow(""),
-                    description_long: Joi.string().allow(""),
-                    image_url_1: Joi.string().uri(),
-                    image_url_2: Joi.string().uri(),
-                    image_url_3: Joi.string().uri(),
-                    image_url_4: Joi.string().uri(),
-                    image_url_5: Joi.string().uri(),
-                    image_guid: Joi.string().regex(guidRegex),
-                    product_size: Joi.object({
+                        info: Joi.string(),
+                      }),
+                      per_item_price: Joi.number().precision(2),
+                      total_price: Joi.number().precision(2),
+                      asking_price: Joi.number().precision(2),
+                      name: Joi.string().allow(""),
+                      description_short: Joi.string().allow(""),
+                      description_long: Joi.string().allow(""),
+                      image_url_1: Joi.string().uri(),
+                      image_url_2: Joi.string().uri(),
+                      image_url_3: Joi.string().uri(),
+                      image_url_4: Joi.string().uri(),
+                      image_url_5: Joi.string().uri(),
+                      image_guid: Joi.string().regex(guidRegex),
+                      product_size: Joi.object({
                         width: Joi.number().precision(2),
                         height: Joi.number().precision(2),
                         depth: Joi.number().precision(2),
                         ounces: Joi.number().precision(2),
                         cubic_volume: Joi.number().precision(2),
                         is_rigid: Joi.boolean(),
-                    }),
-                    third_party_integrations: Joi.object({
+                      }),
+                      third_party_integrations: Joi.object({
                         etsy_product_id: Joi.any().allow(null),
                         shopify_product_id: Joi.any().allow(null),
                         shopify_variant_id: Joi.any().allow(null),
@@ -133,13 +132,12 @@ const ordersSchema = Joi.object({
                         wix_product_id: Joi.any().allow(null),
                         wix_variant_id: Joi.any().allow(null),
                         woocommerce_product_id: Joi.any().allow(null),
-                        woocommerce_variant_id: Joi.any().allow(null)
-                    }),
-
+                        woocommerce_variant_id: Joi.any().allow(null),
+                      }),
                     })
-                ),
+                  ),
                 }),
-             }),
+              }),
               template: Joi.object({
                 id: Joi.string().regex(guidRegex).required(),
                 thumbnail_url: Joi.string().uri().required(),
@@ -159,19 +157,18 @@ const ordersSchema = Joi.object({
 });
 
 // Middleware for validation
-exports.validateSubmitOrders = async(req, res, next) => {
-    const { error, value } = ordersSchema.validate(req.body);
-    if (error) {
-        return res.status(400).json({
-            statusCode: 400,
-            status: false,
-            message: error.details[0].message
-        });
-    }
-    req.body = value;
-    next();
+exports.validateSubmitOrders = async (req, res, next) => {
+  const { error, value } = ordersSchema.validate(req.body);
+  if (error) {
+    return res.status(400).json({
+      statusCode: 400,
+      status: false,
+      message: error.details[0].message,
+    });
+  }
+  req.body = value;
+  next();
 };
-
 exports.viewAllOrders = async (req, res) => {
   try {
     const reqBody = JSON.parse(JSON.stringify(req.body));
@@ -182,7 +179,57 @@ exports.viewAllOrders = async (req, res) => {
         message: "Bad Request",
       });
     } else {
-      const getAccountId = reqBody.accountId;
+      const selectPayload = {
+        query: `SELECT * FROM ${process.env.FINER_fwAPI_FULFILLMENTS_TABLE} WHERE FulfillmentAccountID=${reqBody.accountId}ORDER BY FulfillmentID DESC`,
+      };
+      const selectData = await finerworksService.SELECT_QUERY_FINERWORKS(
+        selectPayload
+      );
+      log("selectData", JSON.stringify(selectData));
+      if (selectData) {
+        let allOrders = [];
+        selectData.data.forEach((order) => {
+          let latestOrderToBePushed = urlDecodeJSON(order.FulfillmentData);
+          latestOrderToBePushed.orderFullFillmentId = order.FulfillmentID;
+          allOrders.push(latestOrderToBePushed);
+        });
+        res.status(200).json({
+          statusCode: 200,
+          status: true,
+          message: "Orders Found",
+          data: allOrders,
+        });
+      }
+    }
+  } catch (err) {
+    throw err;
+  }
+};
+
+exports.viewAllOrdersOutDated = async (req, res) => {
+  try {
+    const reqBody = JSON.parse(JSON.stringify(req.body));
+    if (!reqBody || !reqBody.accountId) {
+      res.status(400).json({
+        statusCode: 400,
+        status: false,
+        message: "Bad request. This request should contain account ID",
+      });
+    } else {
+      const orders = reqBody.orders;
+      if(orders.length){
+        for(const order of orders){
+          const selectPayload = {
+            query: `SELECT * FROM ${process.env.FINER_fwAPI_FULFILLMENTS_TABLE} WHERE FulfillmentAccountID=${reqBody.accountId} AND FulfillmentID=${order.orderFullFillmentId} limit 1`,
+          };
+          const selectDataQueryExecute = await finerworksService.SELECT_QUERY_FINERWORKS(
+            selectPayload
+          );
+          if(selectDataQueryExecute){
+
+          }
+        }
+      }
       const selectPayload = {
         query: `SELECT * FROM ${process.env.FINER_fwAPI_FULFILLMENTS_TABLE} WHERE FulfillmentAccountID=${reqBody.accountId} AND FulfillmentSubmitted=1 ORDER BY FulfillmentID DESC`,
       };
@@ -207,6 +254,61 @@ exports.viewAllOrders = async (req, res) => {
     throw err;
   }
 };
+
+exports.updateOrder = async (req, res)  => {
+  try{
+    const reqBody = JSON.parse(JSON.stringify(req.body));
+      if (!reqBody || !reqBody.accountId) {
+        res.status(400).json({
+          statusCode: 400,
+          status: false,
+          message: "Bad request. This request should contain account ID",
+        });
+      } else {
+        const orders = reqBody.orders;
+        if(orders.length){
+          for(const order of orders){
+            log('Order come to update', order.orderFullFillmentId);
+            const selectPayload = {
+              query: `SELECT * FROM ${process.env.FINER_fwAPI_FULFILLMENTS_TABLE} WHERE FulfillmentAccountID=${reqBody.accountId} AND FulfillmentID=${order.orderFullFillmentId} limit 1`,
+            };
+            const selectDataQueryExecute = await finerworksService.SELECT_QUERY_FINERWORKS(
+              selectPayload
+            );
+            log('selectDataQueryExecute', selectDataQueryExecute);
+            if(!selectDataQueryExecute){
+              res.status(400).json({
+                statusCode: 400,
+                status: false,
+                message: "Bad request. Request does't contain valid fullfillment app ID",
+              });
+            }
+            const urlEncodedData = urlEncodeJSON(order);
+            const updatePayload = {
+              tablename: process.env.FINER_fwAPI_FULFILLMENTS_TABLE,
+              fieldupdates: `FulfillmentData='${urlEncodedData}'`,
+              where: `FulfillmentID=${order.orderFullFillmentId}`,
+            };
+            const updateQueryExecute = await finerworksService.UPDATE_QUERY_FINERWORKS(
+              updatePayload
+            );
+            
+            if(updateQueryExecute){
+              log(`Order with ${order.orderFullFillmentId} has been successfully updated`);
+            }
+          }
+          res.status(200).json({
+            statusCode: 200,
+            status: true,
+            message: "Orders have been successfully updated",
+            data: orders,
+          });
+        }
+      }
+    } catch (err) {
+      throw err;
+    }
+  }
 /** Validate Orders
  *
  * @param {*} req
@@ -247,11 +349,63 @@ exports.validateOrders = async (req, res) => {
     const getErrorReason = Object.keys(errorMessage.ModelState)[0];
     const finalMessage = errorMessage.ModelState[getErrorReason][0];
     res.status(400).json({
-        statusCode: 400,
-        status: false,
-        message: finalMessage,
+      statusCode: 400,
+      status: false,
+      message: finalMessage,
     });
   }
+};
+
+/** Upload orders in local database */
+exports.uploadOrdersToLocalDatabase = async (req, res) => {
+  try {
+    const reqBody = JSON.parse(JSON.stringify(req.body));
+    if (!reqBody || !reqBody.orders || !reqBody.payment_token) {
+      res.status(400).json({
+        statusCode: 400,
+        status: false,
+        message: "Bad Request. Orders & payment token are required.",
+      });
+    } else {
+      const ordersToBeSubmitted = reqBody.orders;
+      const consolidatedOrdersData = consolidateOrderItems(ordersToBeSubmitted);
+      const payloadToBeSubmitted = {
+        orders: consolidatedOrdersData.orders,
+        validate_only: false,
+        payment_token: reqBody.payment_token,
+      };
+      const { orders } = payloadToBeSubmitted;
+      for (const order of orders) {
+        const urlEncodedData = urlEncodeJSON(order);
+        const insertPayload = {
+          tablename: process.env.FINER_fwAPI_FULFILLMENTS_TABLE,
+          fields:
+            "FulfillmentAccountID, FulfillmentData, FulfillmentSubmitted, FulfillmentAppName ",
+          values: `'${reqBody.accountId}', '${urlEncodedData}', 0, 'excel'`,
+        };
+        log("insertPayload", JSON.stringify(insertPayload));
+        const insertData = await finerworksService.INSERT_QUERY_FINERWORKS(
+          insertPayload
+        );
+        log("insertData", JSON.stringify(insertData));
+        // const selectPayload = {
+        //   query: `SELECT TOP 1 * FROM ${process.env.FINER_fwAPI_FULFILLMENTS_TABLE} WHERE FulfillmentAccountID=${reqBody.accountId} AND FulfillmentAppName = 'excel' AND FulfillmentSubmitted=0 ORDER BY FulfillmentID DESC`,
+        // };
+        // log("selectPayload", JSON.stringify(selectPayload));
+        // const selectData = await finerworksService.SELECT_QUERY_FINERWORKS(
+        //   selectPayload
+        // );
+        // console.log('selectData', JSON.stringify(selectData));
+        order.orderFullFillmentId = insertData.record_id;
+      }
+      res.status(200).json({
+        statusCode: 200,
+        status: true,
+        message: "Orders have been submitted successfully",
+        data: orders,
+      });
+    }
+  } catch (err) {}
 };
 
 exports.uploadOrdersFromExcel = async (req, res) => {
