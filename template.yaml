@@ -114,6 +114,27 @@ Resources:
               Ref: MyApiGateway
             Method: POST
             Path: /api/view-all-orders
+        viewOrderDetails:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: POST
+            Path: /api/view-order-details
+        updateOrders:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: PUT
+            Path: /api/update-orders
+        validateOrders:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: POST
+            Path: /api/validate-orders
         getProductDetails:
           Type: Api
           Properties:

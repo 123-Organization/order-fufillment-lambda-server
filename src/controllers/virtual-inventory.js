@@ -32,6 +32,45 @@ exports.validateListVirtualInventory = async(req, res, next) => {
 };
 
 /**
+ * Retrieves detail of the product sku
+ *
+ * @param {Object} req - The request object.
+ * @param {Object} res - The response object.
+ * @returns {Promise<void>} - A promise that resolves with the response.
+ */
+exports.getProductBySku = async (req, res) => {
+    try {
+        console.log('req.param.sku', req.params);
+        const sku = [req.params.sku];
+        const reqBody = {
+            "sku_filter": sku
+        }
+        const getInformation = await finerworksService.LIST_VIRTUAL_INVENTORY(reqBody);
+        if (getInformation && getInformation.status && getInformation.status.success) {
+            res.status(200).json({
+                statusCode: 200,
+                status: true,
+                data: getInformation?.products
+            });
+        } else {
+            res.status(400).json({
+                statusCode: 400,
+                status: false,
+                message: "Something went wrong"
+            });
+        }
+    } catch (error) {
+        log('Error while fetching list of virtual inventory : ', error);
+        res.status(400).json({
+            statusCode: 400,
+            status: false,
+            message: JSON.stringify(error),
+        });
+    }
+};
+// # endregion
+
+/**
  * Retrieves a list of virtual inventory based on the provided filters.
  *
  * @param {Object} req - The request object.
