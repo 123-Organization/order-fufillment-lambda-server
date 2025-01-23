@@ -5,7 +5,7 @@ const { getClientToken, addPaymentCard, createCustomer, getFullCustomerDetails }
 const { uploadOrdersFromExcel, getOrderPrice, getProductDetails, listShippingOptions, validateOrders, validateSubmitOrders, uploadOrdersToLocalDatabase, updateOrder } = require('./upload-orders'); 
 const { listVirtualInventory, validateListVirtualInventory, validateUpdateVirtualInventory, updateVirtualInventory, validateSkus, deleteVirtualInventory, getProductBySku } = require('./virtual-inventory');
 const { validateAddProduct, addProduct } = require('./products-management');
-const { viewOrderDetails, viewAllOrders, updateOrderByProductSkuCode, createNewOrder } = require('./orders');
+const { viewOrderDetails, viewAllOrders, updateOrderByProductSkuCode, createNewOrder, deleteOrder } = require('./orders');
 const app = Router();
 app.put('/update-company-information',updateCompanyInformation);
 app.get('/get-info', getCompanyInformation);
@@ -30,4 +30,5 @@ app.get('/get-product-by-sku/:sku', getProductBySku);
 app.post('/view-order-details', viewOrderDetails);
 app.post('/update-order-by-product', updateOrderByProductSkuCode);
 app.post('/create-new-order', createNewOrder);
+app.delete('/delete-order', deleteOrder);
 module.exports = app;

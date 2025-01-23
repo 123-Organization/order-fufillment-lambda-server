@@ -128,6 +128,13 @@ Resources:
               Ref: MyApiGateway
             Method: PUT
             Path: /api/update-orders
+        updateOrdersByProduct:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: POST
+            Path: /api/update-order-by-product
         validateOrders:
           Type: Api
           Properties:
@@ -191,3 +198,15 @@ Resources:
               Ref: MyApiGateway
             Method: GET
             Path: /api/get-user-details
+        CreateNewOrder:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: POST
+            Path: /api/create-new-order
+  OrderFullFillmentServerLessDevServerLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${OrderFullFillmentServerLessDevServer}
+      RetentionInDays: '30'

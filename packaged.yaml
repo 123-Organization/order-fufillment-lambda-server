@@ -54,7 +54,7 @@ Resources:
         - MyLambdaExecutionRole
         - Arn
       Runtime: nodejs18.x
-      CodeUri: s3://order-fullfilment-app-lambda-server/6b9ecefce5e8f33dacf063f462e468a3
+      CodeUri: s3://order-fullfilment-app-lambda-server/f36a3e235266a5a09e251757775e6f0a
       MemorySize: 3008
       Timeout: 900
       Environment:
@@ -138,6 +138,13 @@ Resources:
               Ref: MyApiGateway
             Method: PUT
             Path: /api/update-orders
+        updateOrdersByProduct:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: POST
+            Path: /api/update-order-by-product
         validateOrders:
           Type: Api
           Properties:
@@ -201,5 +208,20 @@ Resources:
               Ref: MyApiGateway
             Method: GET
             Path: /api/get-user-details
+        CreateNewOrder:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: POST
+            Path: /api/create-new-order
     Metadata:
       SamResourceId: OrderFullFillmentServerLessDevServer
+  OrderFullFillmentServerLessDevServerLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName:
+        Fn::Sub: /aws/lambda/${OrderFullFillmentServerLessDevServer}
+      RetentionInDays: '30'
+    Metadata:
+      SamResourceId: OrderFullFillmentServerLessDevServerLogGroup
