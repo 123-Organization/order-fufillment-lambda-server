@@ -205,6 +205,20 @@ Resources:
               Ref: MyApiGateway
             Method: POST
             Path: /api/create-new-order
+        DeleteOrder:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: DELETE
+            Path: /api/delete-order
+        OrderSubmitStatus:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: POST
+            Path: /api/order-submit-status
   OrderFullFillmentServerLessDevServerLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:

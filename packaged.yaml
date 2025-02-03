@@ -54,7 +54,7 @@ Resources:
         - MyLambdaExecutionRole
         - Arn
       Runtime: nodejs18.x
-      CodeUri: s3://order-fullfilment-app-lambda-server/f36a3e235266a5a09e251757775e6f0a
+      CodeUri: s3://order-fullfilment-app-lambda-server/f7546bffb90dc754b82794dc0097881d
       MemorySize: 3008
       Timeout: 900
       Environment:
@@ -215,6 +215,20 @@ Resources:
               Ref: MyApiGateway
             Method: POST
             Path: /api/create-new-order
+        DeleteOrder:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: DELETE
+            Path: /api/delete-order
+        OrderSubmitStatus:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: POST
+            Path: /api/order-submit-status
     Metadata:
       SamResourceId: OrderFullFillmentServerLessDevServer
   OrderFullFillmentServerLessDevServerLogGroup:

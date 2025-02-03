@@ -174,7 +174,7 @@ exports.validateSubmitOrders = async (req, res, next) => {
 exports.updateOrder = async (req, res)  => {
   try{
     const reqBody = JSON.parse(JSON.stringify(req.body));
-      if (!reqBody || !reqBody.accountId) {
+      if (!reqBody || !reqBody?.accountId) {
         res.status(400).json({
           statusCode: 400,
           status: false,
@@ -182,7 +182,7 @@ exports.updateOrder = async (req, res)  => {
         });
       } else {
         const orders = reqBody.orders;
-        if(orders.length){
+        if(orders?.length){
           for(const order of orders){
             log('Order come to update', order.orderFullFillmentId);
             const selectPayload = {
@@ -276,13 +276,14 @@ exports.validateOrders = async (req, res) => {
 exports.uploadOrdersToLocalDatabase = async (req, res) => {
   try {
     const reqBody = JSON.parse(JSON.stringify(req.body));
-    if (!reqBody || !reqBody.orders || !reqBody.payment_token) {
+    if (!reqBody?.orders) {
       res.status(400).json({
         statusCode: 400,
         status: false,
-        message: "Bad Request. Orders & payment token are required.",
+        message: "Bad Request. Orders are required.",
       });
     } else {
+      const uploadedFromAppName = reqBody.uploadedFrom ?? 'Finerworks';
       const ordersToBeSubmitted = reqBody.orders;
       const consolidatedOrdersData = consolidateOrderItems(ordersToBeSubmitted);
       const payloadToBeSubmitted = {
@@ -292,26 +293,20 @@ exports.uploadOrdersToLocalDatabase = async (req, res) => {
       };
       const { orders } = payloadToBeSubmitted;
       for (const order of orders) {
+        order.createdAt = new Date();
+        order.submittedAt = null;
         const urlEncodedData = urlEncodeJSON(order);
         const insertPayload = {
           tablename: process.env.FINER_fwAPI_FULFILLMENTS_TABLE,
           fields:
             "FulfillmentAccountID, FulfillmentData, FulfillmentSubmitted, FulfillmentAppName ",
-          values: `'${reqBody.accountId}', '${urlEncodedData}', 0, 'excel'`,
+          values: `'${reqBody.accountId}', '${urlEncodedData}', 0, ${uploadedFromAppName}`,
         };
-        log("insertPayload", JSON.stringify(insertPayload));
+        log("insertPayload for the creation of the order in the local database", JSON.stringify(insertPayload));
         const insertData = await finerworksService.INSERT_QUERY_FINERWORKS(
           insertPayload
         );
-        log("insertData", JSON.stringify(insertData));
-        // const selectPayload = {
-        //   query: `SELECT TOP 1 * FROM ${process.env.FINER_fwAPI_FULFILLMENTS_TABLE} WHERE FulfillmentAccountID=${reqBody.accountId} AND FulfillmentAppName = 'excel' AND FulfillmentSubmitted=0 ORDER BY FulfillmentID DESC`,
-        // };
-        // log("selectPayload", JSON.stringify(selectPayload));
-        // const selectData = await finerworksService.SELECT_QUERY_FINERWORKS(
-        //   selectPayload
-        // );
-        // console.log('selectData', JSON.stringify(selectData));
+        log("Response after submitted to the local database", JSON.stringify(insertData));
         order.orderFullFillmentId = insertData.record_id;
       }
       res.status(200).json({
@@ -324,98 +319,11 @@ exports.uploadOrdersToLocalDatabase = async (req, res) => {
   } catch (err) {}
 };
 
-exports.uploadOrdersFromExcel = async (req, res) => {
-  try {
-    const reqBody = JSON.parse(JSON.stringify(req.body));
-    if (!reqBody || !reqBody.orders || !reqBody.payment_token) {
-      res.status(400).json({
-        statusCode: 400,
-        status: false,
-        message: "Bad Request. Orders & payment token are required.",
-      });
-    } else {
-      const orders = reqBody.orders;
-      const consolidatedOrdersData = consolidateOrderItems(orders);
-      const payloadToBeSubmitted = {
-        orders: consolidatedOrdersData.orders,
-        validate_only: false,
-        payment_token: reqBody.payment_token,
-      };
-      // insert to fineworks with FulfillmentSubmitted 0 //
-      const urlEncodedData = urlEncodeJSON(payloadToBeSubmitted);
-      const insertPayload = {
-        tablename: process.env.FINER_fwAPI_FULFILLMENTS_TABLE,
-        fields:
-          "FulfillmentAccountID, FulfillmentData, FulfillmentSubmitted, FulfillmentAppName ",
-        values: `'${reqBody.accountId}', '${urlEncodedData}', 0, 'excel'`,
-      };
-      log("insertPayload", JSON.stringify(insertPayload));
-      const insertData = await finerworksService.INSERT_QUERY_FINERWORKS(
-        insertPayload
-      );
-      log("insertData", JSON.stringify(insertData));
-      if (insertData) {
-        const submitOrders = await finerworksService.SUBMIT_ORDERS(
-          payloadToBeSubmitted
-        );
-        log("submitOrders", JSON.stringify(submitOrders));
-        // find Data
-        const selectPayload = {
-          query: `SELECT TOP 1 * FROM ${process.env.FINER_fwAPI_FULFILLMENTS_TABLE} WHERE FulfillmentAccountID=${reqBody.accountId} AND FulfillmentAppName = 'excel' AND FulfillmentSubmitted=0 ORDER BY FulfillmentID DESC`,
-        };
-        const selectData = await finerworksService.SELECT_QUERY_FINERWORKS(
-          selectPayload
-        );
-        log("selectData", JSON.stringify(selectData));
-        if (selectData.data.length) {
-          const getFullFillmentId = selectData?.data[0].FulfillmentID;
-          if (getFullFillmentId) {
-            const updatePayload = {
-              tablename: process.env.FINER_fwAPI_FULFILLMENTS_TABLE,
-              fieldupdates: "FulfillmentSubmitted=1",
-              where: `FulfillmentID=${getFullFillmentId}`,
-            };
-            const updateOrders =
-              await finerworksService.UPDATE_QUERY_FINERWORKS(updatePayload);
-            log(
-              "updatePayload",
-              JSON.stringify(updatePayload),
-              JSON.stringify(updateOrders)
-            );
-          }
-        }
-        if (submitOrders) {
-          res.status(200).json({
-            statusCode: 200,
-            status: true,
-            message: "Orders have been submitted successfully",
-            data: submitOrders,
-          });
-        }
-      }
-    }
-  } catch (error) {
-    const errorMessage = error.response.data;
-    console.log("errorMessage", JSON.stringify(errorMessage));
-    res.status(400).json({
-      statusCode: 400,
-      status: false,
-      message:
-        "Something went wrong with the orders you are trying to submit. Please re verify your orders.",
-    });
-  }
-};
 
 function urlEncodeJSON(data) {
   const jsonString = JSON.stringify(data);
   const encodedString = encodeURIComponent(jsonString);
   return encodedString;
-}
-
-function urlDecodeJSON(data) {
-  const decodedJsonString = decodeURIComponent(data);
-  const decodedJsonObject = JSON.parse(decodedJsonString);
-  return decodedJsonObject;
 }
 
 function consolidateOrderItems(ordersData) {
@@ -442,121 +350,6 @@ function consolidateOrderItems(ordersData) {
   return { orders: result, validate_only: ordersData.validate_only };
 }
 
-exports.getOrderPrice = async (req, res) => {
-  try {
-    const reqBody = JSON.parse(JSON.stringify(req.body));
-    if (!reqBody || !reqBody.orderId) {
-      res.status(400).json({
-        statusCode: 400,
-        status: false,
-        message: "Bad Request",
-      });
-    }
-    const getPricesData = await finerworksService.GET_ORDERS_PRICE(reqBody);
-    if (getPricesData) {
-      res.status(200).json({
-        statusCode: 200,
-        status: true,
-        message: "Prices Found",
-        data: getPricesData,
-      });
-    } else {
-      res.status(404).json({
-        statusCode: 404,
-        status: false,
-        message: "Prices Not Found",
-      });
-    }
-  } catch (err) {
-    throw err;
-  }
-};
 
-exports.getProductDetails = async (req, res) => {
-  try {
-    const reqBody = JSON.parse(JSON.stringify(req.body));
-    if (!reqBody) {
-      res.status(400).json({
-        statusCode: 400,
-        status: false,
-        message: "Bad Request",
-      });
-    } else {
-      const getProductDetails = await finerworksService.GET_PRODUCTS_DETAILS(
-        reqBody
-      );
-      if (!getProductDetails?.status) {
-        res.status(404).json({
-          statusCode: 404,
-          status: false,
-          message: "Product Details Not Found",
-        });
-      }
-      let totalPrice = 0;
-      if (getProductDetails) {
-        if (getProductDetails.product_list) {
-          getProductDetails.product_list.forEach((product) => {
-            totalPrice += product.total_price;
-          });
-        }
-      }
-      if (getProductDetails) {
-        res.status(200).json({
-          statusCode: 200,
-          status: true,
-          message: "Product Details Found",
-          data: getProductDetails,
-          totalPrice,
-        });
-      } else {
-        res.status(404).json({
-          statusCode: 404,
-          status: false,
-          message: "Product Details Not Found",
-        });
-      }
-    }
-  } catch (err) {
-    // console.log('err', JSON.stringify(err));
-    res.status(400).json({
-      statusCode: 400,
-      status: false,
-      message: err.response.data,
-    });
-  }
-};
 
-exports.listShippingOptions = async (req, res) => {
-  try {
-    const reqBody = JSON.parse(JSON.stringify(req.body));
-    if (!reqBody) {
-      res.status(400).json({
-        statusCode: 400,
-        status: false,
-        message: "Bad Request",
-      });
-    } else {
-      const getProductDetails =
-        await finerworksService.SHIPPING_OPTIONS_MULTIPLE(reqBody);
-      if (getProductDetails) {
-        res.status(200).json({
-          statusCode: 200,
-          status: true,
-          data: getProductDetails?.orders,
-        });
-      } else {
-        res.status(404).json({
-          statusCode: 404,
-          status: false,
-          message: "Product Details Not Found",
-        });
-      }
-    }
-  } catch (err) {
-    res.status(400).json({
-      statusCode: 400,
-      status: false,
-      message: err.response.data,
-    });
-  }
-};
+

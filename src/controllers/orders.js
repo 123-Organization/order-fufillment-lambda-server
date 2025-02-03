@@ -380,6 +380,97 @@ exports.deleteOrder = async (req, res) => {
     });
   }
 };
+exports.orderSubmitStatus = async (req, res) => {
+  try {
+    const reqBody = JSON.parse(JSON.stringify(req.body));
+    if (
+      !reqBody.accountId ||
+      !reqBody.orderFullFillmentId
+    ) {
+      res.status(400).json({
+        statusCode: 400,
+        status: false,
+        message:
+          "Account Id and order fullfillment Id are required.",
+      });
+    } else{
+      const { orderFullFillmentId,  accountId} = reqBody;
+      log("Request comes to delete order for", JSON.stringify(reqBody));
+      const selectPayload = {
+        query: `SELECT * FROM ${process.env.FINER_fwAPI_FULFILLMENTS_TABLE} WHERE FulfillmentID=${orderFullFillmentId} AND FulfillmentAccountID = ${accountId}`,
+      };
+      const selectData = await finerworksService.SELECT_QUERY_FINERWORKS(
+        selectPayload
+      );
+      if (selectData?.data.length) {
+        const orderDetails = selectData?.data[0];
+        const orderDetail = urlDecodeJSON(orderDetails.FulfillmentData);
+        if(orderDetails.FulfillmentDeleted){
+          res.status(400).json({
+            statusCode: 400,
+            status: false,
+            message: "This is a deleted order.",
+          });
+        } else if (orderDetails.FulfillmentSubmitted) {
+            log("Order has been successfully deleted for", JSON.stringify(reqBody));
+            res.status(200).json({
+              statusCode: 200,
+              status: true,
+              createdAt: orderDetail?.createdAt ?? 'N/A',
+              submittedAt: orderDetail?.submittedAt ?? 'N/A',
+              orderStatus: true
+            });
+          } else {
+            res.status(200).json({
+              statusCode: 200,
+              status: true,
+              createdAt: orderDetail?.createdAt,
+              submittedAt: orderDetail?.submittedAt ?? 'N/A',
+              orderStatus: false
+            });
+          }
+        }
+      }
+  } catch (err) {
+    log("Error comes while creating a new order", JSON.stringify(err), err);
+    const errorMessage = err.response.data;
+    res.status(400).json({
+      statusCode: 400,
+      status: false,
+      message: errorMessage,
+    });
+  }
+};
+
+exports.getOrderPrice = async (req, res) => {
+  try {
+    const reqBody = JSON.parse(JSON.stringify(req.body));
+    if (!reqBody?.orderId) {
+      res.status(400).json({
+        statusCode: 400,
+        status: false,
+        message: "Bad Request",
+      });
+    }
+    const getPricesData = await finerworksService.GET_ORDERS_PRICE(reqBody);
+    if (getPricesData) {
+      res.status(200).json({
+        statusCode: 200,
+        status: true,
+        message: "Prices Found",
+        data: getPricesData,
+      });
+    } else {
+      res.status(404).json({
+        statusCode: 404,
+        status: false,
+        message: "Prices Not Found",
+      });
+    }
+  } catch (err) {
+    throw err;
+  }
+};
 
 function urlDecodeJSON(data) {
   const decodedJsonString = decodeURIComponent(data);
