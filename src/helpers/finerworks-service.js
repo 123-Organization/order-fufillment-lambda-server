@@ -199,3 +199,18 @@ exports.ADD_PRODUCT = async (payload) => {
   });
   return postData.data;
 };
+
+
+/**
+ * Retrieves the get payment token.
+ * @param {Object} payload - The payload containing the payment token details.
+ * @returns {Promise<Object>} - The response data from the API.
+ */
+exports.GET_PAYMENT_TOKEN = async (payload) => {
+  const postData = await axios({
+    method: 'GET',
+    url: process.env.FINER_WORKS_URL + 'get_payment_tokens?payment_profile_id=' + payload.payment_profile_id,
+    headers: getHeaders()
+  });
+  return postData.data;
+};

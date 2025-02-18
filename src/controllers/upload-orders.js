@@ -300,7 +300,7 @@ exports.uploadOrdersToLocalDatabase = async (req, res) => {
           tablename: process.env.FINER_fwAPI_FULFILLMENTS_TABLE,
           fields:
             "FulfillmentAccountID, FulfillmentData, FulfillmentSubmitted, FulfillmentAppName ",
-          values: `'${reqBody.accountId}', '${urlEncodedData}', 0, ${uploadedFromAppName}`,
+          values: `'${reqBody.accountId}', '${urlEncodedData}', 0, '${uploadedFromAppName}'`,
         };
         log("insertPayload for the creation of the order in the local database", JSON.stringify(insertPayload));
         const insertData = await finerworksService.INSERT_QUERY_FINERWORKS(
@@ -316,7 +316,9 @@ exports.uploadOrdersToLocalDatabase = async (req, res) => {
         data: orders,
       });
     }
-  } catch (err) {}
+  } catch (err) {
+    console.log('error is', JSON.stringify(err), err);
+  }
 };
 
 

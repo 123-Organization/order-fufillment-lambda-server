@@ -1,4 +1,5 @@
 const debug = require("debug");
+const finerworksService = require("../helpers/finerworks-service");
 const log = debug("app:shippingOptions");
 log("Shipping options");
 exports.listShippingOptions = async (req, res) => {
@@ -29,7 +30,7 @@ exports.listShippingOptions = async (req, res) => {
         }
       }
     } catch (err) {
-      console.log("error", JSON.stringify(err));
+      console.log("error", JSON.stringify(err), err);
       res.status(400).json({
         statusCode: 400,
         status: false,

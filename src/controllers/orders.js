@@ -319,18 +319,14 @@ exports.createNewOrder = async (req, res) => {
 exports.deleteOrder = async (req, res) => {
   try {
     const reqBody = JSON.parse(JSON.stringify(req.body));
-    if (
-      !reqBody.accountId ||
-      !reqBody.orderFullFillmentId
-    ) {
+    if (!reqBody.accountId || !reqBody.orderFullFillmentId) {
       res.status(400).json({
         statusCode: 400,
         status: false,
-        message:
-          "Account Id and order fullfillment Id are required.",
+        message: "Account Id and order fullfillment Id are required.",
       });
-    } else{
-      const { orderFullFillmentId,  accountId} = reqBody;
+    } else {
+      const { orderFullFillmentId, accountId } = reqBody;
       log("Request comes to delete order for", JSON.stringify(reqBody));
       const selectPayload = {
         query: `SELECT * FROM ${process.env.FINER_fwAPI_FULFILLMENTS_TABLE} WHERE FulfillmentID=${orderFullFillmentId} AND FulfillmentAccountID = ${accountId}`,
@@ -340,21 +336,25 @@ exports.deleteOrder = async (req, res) => {
       );
       if (selectData?.data.length) {
         const orderDetails = selectData?.data[0];
-        if(orderDetails.FulfillmentDeleted){
+        if (orderDetails.FulfillmentDeleted) {
           res.status(400).json({
             statusCode: 400,
             status: false,
             message: "This order has already deleted.",
           });
-        } else{
+        } else {
           const updatePayload = {
             tablename: process.env.FINER_fwAPI_FULFILLMENTS_TABLE,
             fieldupdates: `FulfillmentDeleted=1`,
             where: `FulfillmentID=${orderFullFillmentId}`,
           };
-          const updateQueryExecute = await finerworksService.UPDATE_QUERY_FINERWORKS(updatePayload);
+          const updateQueryExecute =
+            await finerworksService.UPDATE_QUERY_FINERWORKS(updatePayload);
           if (updateQueryExecute) {
-            log("Order has been successfully deleted for", JSON.stringify(reqBody));
+            log(
+              "Order has been successfully deleted for",
+              JSON.stringify(reqBody)
+            );
             res.status(200).json({
               statusCode: 200,
               status: true,
@@ -380,21 +380,93 @@ exports.deleteOrder = async (req, res) => {
     });
   }
 };
-exports.orderSubmitStatus = async (req, res) => {
+exports.submitOrders = async (req, res) => {
   try {
     const reqBody = JSON.parse(JSON.stringify(req.body));
-    if (
-      !reqBody.accountId ||
-      !reqBody.orderFullFillmentId
-    ) {
+    if (!reqBody?.orders || !reqBody?.payment_token || !reqBody?.accountId) {
       res.status(400).json({
         statusCode: 400,
         status: false,
-        message:
-          "Account Id and order fullfillment Id are required.",
+        message: "Bad Request.",
       });
-    } else{
-      const { orderFullFillmentId,  accountId} = reqBody;
+    }
+    const { accountId,  payment_token} = reqBody;
+    const ordersToBeSubmitted = reqBody.orders;
+    if (ordersToBeSubmitted?.length) {
+      let orderFulfillmentIds = [];
+      const finalOrders = orders.map((order) => {
+        if (!order.orderFullFillmentId) {
+          throw new Error("Bad request: Missing orderFullFillmentId");
+        }
+        orderFulfillmentIds.push(order.orderFullFillmentId);
+        const orderData = urlDecodeJSON(order.FulfillmentData);
+        delete orderData.orderFullFillmentId;
+        delete orderData.createdAt;
+        delete orderData.submittedAt;
+        return orderData;
+      });
+      // Create a final payload to submit the order in finerworks
+      const finalPayload = {
+        orders: finalOrders,
+        validate_only: false,
+        payment_token,
+      };
+      log("Submit order in finerwork database", JSON.stringify(finalPayload));
+      const submitData = await finerworksService.SUBMIT_ORDERS(finalPayload);
+      log(
+        "Response after submitted to the final database",
+        JSON.stringify(submitData)
+      );
+      // once it gets submitted Now update each order fulfillment Id with submitted status & submitted at time
+      if (orderFulfillmentIds.length) {
+        await Promise.all(
+          orderFulfillmentIds.map(async (fulfillmentId) => {
+            log("Fetch details for the order fulfillment Id", fulfillmentId);
+            const selectPayload = {
+              query: `SELECT * FROM ${process.env.FINER_fwAPI_FULFILLMENTS_TABLE} WHERE FulfillmentID=${fulfillmentId} AND FulfillmentAccountID=${accountId}`,
+            };
+  
+            const selectData = await finerworksService.SELECT_QUERY_FINERWORKS(selectPayload);
+            if (!selectData?.data.length) return;
+  
+            const orderDetails = selectData.data[0];
+            const orderDetail = urlDecodeJSON(orderDetails.FulfillmentData);
+            orderDetail.submittedAt = new Date();
+            orderDetail.payment_token = payment_token;
+  
+            const urlEncodedData = urlEncodeJSON(orderDetail);
+            const updatePayload = {
+              tablename: process.env.FINER_fwAPI_FULFILLMENTS_TABLE,
+              fieldupdates: `FulfillmentSubmitted=1, FulfillmentData='${urlEncodedData}'`,
+              where: `FulfillmentID=${fulfillmentId}`,
+            };
+  
+            await finerworksService.UPDATE_QUERY_FINERWORKS(updatePayload);
+          })
+        );
+      }
+    }
+  } catch (err) {
+    log("Error comes while submitting a new order", JSON.stringify(err), err);
+    const errorMessage = err.response.data;
+    res.status(400).json({
+      statusCode: 400,
+      status: false,
+      message: errorMessage,
+    });
+  }
+};
+exports.orderSubmitStatus = async (req, res) => {
+  try {
+    const reqBody = JSON.parse(JSON.stringify(req.body));
+    if (!reqBody.accountId || !reqBody.orderFullFillmentId) {
+      res.status(400).json({
+        statusCode: 400,
+        status: false,
+        message: "Account Id and order fullfillment Id are required.",
+      });
+    } else {
+      const { orderFullFillmentId, accountId } = reqBody;
       log("Request comes to delete order for", JSON.stringify(reqBody));
       const selectPayload = {
         query: `SELECT * FROM ${process.env.FINER_fwAPI_FULFILLMENTS_TABLE} WHERE FulfillmentID=${orderFullFillmentId} AND FulfillmentAccountID = ${accountId}`,
@@ -405,32 +477,35 @@ exports.orderSubmitStatus = async (req, res) => {
       if (selectData?.data.length) {
         const orderDetails = selectData?.data[0];
         const orderDetail = urlDecodeJSON(orderDetails.FulfillmentData);
-        if(orderDetails.FulfillmentDeleted){
+        if (orderDetails.FulfillmentDeleted) {
           res.status(400).json({
             statusCode: 400,
             status: false,
             message: "This is a deleted order.",
           });
         } else if (orderDetails.FulfillmentSubmitted) {
-            log("Order has been successfully deleted for", JSON.stringify(reqBody));
-            res.status(200).json({
-              statusCode: 200,
-              status: true,
-              createdAt: orderDetail?.createdAt ?? 'N/A',
-              submittedAt: orderDetail?.submittedAt ?? 'N/A',
-              orderStatus: true
-            });
-          } else {
-            res.status(200).json({
-              statusCode: 200,
-              status: true,
-              createdAt: orderDetail?.createdAt,
-              submittedAt: orderDetail?.submittedAt ?? 'N/A',
-              orderStatus: false
-            });
-          }
+          log(
+            "Order has been successfully deleted for",
+            JSON.stringify(reqBody)
+          );
+          res.status(200).json({
+            statusCode: 200,
+            status: true,
+            createdAt: orderDetail?.createdAt ?? "N/A",
+            submittedAt: orderDetail?.submittedAt ?? "N/A",
+            orderStatus: true,
+          });
+        } else {
+          res.status(200).json({
+            statusCode: 200,
+            status: true,
+            createdAt: orderDetail?.createdAt,
+            submittedAt: orderDetail?.submittedAt ?? "N/A",
+            orderStatus: false,
+          });
         }
       }
+    }
   } catch (err) {
     log("Error comes while creating a new order", JSON.stringify(err), err);
     const errorMessage = err.response.data;
