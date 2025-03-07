@@ -54,7 +54,7 @@ Resources:
         - MyLambdaExecutionRole
         - Arn
       Runtime: nodejs18.x
-      CodeUri: s3://order-fullfilment-app-lambda-server/f7546bffb90dc754b82794dc0097881d
+      CodeUri: s3://order-fullfilment-app-lambda-server/0fd75e877e3eb0c877a9bef674cad28c
       MemorySize: 3008
       Timeout: 900
       Environment:
@@ -229,6 +229,20 @@ Resources:
               Ref: MyApiGateway
             Method: POST
             Path: /api/order-submit-status
+        IncreaseProductQuantity:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: POST
+            Path: /api/increase-product-quantity
+        AddTokenToUser:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: POST
+            Path: /api/add-token-to-user
     Metadata:
       SamResourceId: OrderFullFillmentServerLessDevServer
   OrderFullFillmentServerLessDevServerLogGroup:

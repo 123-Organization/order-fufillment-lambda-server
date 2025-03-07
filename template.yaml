@@ -219,6 +219,20 @@ Resources:
               Ref: MyApiGateway
             Method: POST
             Path: /api/order-submit-status
+        IncreaseProductQuantity:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: POST
+            Path: /api/increase-product-quantity
+        AddTokenToUser:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: POST
+            Path: /api/add-token-to-user
   OrderFullFillmentServerLessDevServerLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
