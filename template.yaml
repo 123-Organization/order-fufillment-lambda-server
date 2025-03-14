@@ -233,6 +233,13 @@ Resources:
               Ref: MyApiGateway
             Method: POST
             Path: /api/add-token-to-user
+        ExportToWoocommerce:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: POST
+            Path: /api/export-to-woocommerce
   OrderFullFillmentServerLessDevServerLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:

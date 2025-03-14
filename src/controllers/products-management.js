@@ -2,6 +2,7 @@ const debug = require("debug");
 const Joi = require("joi");
 const log = debug("app:virtualInventory");
 const finerworksService = require("../helpers/finerworks-service");
+const axios = require('axios');
 log("Products");
 // # region Add Product
 // Define the validation schema
@@ -175,15 +176,15 @@ exports.increaseProductQuantity = async (req, res) => {
       }
       return item;
     });
-     const urlEncodedData = urlEncodeJSON(fulfillmentJSON);
-                const updatePayload = {
-                  tablename: process.env.FINER_fwAPI_FULFILLMENTS_TABLE,
-                  fieldupdates: `FulfillmentData='${urlEncodedData}'`,
-                  where: `FulfillmentID=${reqBody.orderFullFillmentId}`,
-                };
-                const updateQueryExecute = await finerworksService.UPDATE_QUERY_FINERWORKS(
-                  updatePayload
-                );
+    const urlEncodedData = urlEncodeJSON(fulfillmentJSON);
+    const updatePayload = {
+      tablename: process.env.FINER_fwAPI_FULFILLMENTS_TABLE,
+      fieldupdates: `FulfillmentData='${urlEncodedData}'`,
+      where: `FulfillmentID=${reqBody.orderFullFillmentId}`,
+    };
+    const updateQueryExecute = await finerworksService.UPDATE_QUERY_FINERWORKS(
+      updatePayload
+    );
 
     return res.status(200).json({
       statusCode: 200,
@@ -203,6 +204,75 @@ exports.increaseProductQuantity = async (req, res) => {
     });
   }
 };
+
+
+
+exports.exportToWoocomercev1 = async (req, res) => {
+  try {
+    // Step 1: Validate if domainName and auth_code exist in the request payload
+    const { domainName, auth_code, productsList } = req.body;
+
+    if (!domainName || !auth_code || productsList.length === 0)   {
+      return res.status(400).json({
+        statusCode: 400,
+        status: false,
+        message: "Missing required fields: domainName and auth_code or Products",
+      });
+    }
+
+
+    // // Step 4: Prepare the products to send in the request to the import APIproducts
+    const productsPayload = {
+      products: productsList.map(product => ({
+        monetary_format: "USD",
+        quantity: 1,
+        sku: product.sku,
+        product_code: product.product_code,
+        price_details: null,
+        per_item_price: product.per_item_price,
+        total_price: product.total_price,
+        asking_price: product.asking_price,
+        name: product.name,
+        description_short: product.description_short,
+        description_long: product.description_long,
+        image_url_1: product.image_url_1,
+        image_url_2: product.image_url_2,
+        image_url_3: product.image_url_3,
+        image_url_4: product.image_url_4,
+        image_url_5: product.image_url_5,
+        image_guid: product.image_guid,
+        product_size: product.product_size,
+        third_party_integrations: product.third_party_integrations,
+        debug: product.debug
+      }))
+    };
+
+    // Step 5: Construct API URL dynamically with domainName and auth_code
+    const apiUrl = `https://${domainName}/wp-json/finerworks-media/v1/import-products?auth_code=${auth_code}`;
+
+    // Step 6: Send the POST request to the import API
+    const response = await axios.post(apiUrl, productsPayload);
+    // Step 7: Return success response
+    return res.status(200).json({
+      statusCode: 200,
+      status: true,
+      message: "Products successfully exported",
+      data: response.data
+    });
+  } catch (error) {
+    console.error("Error during product export:", error);
+
+    return res.status(500).json({
+      statusCode: 500,
+      status: false,
+      message: "Internal Server Error",
+      error: error?.message || "An unexpected error occurred",
+    });
+  }
+};
+
+
+
 
 function urlEncodeJSON(data) {
   const jsonString = JSON.stringify(data);
