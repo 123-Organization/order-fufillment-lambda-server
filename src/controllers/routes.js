@@ -4,10 +4,11 @@ const { getCompanyInformation } = require('./get-company-information');
 const { getClientToken, addPaymentCard, createCustomer, getFullCustomerDetails, processVaultedPaymentToken } = require('./payment-information');
 const { validateOrders, validateSubmitOrders, uploadOrdersToLocalDatabase, updateOrder } = require('./upload-orders'); 
 const { listVirtualInventory, validateListVirtualInventory, validateUpdateVirtualInventory, updateVirtualInventory, validateSkus, deleteVirtualInventory, getProductBySku } = require('./virtual-inventory');
-const { validateAddProduct, addProduct, getProductDetails } = require('./products-management');
+const { validateAddProduct, addProduct, getProductDetails,increaseProductQuantity,exportToWoocomercev1 } = require('./products-management');
 const { viewOrderDetails, viewAllOrders, updateOrderByProductSkuCode, createNewOrder, deleteOrder, orderSubmitStatus, getOrderPrice, submitOrders } = require('./orders');
 const { listShippingOptions } = require('./shipping-options');
 const { getUserPaymentToken } = require('./payment-token');
+const {updateUserInformation}=require('./userInformation')
 const app = Router();
 app.put('/update-company-information',updateCompanyInformation);
 app.get('/get-info', getCompanyInformation);
@@ -36,4 +37,11 @@ app.delete('/submit-order', submitOrders);
 app.post('/order-submit-status', orderSubmitStatus);
 app.get('/get-user-payment-tokens', getUserPaymentToken);
 app.post('/process-vaulted-payment', processVaultedPaymentToken);
+app.post('/add-token-to-user', updateUserInformation);
+app.post('/increase-product-quantity', increaseProductQuantity);
+app.post('/export-to-woocommerce', exportToWoocomercev1);
+
+
+
+
 module.exports = app;

@@ -5,48 +5,83 @@ const log = debug("app:uploadOrders");
 const Joi = require("joi");
 const { validateOrderPayload } = require("./validate-order");
 log("Orders");
+
+
 exports.viewAllOrders = async (req, res) => {
   try {
-    const reqBody = JSON.parse(JSON.stringify(req.body));
-    if (!reqBody || !reqBody.accountId) {
-      res.status(400).json({
+    // Validate request body format
+    if (!req.body || typeof req.body !== "object") {
+      return res.status(400).json({
         statusCode: 400,
         status: false,
-        message: "Bad Request",
+        message: "Invalid request format. Expected a JSON object.",
       });
-    } else {
-      log("Request comes to get order details for", JSON.stringify(reqBody));
-      const selectPayload = {
-        query: `SELECT * FROM ${process.env.FINER_fwAPI_FULFILLMENTS_TABLE} WHERE FulfillmentAccountID=${reqBody.accountId} AND FulfillmentDeleted=0 ORDER BY FulfillmentID DESC`,
-      };
-      const selectData = await finerworksService.SELECT_QUERY_FINERWORKS(
-        selectPayload
-      );
-      log("Order received", JSON.stringify(selectData));
-      if (selectData) {
-        let allOrders = [];
-        selectData.data.forEach((order) => {
-          let latestOrderToBePushed = urlDecodeJSON(order.FulfillmentData);
-          latestOrderToBePushed.orderFullFillmentId = order.FulfillmentID;
-          allOrders.push(latestOrderToBePushed);
-        });
-        res.status(200).json({
-          statusCode: 200,
-          status: true,
-          message: "Orders Found",
-          data: allOrders,
-        });
-      }
     }
-  } catch (err) {
-    log("Error while fetching all the orders", JSON.stringify(err));
-    res.status(400).json({
-      statusCode: 400,
+
+    const { accountId } = req.body;
+    if (!accountId) {
+      return res.status(400).json({
+        statusCode: 400,
+        status: false,
+        message: "Account ID is missing or invalid.",
+      });
+    }
+
+    log("Request to get order details for", JSON.stringify(req.body));
+
+    const selectPayload = {
+      query: `SELECT * FROM ${process.env.FINER_fwAPI_FULFILLMENTS_TABLE} WHERE FulfillmentAccountID=${accountId} AND FulfillmentDeleted=0 ORDER BY FulfillmentID DESC`,
+    };
+
+    const selectData = await finerworksService.SELECT_QUERY_FINERWORKS(selectPayload);
+
+    if (!selectData || !selectData.data || !Array.isArray(selectData.data)) {
+      log("No orders found for account ID:", accountId);
+      return res.status(404).json({
+        statusCode: 404,
+        status: false,
+        message: "No orders found for the provided account ID.",
+      });
+    }
+
+    // Process orders
+    let allOrders = selectData.data.map((order) => {
+      let orderData = urlDecodeJSON(order.FulfillmentData);
+      orderData.orderFullFillmentId = order.FulfillmentID;
+      return orderData;
+    });
+
+    // Handle empty order array case
+    if (allOrders.length === 0) {
+      log("No orders found after processing for account ID:", accountId);
+      return res.status(404).json({
+        statusCode: 404,
+        status: false,
+        message: "No orders available for this account.",
+        data: [],
+      });
+    }
+
+    res.status(200).json({
+      statusCode: 200,
       status: true,
-      message: "Something went wrong",
+      message: "Orders found successfully.",
+      data: allOrders,
+    });
+
+  } catch (err) {
+    log("Error while fetching orders:", err?.message || JSON.stringify(err));
+
+    res.status(500).json({
+      statusCode: 500,
+      status: false,
+      message: "Internal server error. Please try again later.",
+      error: err?.message || "Unknown error",
     });
   }
 };
+
+
 exports.viewOrderDetails = async (req, res) => {
   try {
     const reqBody = JSON.parse(JSON.stringify(req.body));
@@ -125,6 +160,7 @@ exports.updateOrderByProductSkuCode = async (req, res) => {
       });
     }
     const orderDetails = selectData.data[0];
+    console.log("orderDetails", orderDetails); //orderDetails
     // If order exist then find the product details
     const { skuCode, productCode } = reqBody;
     const searchListVirtualInventoryParams = {};
@@ -138,23 +174,50 @@ exports.updateOrderByProductSkuCode = async (req, res) => {
       "Request come to search product from virtual inventory for the payload",
       JSON.stringify(searchListVirtualInventoryParams)
     );
-    const getProductDetails = await finerworksService.LIST_VIRTUAL_INVENTORY(
-      searchListVirtualInventoryParams
-    );
+    if (skuCode) {
+      var getProductDetails = await finerworksService.LIST_VIRTUAL_INVENTORY(
+        searchListVirtualInventoryParams
+      );
+    } else if(productCode) {
+      const payload = [{
+        "product_order_po": null,
+        "product_qty": 1,
+        "product_sku": skuCode?skuCode:productCode,
+        "product_image": {
+          "pixel_width": 100,
+          "pixel_height": 100,
+          "product_url_file": "https://...",
+          "product_url_thumbnail": "https://..."
+        }
+      }];
+      log("Product details from API", JSON.stringify(getProductDetails));
+      getProductDetails = await finerworksService.GET_PRODUCTS_DETAILS(payload);
+    }
+
     log("Get product details", JSON.stringify(getProductDetails));
+    console.log("getProductDetails", getProductDetails);
+    
     if (getProductDetails?.status?.success) {
-      const { products } = getProductDetails;
+      let products = skuCode
+      ? getProductDetails.products
+      : getProductDetails.product_list;
+      console.log("Products", products);
       const previousOrder = urlDecodeJSON(orderDetails.FulfillmentData);
+      console.log("Previous order", previousOrder); 
       const orderData = {
-        product_qty: products[0].quantity,
-        product_sku: products[0].sku,
-        product_title: products[0].name,
-        product_guid: products[0].image_guid,
+        product_qty: products?.[0]?.quantity ?? null,
+        product_sku: products?.[0]?.sku ?? null,
+        product_title: products?.[0]?.name ?? null,
+        product_guid: products?.[0]?.image_guid === '00000000-0000-0000-0000-000000000000'
+          ? null
+          : products?.[0]?.image_guid ?? null,
+        // product_guid: "2b52e123-b3e6-41e4-bfa7-2cfd21048266",
         template: null,
         custom_data_1: null,
         custom_data_2: null,
         custom_data_3: null,
       };
+      console.log("orderData", orderData);
       if (previousOrder?.order_items) {
         previousOrder.order_items.push(orderData);
       }
@@ -166,6 +229,7 @@ exports.updateOrderByProductSkuCode = async (req, res) => {
         fieldupdates: `FulfillmentData='${urlEncodedData}'`,
         where: `FulfillmentID=${reqBody.orderFullFillmentId}`,
       };
+      console.log("Update payload", updatePayload);
       const updateQueryExecute =
         await finerworksService.UPDATE_QUERY_FINERWORKS(updatePayload);
       if (updateQueryExecute) {
@@ -390,7 +454,7 @@ exports.submitOrders = async (req, res) => {
         message: "Bad Request.",
       });
     }
-    const { accountId,  payment_token} = reqBody;
+    const { accountId, payment_token } = reqBody;
     const ordersToBeSubmitted = reqBody.orders;
     if (ordersToBeSubmitted?.length) {
       let orderFulfillmentIds = [];
@@ -425,22 +489,22 @@ exports.submitOrders = async (req, res) => {
             const selectPayload = {
               query: `SELECT * FROM ${process.env.FINER_fwAPI_FULFILLMENTS_TABLE} WHERE FulfillmentID=${fulfillmentId} AND FulfillmentAccountID=${accountId}`,
             };
-  
+
             const selectData = await finerworksService.SELECT_QUERY_FINERWORKS(selectPayload);
             if (!selectData?.data.length) return;
-  
+
             const orderDetails = selectData.data[0];
             const orderDetail = urlDecodeJSON(orderDetails.FulfillmentData);
             orderDetail.submittedAt = new Date();
             orderDetail.payment_token = payment_token;
-  
+
             const urlEncodedData = urlEncodeJSON(orderDetail);
             const updatePayload = {
               tablename: process.env.FINER_fwAPI_FULFILLMENTS_TABLE,
               fieldupdates: `FulfillmentSubmitted=1, FulfillmentData='${urlEncodedData}'`,
               where: `FulfillmentID=${fulfillmentId}`,
             };
-  
+
             await finerworksService.UPDATE_QUERY_FINERWORKS(updatePayload);
           })
         );

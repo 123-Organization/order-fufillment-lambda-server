@@ -2,6 +2,7 @@ const debug = require("debug");
 const Joi = require("joi");
 const log = debug("app:virtualInventory");
 const finerworksService = require("../helpers/finerworks-service");
+const axios = require('axios');
 log("Products");
 // # region Add Product
 // Define the validation schema
@@ -78,57 +79,206 @@ exports.addProduct = async (req, res) => {
 
 // # endregion
 
-// # region Get Product Details
+
 exports.getProductDetails = async (req, res) => {
   try {
-    const reqBody = JSON.parse(JSON.stringify(req.body));
-    if (!reqBody) {
-      res.status(400).json({
+    const reqBody = req.body;
+
+    if (!reqBody || Object.keys(reqBody).length === 0) {
+      return res.status(400).json({
         statusCode: 400,
         status: false,
-        message: "Bad Request",
+        message: "Bad Request: Request body is missing or invalid",
       });
-    } else {
-      const getProductDetails = await finerworksService.GET_PRODUCTS_DETAILS(
-        reqBody
-      );
-      if (!getProductDetails?.status) {
-        res.status(404).json({
-          statusCode: 404,
-          status: false,
-          message: "Product Details Not Found",
-        });
-      }
-      let totalPrice = 0;
-      if (getProductDetails) {
-        if (getProductDetails.product_list) {
-          getProductDetails.product_list.forEach((product) => {
-            totalPrice += product.total_price;
-          });
-        }
-      }
-      if (getProductDetails) {
-        res.status(200).json({
-          statusCode: 200,
-          status: true,
-          message: "Product Details Found",
-          data: getProductDetails,
-          totalPrice,
-        });
-      } else {
-        res.status(404).json({
-          statusCode: 404,
-          status: false,
-          message: "Product Details Not Found",
-        });
-      }
     }
-  } catch (err) {
-    res.status(400).json({
-      statusCode: 400,
+
+    const productDetails = await finerworksService.GET_PRODUCTS_DETAILS(reqBody);
+
+    if (!productDetails || !productDetails.status) {
+      return res.status(404).json({
+        statusCode: 404,
+        status: false,
+        message: "Product details not found",
+      });
+    }
+
+    // Calculate total price if product list exists
+    const totalPrice = productDetails.product_list?.reduce(
+      (sum, product) => sum + (product.total_price || 0),
+      0
+    );
+
+    return res.status(200).json({
+      statusCode: 200,
+      status: true,
+      message: "Product details retrieved successfully",
+      data: productDetails,
+      totalPrice,
+    });
+  } catch (error) {
+    console.error("Error fetching product details:", error);
+
+    return res.status(500).json({
+      statusCode: 500,
       status: false,
-      message: err?.response?.data,
+      message: "Internal Server Error",
+      error: error?.message || "An unexpected error occurred",
     });
   }
 };
+
+
+exports.increaseProductQuantity = async (req, res) => {
+  try {
+    const reqBody = req.body;
+    console.log("Request body is", reqBody);
+
+    if (!reqBody || Object.keys(reqBody).length === 0) {
+      return res.status(400).json({
+        statusCode: 400,
+        status: false,
+        message: "Bad Request: Request body is missing or invalid",
+      });
+    }
+
+    // Ensure required fields are present
+    if (!reqBody.orderFullFillmentId || !reqBody.product_guid || !reqBody.new_quantity) {
+      return res.status(400).json({
+        statusCode: 400,
+        status: false,
+        message: "Missing required fields: orderFullFillmentId, product_guid, new_quantity",
+      });
+    }
+
+    // Select payload for database query
+    const selectPayload = {
+      query: `SELECT * FROM ${process.env.FINER_fwAPI_FULFILLMENTS_TABLE} WHERE FulfillmentID=${reqBody.orderFullFillmentId}`,
+    };
+
+    // Fetch fulfillment data
+    const selectData = await finerworksService.SELECT_QUERY_FINERWORKS(selectPayload);
+
+    if (!selectData || !selectData.data || selectData.data.length === 0) {
+      return res.status(404).json({
+        statusCode: 404,
+        status: false,
+        message: "Fulfillment data not found",
+      });
+    }
+    // Decode and parse FulfillmentData
+    const decodedFulfillmentData = decodeURIComponent(selectData.data[0].FulfillmentData);
+    let fulfillmentJSON = JSON.parse(decodedFulfillmentData);
+
+    // Function to update product quantity in order_items
+    fulfillmentJSON.order_items = fulfillmentJSON.order_items.map(item => {
+      if (item.product_guid === reqBody.product_guid) {
+        return { ...item, product_qty: reqBody.new_quantity };
+      }
+      return item;
+    });
+    const urlEncodedData = urlEncodeJSON(fulfillmentJSON);
+    const updatePayload = {
+      tablename: process.env.FINER_fwAPI_FULFILLMENTS_TABLE,
+      fieldupdates: `FulfillmentData='${urlEncodedData}'`,
+      where: `FulfillmentID=${reqBody.orderFullFillmentId}`,
+    };
+    const updateQueryExecute = await finerworksService.UPDATE_QUERY_FINERWORKS(
+      updatePayload
+    );
+
+    return res.status(200).json({
+      statusCode: 200,
+      status: true,
+      message: "Product quantity updated successfully",
+      updatedData: updateQueryExecute,
+    });
+
+  } catch (error) {
+    console.error("Error updating product quantity:", error);
+
+    return res.status(500).json({
+      statusCode: 500,
+      status: false,
+      message: "Internal Server Error",
+      error: error?.message || "An unexpected error occurred",
+    });
+  }
+};
+
+
+
+exports.exportToWoocomercev1 = async (req, res) => {
+  try {
+    // Step 1: Validate if domainName and auth_code exist in the request payload
+    const { domainName, auth_code, productsList } = req.body;
+
+    if (!domainName || !auth_code || productsList.length === 0)   {
+      return res.status(400).json({
+        statusCode: 400,
+        status: false,
+        message: "Missing required fields: domainName and auth_code or Products",
+      });
+    }
+
+
+    // // Step 4: Prepare the products to send in the request to the import APIproducts
+    const productsPayload = {
+      products: productsList.map(product => ({
+        monetary_format: "USD",
+        quantity: 1,
+        sku: product.sku,
+        product_code: product.product_code,
+        price_details: null,
+        per_item_price: product.per_item_price,
+        total_price: product.total_price,
+        asking_price: product.asking_price,
+        name: product.name,
+        description_short: product.description_short,
+        description_long: product.description_long,
+        image_url_1: product.image_url_1,
+        image_url_2: product.image_url_2,
+        image_url_3: product.image_url_3,
+        image_url_4: product.image_url_4,
+        image_url_5: product.image_url_5,
+        image_guid: product.image_guid,
+        product_size: product.product_size,
+        third_party_integrations: product.third_party_integrations,
+        debug: product.debug
+      }))
+    };
+
+    // Step 5: Construct API URL dynamically with domainName and auth_code
+    const apiUrl = `https://${domainName}/wp-json/finerworks-media/v1/import-products?auth_code=${auth_code}`;
+
+    // Step 6: Send the POST request to the import API
+    const response = await axios.post(apiUrl, productsPayload);
+    // Step 7: Return success response
+    return res.status(200).json({
+      statusCode: 200,
+      status: true,
+      message: "Products successfully exported",
+      data: response.data
+    });
+  } catch (error) {
+    console.error("Error during product export:", error);
+
+    return res.status(500).json({
+      statusCode: 500,
+      status: false,
+      message: "Internal Server Error",
+      error: error?.message || "An unexpected error occurred",
+    });
+  }
+};
+
+
+
+
+function urlEncodeJSON(data) {
+  const jsonString = JSON.stringify(data);
+  const encodedString = encodeURIComponent(jsonString);
+  return encodedString;
+}
+
+
 // # endregion
