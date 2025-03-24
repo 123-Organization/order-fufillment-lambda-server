@@ -214,3 +214,14 @@ exports.GET_PAYMENT_TOKEN = async (payload) => {
   });
   return postData.data;
 };
+
+
+exports.UPDATE_VIRTUAL_INVENTORY = async (payload) => {
+  const postData = await axios({
+    method: 'PUT',
+    url: process.env.FINER_WORKS_URL + 'update_virtual_inventory',
+    headers: getHeaders(),
+    data: payload
+  });
+  return postData.data;
+};

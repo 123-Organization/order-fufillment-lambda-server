@@ -252,12 +252,17 @@ exports.exportToWoocomercev1 = async (req, res) => {
 
     // Step 6: Send the POST request to the import API
     const response = await axios.post(apiUrl, productsPayload);
-    // Step 7: Return success response
+
+    const finalPayload = createVirtualInventory(productsList, response.data.wc_product_ids);
+     await finerworksService.UPDATE_VIRTUAL_INVENTORY(
+      finalPayload
+    );
     return res.status(200).json({
       statusCode: 200,
       status: true,
       message: "Products successfully exported",
-      data: response.data
+      // data: response.data
+      data: finalPayload
     });
   } catch (error) {
     console.error("Error during product export:", error);
@@ -281,4 +286,43 @@ function urlEncodeJSON(data) {
 }
 
 
+function createVirtualInventory(productsList, wcProductIds) {
+  // Create a mapping for wc_product_id to SKU
+  const wcProductIdToSku = {};
+  wcProductIds.forEach(item => {
+    const sku = item.find(i => i.fw_product_sku)?.fw_product_sku;
+    const wcProductId = item.find(i => i.wc_product_id)?.wc_product_id;
+    if (sku && wcProductId) {
+      wcProductIdToSku[wcProductId] = sku;
+    }
+  });
+
+  // Map the payload products to the virtual_inventory structure
+  const virtualInventory = productsList.map(product => {
+    const wcProductId = wcProductIds.find(item => item.some(i => i.fw_product_sku === product.sku))?.[0]?.wc_product_id;
+
+    return {
+      sku: product.sku,
+      asking_price: product.asking_price,
+      name: product.name,
+      description: product.description_long,
+      quantity_in_stock: product.quantity_in_stock,
+      track_inventory: true,
+      third_party_integrations: {
+        etsy_product_id: 0,
+        shopify_product_id: 123456, // You can replace it with actual data
+        shopify_variant_id: 123456, // You can replace it with actual data
+        squarespace_product_id: null,
+        squarespace_variant_id: null,
+        wix_inventory_id: null,
+        wix_product_id: null,
+        wix_variant_id: null,
+        woocommerce_product_id: wcProductId || 0,
+        woocommerce_variant_id: 0
+      }
+    };
+  });
+
+  return { virtual_inventory: virtualInventory };
+}
 // # endregion
