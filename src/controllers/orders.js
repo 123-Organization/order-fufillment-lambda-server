@@ -124,6 +124,7 @@ exports.viewOrderDetails = async (req, res) => {
 exports.updateOrderByProductSkuCode = async (req, res) => {
   try {
     const reqBody = JSON.parse(JSON.stringify(req.body));
+
     if (!reqBody.orderFullFillmentId) {
       res.status(400).json({
         statusCode: 400,
@@ -151,8 +152,9 @@ exports.updateOrderByProductSkuCode = async (req, res) => {
     const selectData = await finerworksService.SELECT_QUERY_FINERWORKS(
       selectPayload
     );
+
     log("Order Data", JSON.stringify(selectData));
-    if (!selectData?.data.length) {
+    if (selectData?.data.length===0) {
       res.status(400).json({
         statusCode: 400,
         status: false,
@@ -185,8 +187,8 @@ exports.updateOrderByProductSkuCode = async (req, res) => {
         "product_image": {
           "pixel_width": reqBody.pixel_width,
           "pixel_height": reqBody.pixel_height,
-          "product_url_file":reqBody.product_url_file,
-          "product_url_thumbnail": reqBody.product_url_thumbnail
+          "product_url_file":reqBody.product_url_file[0],
+          "product_url_thumbnail": reqBody.product_url_thumbnail[0]
         }
       }];
       log("Product details from API", JSON.stringify(getProductDetails));
@@ -198,9 +200,9 @@ exports.updateOrderByProductSkuCode = async (req, res) => {
       ? getProductDetails.products
       : getProductDetails.product_list;
       const previousOrder = urlDecodeJSON(orderDetails.FulfillmentData);
-      const orderData = {
+      const orderData = reqBody.product_url_file.map((url, index) => ({
         product_qty: products?.[0]?.quantity ?? null,
-        product_sku: products?.[0]?.sku ?products?.[0]?.sku:products?.[0]?.product_code,
+        product_sku: products?.[0]?.sku ? products?.[0]?.sku : products?.[0]?.product_code,
         product_title: products?.[0]?.name ?? null,
         product_guid: products?.[0]?.image_guid === '00000000-0000-0000-0000-000000000000'
           ? null
@@ -209,13 +211,16 @@ exports.updateOrderByProductSkuCode = async (req, res) => {
         custom_data_1: null,
         custom_data_2: null,
         custom_data_3: null,
-        product_url_file:productCode?payload[0].product_image.product_url_file:"",
-        product_url_thumbnail:productCode?payload[0].product_image.product_url_thumbnail:"",
-        pixel_width: productCode?payload[0].product_image.pixel_width:"",
-        pixel_height: productCode?payload[0].product_image.pixel_height:""
-      };
+        product_url_file: url,
+        product_url_thumbnail: reqBody.product_url_thumbnail[index],
+        pixel_width: reqBody.pixel_width ?? "",
+        pixel_height: reqBody.pixel_height ?? "",
+      }));      
+      
       if (previousOrder?.order_items) {
-        previousOrder.order_items.push(orderData);
+        orderData.forEach((item, index) => {       
+           previousOrder.order_items.push(item);
+        })
       }
       log("Previous order is", JSON.stringify(previousOrder));
       // update order
