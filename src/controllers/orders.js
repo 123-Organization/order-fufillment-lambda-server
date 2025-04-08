@@ -124,6 +124,8 @@ exports.viewOrderDetails = async (req, res) => {
 exports.updateOrderByProductSkuCode = async (req, res) => {
   try {
     const reqBody = JSON.parse(JSON.stringify(req.body));
+    console.log("testinggggggggg",req.body);
+    var getProductDetails
 
     if (!reqBody.orderFullFillmentId) {
       res.status(400).json({
@@ -148,10 +150,12 @@ exports.updateOrderByProductSkuCode = async (req, res) => {
     const selectPayload = {
       query: `SELECT * FROM ${process.env.FINER_fwAPI_FULFILLMENTS_TABLE} WHERE  FulfillmentID=${reqBody.orderFullFillmentId}`,
     };
+    console.log("selectPayload=====>>>>>",selectPayload);
     log("Select query to fetch the orders", JSON.stringify(selectPayload));
     const selectData = await finerworksService.SELECT_QUERY_FINERWORKS(
       selectPayload
     );
+    console.log("selectData=====>>>>>",selectData);
 
     log("Order Data", JSON.stringify(selectData));
     if (selectData?.data.length===0) {
@@ -175,10 +179,56 @@ exports.updateOrderByProductSkuCode = async (req, res) => {
       "Request come to search product from virtual inventory for the payload",
       JSON.stringify(searchListVirtualInventoryParams)
     );
+    console.log("okkkkkkkkkkkkkkkkkkkkkkkkkk")
     if (skuCode || fromTheInventory) {
-      var getProductDetails = await finerworksService.LIST_VIRTUAL_INVENTORY(
+       getProductDetails = await finerworksService.LIST_VIRTUAL_INVENTORY(
         searchListVirtualInventoryParams
       );
+      console.log("only sku",getProductDetails)
+      if (getProductDetails?.status?.success) {
+        let product = getProductDetails.products;
+        console.log("product====",product)
+        const previousOrder = urlDecodeJSON(orderDetails.FulfillmentData);
+        const orderData ={
+          product_qty: product?.[0]?.quantity ?? null,
+        product_sku: product?.[0]?.sku ? product?.[0]?.sku : product?.[0]?.product_code,
+        product_title: product?.[0]?.name ?? null,
+        product_guid: product?.[0]?.image_guid === '00000000-0000-0000-0000-000000000000'
+          ? null
+          : product?.[0]?.image_guid ?? null,
+        template: null,
+        custom_data_1: null,
+        custom_data_2: null,
+        custom_data_3: null,
+        }
+        console.log("orderData====>>>>",orderData);
+        previousOrder.order_items.push(orderData);
+        console.log(previousOrder,"previousOrder")
+        const urlEncodedData = urlEncodeJSON(previousOrder);
+        const updatePayload = {
+          tablename: process.env.FINER_fwAPI_FULFILLMENTS_TABLE,
+          fieldupdates: `FulfillmentData='${urlEncodedData}'`,
+          where: `FulfillmentID=${reqBody.orderFullFillmentId}`,
+        };
+        const updateQueryExecute =
+          await finerworksService.UPDATE_QUERY_FINERWORKS(updatePayload);
+        if (updateQueryExecute) {
+          res.status(200).json({
+            statusCode: 200,
+            status: true,
+            message: "Orders have been successfully updated",
+            data: previousOrder,
+          });
+        } else {
+          res.status(400).json({
+            statusCode: 400,
+            status: true,
+            message: "Something went wrong!",
+          });
+        }
+
+        
+      }
     } else if(productCode) {
       var payload = [{
         "product_order_po": "ORDER_PO_927668",
@@ -193,8 +243,7 @@ exports.updateOrderByProductSkuCode = async (req, res) => {
       }];
       log("Product details from API", JSON.stringify(getProductDetails));
       getProductDetails = await finerworksService.GET_PRODUCTS_DETAILS(payload);
-    }
-    log("Get product details", JSON.stringify(getProductDetails));    
+      log("Get product details", JSON.stringify(getProductDetails));    
     if (getProductDetails?.status?.success) {
       let products = skuCode
       ? getProductDetails.products
@@ -204,9 +253,7 @@ exports.updateOrderByProductSkuCode = async (req, res) => {
         product_qty: products?.[0]?.quantity ?? null,
         product_sku: products?.[0]?.sku ? products?.[0]?.sku : products?.[0]?.product_code,
         product_title: products?.[0]?.name ?? null,
-        product_guid: products?.[0]?.image_guid === '00000000-0000-0000-0000-000000000000'
-          ? null
-          : products?.[0]?.image_guid ?? null,
+        product_guid: generateGUID(),
         template: null,
         custom_data_1: null,
         custom_data_2: null,
@@ -247,6 +294,8 @@ exports.updateOrderByProductSkuCode = async (req, res) => {
         });
       }
     }
+    }
+    
   } catch (err) {
     const errorMessage = err.response.data;
     res.status(400).json({
@@ -256,6 +305,14 @@ exports.updateOrderByProductSkuCode = async (req, res) => {
     });
   }
 };
+
+
+function generateGUID() {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+    const r = Math.random() * 16 | 0, v = c === 'x' ? r : (r & 0x3 | 0x8);
+    return v.toString(16);
+  });
+}
 exports.createNewOrder = async (req, res) => {
   try {
     const reqBody = JSON.parse(JSON.stringify(req.body));
