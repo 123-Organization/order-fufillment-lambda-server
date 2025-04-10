@@ -4,6 +4,20 @@ const debug = require("debug");
 const log = debug("app:uploadOrders");
 const Joi = require("joi");
 log("Upload order");
+
+
+const recipientSchema = Joi.object({
+  country_code: Joi.string().length(2).required().label("Country Code"), // ISO 3166-1 alpha-2
+  company_name: Joi.string().allow("").optional().label("Company Name"),
+  first_name: Joi.string().min(1).max(100).required().label("First Name"),
+  last_name: Joi.string().min(1).max(100).required().label("Last Name"),
+  address_1: Joi.string().min(1).max(255).required().label("Address 1"),
+  address_2: Joi.string().allow("").optional().label("Address 2"),
+  city: Joi.string().min(1).max(100).required().label("City"),
+  state: Joi.string().min(1).max(100).required().label("State"),
+  zip_postal_code: Joi.string().min(1).max(20).required().label("ZIP/Postal Code"),
+  phone: Joi.string().min(10).max(15).regex(/^\d+$/).required().label("Phone Number"),
+});
 // # region Validate order schema
 const guidRegex =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -174,6 +188,15 @@ exports.validateSubmitOrders = async (req, res, next) => {
 exports.updateOrder = async (req, res)  => {
   try{
     const reqBody = JSON.parse(JSON.stringify(req.body));
+
+    const { error } = recipientSchema.validate(reqBody?.orders?.[0]?.recipient);
+    if (error) {
+      return res.status(400).json({
+        statusCode: 400,
+        status: false,
+        message: `Validation error: ${error.details[0].message}`,
+      });
+    }
       if (!reqBody || !reqBody?.accountId) {
         res.status(400).json({
           statusCode: 400,
@@ -225,6 +248,9 @@ exports.updateOrder = async (req, res)  => {
       throw err;
     }
   }
+
+
+
 /** Validate Orders
  *
  * @param {*} req
