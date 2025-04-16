@@ -54,7 +54,7 @@ Resources:
         - MyLambdaExecutionRole
         - Arn
       Runtime: nodejs18.x
-      CodeUri: s3://order-fullfilment-app-lambda-server/5cf977d09238547137702d63908eb7f9
+      CodeUri: s3://order-fullfilment-app-lambda-server/3913ce9de7158a270aba8ab6386268ff
       MemorySize: 3008
       Timeout: 900
       Environment:
@@ -250,6 +250,20 @@ Resources:
               Ref: MyApiGateway
             Method: POST
             Path: /api/export-to-woocommerce
+        GetUserPaymentToken:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: GET
+            Path: /api/get-user-payment-tokens
+        ProcessVaultPayment:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: POST
+            Path: /api/process-vaulted-payment
     Metadata:
       SamResourceId: OrderFullFillmentServerLessDevServer
   OrderFullFillmentServerLessDevServerLogGroup:
