@@ -207,9 +207,20 @@ exports.ADD_PRODUCT = async (payload) => {
  * @returns {Promise<Object>} - The response data from the API.
  */
 exports.GET_PAYMENT_TOKEN = async (payload) => {
+  // const postData = await axios({
+  //   method: 'GET',
+  //   url: process.env.FINER_WORKS_URL + 'get_payment_tokens?payment_profile_id=' + payload.payment_profile_id,
+  //   headers: getHeaders()
+  // }); 
+  // const postData = await axios({
+  //   method: 'GET',
+  //   url: process.env.FINER_WORKS_URL + 'get_payment_tokens?payment_profile_id=42142331283' + '&sandbox=true',
+  //   headers: getHeaders()
+  // });
+
   const postData = await axios({
     method: 'GET',
-    url: process.env.FINER_WORKS_URL + 'get_payment_tokens?payment_profile_id=' + payload.payment_profile_id,
+    url: process.env.FINER_WORKS_URL + 'get_payment_tokens?payment_profile_id=42142331283&sandbox=true',
     headers: getHeaders()
   });
   return postData.data;

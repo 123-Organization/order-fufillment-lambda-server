@@ -240,6 +240,20 @@ Resources:
               Ref: MyApiGateway
             Method: POST
             Path: /api/export-to-woocommerce
+        GetUserPaymentToken:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: GET
+            Path: /api/get-user-payment-tokens
+        ProcessVaultPayment:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: POST
+            Path: /api/process-vaulted-payment
   OrderFullFillmentServerLessDevServerLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
