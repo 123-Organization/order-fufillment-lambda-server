@@ -54,7 +54,7 @@ Resources:
         - MyLambdaExecutionRole
         - Arn
       Runtime: nodejs18.x
-      CodeUri: s3://order-fullfilment-app-lambda-server/3913ce9de7158a270aba8ab6386268ff
+      CodeUri: s3://order-fullfilment-app-lambda-server/5fd905dd54bb719fa780a8186f71ca54
       MemorySize: 3008
       Timeout: 900
       Environment:
@@ -264,6 +264,13 @@ Resources:
               Ref: MyApiGateway
             Method: POST
             Path: /api/process-vaulted-payment
+        RemovePaymentMethod:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: POST
+            Path: /api/remove-card
     Metadata:
       SamResourceId: OrderFullFillmentServerLessDevServer
   OrderFullFillmentServerLessDevServerLogGroup:

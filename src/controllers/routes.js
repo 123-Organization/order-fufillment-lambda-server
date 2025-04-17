@@ -1,7 +1,7 @@
 const { Router } = require('express');
 const { updateCompanyInformation } = require('./update-company-information');
 const { getCompanyInformation } = require('./get-company-information');
-const { getClientToken, addPaymentCard, createCustomer, getFullCustomerDetails, processVaultedPaymentToken } = require('./payment-information');
+const { getClientToken, addPaymentCard, createCustomer, getFullCustomerDetails, processVaultedPaymentToken,removePaymentCard } = require('./payment-information');
 const { validateOrders, validateSubmitOrders, uploadOrdersToLocalDatabase, updateOrder } = require('./upload-orders'); 
 const { listVirtualInventory, validateListVirtualInventory, validateUpdateVirtualInventory, updateVirtualInventory, validateSkus, deleteVirtualInventory, getProductBySku } = require('./virtual-inventory');
 const { validateAddProduct, addProduct, getProductDetails,increaseProductQuantity,exportToWoocomercev1 } = require('./products-management');
@@ -40,6 +40,8 @@ app.post('/process-vaulted-payment', processVaultedPaymentToken);
 app.post('/add-token-to-user', updateUserInformation);
 app.post('/increase-product-quantity', increaseProductQuantity);
 app.post('/export-to-woocommerce', exportToWoocomercev1);
+app.post('/remove-card', removePaymentCard);
+
 
 
 
