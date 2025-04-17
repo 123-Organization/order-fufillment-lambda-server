@@ -249,3 +249,31 @@ exports.getFullCustomerDetails = async (req, res) => {
     });
   }
 };
+
+exports.removePaymentCard = async (req, res) => {
+  try {
+    const { paymentMethodToken, customerId } = req.body;
+
+    // Validate request body
+    if (!paymentMethodToken || !customerId) {
+      return res.status(400).json({
+        statusCode: 400,
+        status: false,
+        message: "Payment method token and customer ID are required.",
+      });
+    }
+    const result = await gateway.paymentMethod.delete(paymentMethodToken);
+    return  res.status(200).json({
+      status: true,
+      message: "Successfully Removed Payment Method",
+    });
+
+  } catch (error) {
+    log("error is", error);
+    res.status(400).json({
+      statusCode: 400,
+      status: false,
+      message: JSON.stringify(error),
+    });
+  }
+};

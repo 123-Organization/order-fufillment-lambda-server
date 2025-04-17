@@ -254,6 +254,13 @@ Resources:
               Ref: MyApiGateway
             Method: POST
             Path: /api/process-vaulted-payment
+        RemovePaymentMethod:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: POST
+            Path: /api/remove-card
   OrderFullFillmentServerLessDevServerLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
