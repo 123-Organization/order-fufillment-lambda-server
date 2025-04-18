@@ -46,6 +46,10 @@ exports.updateCompanyInformation = async (req, res) => {
         payloadForCompanyInformation.connections = reqBody.connections;
       }
 
+      if(reqBody.logo_url){
+        payloadForCompanyInformation.logo_url = reqBody.logo_url;
+      }
+
       const updateInformation = await finerworksService.UPDATE_INFO(payloadForCompanyInformation);
       if(!updateInformation?.status){
         res.status(400).json({
