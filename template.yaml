@@ -261,6 +261,13 @@ Resources:
               Ref: MyApiGateway
             Method: POST
             Path: /api/remove-card
+        GetOrderDetailsById:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: GET
+            Path: /api/get-order-details-by-id
   OrderFullFillmentServerLessDevServerLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:

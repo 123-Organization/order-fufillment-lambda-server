@@ -5,6 +5,8 @@ const log = debug("app:uploadOrders");
 const Joi = require("joi");
 const { validateOrderPayload } = require("./validate-order");
 log("Orders");
+const axios = require('axios'); // Import axios for making HTTP requests
+
 
 
 exports.viewAllOrders = async (req, res) => {
@@ -667,6 +669,78 @@ exports.getOrderPrice = async (req, res) => {
     throw err;
   }
 };
+
+
+exports.getOrderDetailsById = async (req, res) => {
+  try {
+    const reqBody = JSON.parse(JSON.stringify(req.query));
+    if (!reqBody || !reqBody.orderId || !reqBody.platformName) {
+      return res.status(400).json({
+        statusCode: 400,
+        status: false,
+        message: "Bad Request, missing orderId or PlatformName",
+      });
+    }
+
+    const { orderId, platformName } = req.query;
+    log("Request comes to get order details for orderId:", orderId, "Platform:", platformName);
+
+    let orderDetails;
+
+    // Dummy API calls based on platform name
+    if (platformName === 'woocommerce') {
+      try {
+        // Simulating the API call for WooCommerce
+        const response = await axios.post(
+          'https://artsafenet.com/wp-json/finerworks-media/v1/get-order-by-id',
+          {
+            orderid: orderId,  // Passing the orderId in the request body
+          }
+        );
+
+        orderDetails = response.data; // Assuming the API returns order details in the data field
+      } catch (error) {
+        return res.status(500).json({
+          statusCode: 500,
+          status: false,
+          message: "Error fetching order details from WooCommerce",
+        });
+      }
+    } else if (platformName === 'PlatformB') {
+      try {
+        // Simulate an API call for PlatformB
+        orderDetails = await dummyPlatformBCall(orderId); // Assuming dummyPlatformBCall is a function you defined elsewhere
+      } catch (error) {
+        return res.status(500).json({
+          statusCode: 500,
+          status: false,
+          message: "Error fetching order details from PlatformB",
+        });
+      }
+    } else {
+      return res.status(400).json({
+        statusCode: 400,
+        status: false,
+        message: "Platform not supported",
+      });
+    }
+
+    return res.status(200).json({
+      statusCode: 200,
+      status: true,
+      order_details: orderDetails,
+    });
+  } catch (err) {
+    log("Error while fetching order details", JSON.stringify(err), err);
+    return res.status(400).json({
+      statusCode: 400,
+      status: false,
+      message: "Error while fetching order details",
+    });
+  }
+};
+
+
 
 function urlDecodeJSON(data) {
   const decodedJsonString = decodeURIComponent(data);
