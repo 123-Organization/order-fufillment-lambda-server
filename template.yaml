@@ -266,8 +266,15 @@ Resources:
           Properties:
             RestApiId:
               Ref: MyApiGateway
-            Method: GET
+            Method: POST
             Path: /api/get-order-details-by-id
+        SoftDeleteAfterPayment:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: POST
+            Path: /api/soft-delete-after-payment
   OrderFullFillmentServerLessDevServerLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:

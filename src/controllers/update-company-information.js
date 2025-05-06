@@ -36,13 +36,13 @@ exports.updateCompanyInformation = async (req, res) => {
   try {
       const reqBody = JSON.parse(JSON.stringify(req.body));
       let payloadForCompanyInformation = {};
-      if (!reqBody.account_key) {
-          res.status(400).json({
-              statusCode: 400,
-              status: false,
-              message: 'Account key is required',
-          });
-          return;
+      const accountKeyRegex = /^[a-f0-9]{8}-([a-f0-9]{4}-){3}[a-f0-9]{12}$/i;
+      if (!reqBody.account_key || !accountKeyRegex.test(reqBody.account_key)) {
+        return res.status(400).json({
+          statusCode: 400,
+          status: false,
+          message: 'Invalid account key format. Must be a valid UUID.',
+        });
       }
 
       payloadForCompanyInformation.account_key = reqBody.account_key;

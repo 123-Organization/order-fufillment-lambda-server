@@ -54,7 +54,7 @@ Resources:
         - MyLambdaExecutionRole
         - Arn
       Runtime: nodejs18.x
-      CodeUri: s3://order-fullfilment-app-lambda-server/1e1a36426909a5f3bb5261ea05c689aa
+      CodeUri: s3://order-fullfilment-app-lambda-server/0374035c8730c7a2ce5c9d9fefcf1163
       MemorySize: 3008
       Timeout: 900
       Environment:
@@ -276,8 +276,15 @@ Resources:
           Properties:
             RestApiId:
               Ref: MyApiGateway
-            Method: GET
+            Method: POST
             Path: /api/get-order-details-by-id
+        SoftDeleteAfterPayment:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: POST
+            Path: /api/soft-delete-after-payment
     Metadata:
       SamResourceId: OrderFullFillmentServerLessDevServer
   OrderFullFillmentServerLessDevServerLogGroup:
