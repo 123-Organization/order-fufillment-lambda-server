@@ -15,7 +15,8 @@ const listVirtualInventorySchema = Joi.object({
     sort_field: Joi.string().valid('id', 'name', 'created_at').default('id'),
     sort_direction: Joi.string().valid('ASC', 'DESC').default('DESC'),
     created_date_from: Joi.date().allow(null),
-    created_date_to: Joi.date().allow(null)
+    created_date_to: Joi.date().allow(null),
+    account_key:Joi.string().allow('').allow(null)
 });
 // Middleware for validation
 exports.validateListVirtualInventory = async(req, res, next) => {

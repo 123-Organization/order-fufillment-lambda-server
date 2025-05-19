@@ -275,6 +275,13 @@ Resources:
               Ref: MyApiGateway
             Method: POST
             Path: /api/soft-delete-after-payment
+        AccountDeactivation:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: POST
+            Path: /api/disconnect
   OrderFullFillmentServerLessDevServerLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:

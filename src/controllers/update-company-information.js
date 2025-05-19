@@ -15,7 +15,7 @@ const businessInfoSchema = Joi.object({
   address_2: Joi.string().optional().allow(''),
   address_3: Joi.string().optional().allow(null),
   city: Joi.string().required(),
-  state_code: Joi.string().length(2).required(), // assuming state_code is a 2-character state code
+  state_code: Joi.string().length(2).optional().allow(''), // assuming state_code is a 2-character state code
   province: Joi.string().optional().allow(null),
   zip_postal_code: Joi.string().required(),
   country_code: Joi.string().length(2).required(), // assuming country_code is a 2-character country code

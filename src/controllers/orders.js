@@ -169,13 +169,16 @@ exports.updateOrderByProductSkuCode = async (req, res) => {
     }
     const orderDetails = selectData.data[0];
     // If order exist then find the product details
-    const { skuCode, productCode, fromTheInventory } = reqBody;
+    const { skuCode, productCode, fromTheInventory,account_key } = reqBody;
     const searchListVirtualInventoryParams = {};
     if (skuCode != "") {
       searchListVirtualInventoryParams.sku_filter = [skuCode];
     }
     if (productCode != "") {
       searchListVirtualInventoryParams.product_code_filter = [productCode];
+    }
+    if (account_key) {
+      searchListVirtualInventoryParams.account_key = [account_key];
     }
     log(
       "Request come to search product from virtual inventory for the payload",
@@ -186,7 +189,15 @@ exports.updateOrderByProductSkuCode = async (req, res) => {
       getProductDetails = await finerworksService.LIST_VIRTUAL_INVENTORY(
         searchListVirtualInventoryParams
       );
-      console.log("only sku", getProductDetails)
+      console.log("only sku", getProductDetails);
+      if(getProductDetails.products.length===0){
+         return res.status(200).json({
+          statusCode: 200,
+          status: true,
+          message: "No product found!",
+        });
+      }
+      
       if (getProductDetails?.status?.success) {
         let product = getProductDetails.products;
         console.log("product====", product)
@@ -670,77 +681,9 @@ exports.getOrderPrice = async (req, res) => {
   }
 };
 
-
-// exports.getOrderDetailsById = async (req, res) => {
-//   try {
-//     console.log("hererererere")
-//     const reqBody = JSON.parse(JSON.stringify(req.body));
-//     // Check if orderIds and platformName are provided in the request body
-//     if (!reqBody || !reqBody.orderIds || !Array.isArray(reqBody.orderIds) || !reqBody.orderIds.length) {
-//       return res.status(400).json({
-//         statusCode: 400,
-//         status: false,
-//         message: "Bad Request, missing orderIds or PlatformName",
-//       });
-//     }
-
-//     const { platformName } = req.query;
-//     const { orderIds, accountId } = reqBody;
-
-//     if (!accountId) {
-//       return res.status(400).json({
-//         statusCode: 400,
-//         status: false,
-//         message: "Account ID is missing or invalid.",
-//       });
-//     }
-
-//     // log("Request comes to get order details for orderId:", orderId, "Platform:", platformName);
-
-//     let orderDetails;
-//     console.log("orderIds===========>>>>", orderIds);
-//     console.log("platformName===========>>>>", platformName);
-//     console.log("accountId===========>>>>", accountId);
-
-
-//     const selectPayload = {
-//       query: `SELECT * FROM ${process.env.FINER_fwAPI_FULFILLMENTS_TABLE} WHERE FulfillmentAccountID=${accountId} AND FulfillmentDeleted=0 ORDER BY FulfillmentID DESC`,
-//     };
-
-//     const selectData = await finerworksService.SELECT_QUERY_FINERWORKS(selectPayload);
-//     console.log(selectData)
-//     // Parse FulfillmentData and collect order_po values
-//     const orderPos = selectData.data.map((row) => {
-//       const fulfillmentData = urlDecodeJSON(row.FulfillmentData);
-//       const orderPo = fulfillmentData.order_po;
-
-//       // Remove 'WC_' from the order_po
-//       const orderPoNumber = orderPo.replace('WC_', '');
-
-//       return orderPoNumber; // Return only the number part of order_po
-//     });
-
-//     console.log("Extracted order_po values:", orderPos);
-
-//     // Compare the orderIds with the orderPos array to find missing order numbers
-//     const missingOrders = orderIds.filter(orderId => !orderPos.includes(orderId.replace('WC_', '')));
-
-//     console.log("Missing order numbers:", missingOrders);
-
-    
-//   } catch (err) {
-//     log("Error while fetching order details", JSON.stringify(err), err);
-//     return res.status(400).json({
-//       statusCode: 400,
-//       status: false,
-//       message: "Error while fetching order details",
-//     });
-//   }
-// };
-
 exports.getOrderDetailsById = async (req, res) => {
   try {
-    console.log("hererererere")
+    console.log("hererererere");
     const reqBody = JSON.parse(JSON.stringify(req.body));
 
     // Check if orderIds and platformName are provided in the request body
@@ -768,12 +711,22 @@ exports.getOrderDetailsById = async (req, res) => {
     console.log("platformName===========>>>>", platformName);
     console.log("accountId===========>>>>", accountId);
 
+    // Modified query based on your new requirements
+    // const selectPayload = {
+    //   query: `SELECT * FROM fwAPI_FULFILLMENTS WHERE FulfillmentAccountID=${accountId} AND FulfillmentAppName = 'excel' AND FulfillmentSubmitted=1 AND FulfillmentDeleted=0 AND FulfillmentPO IN ('${orderIds.join("', '")}') ORDER BY FulfillmentID DESC`,
+    // };
+
     const selectPayload = {
-      query: `SELECT * FROM ${process.env.FINER_fwAPI_FULFILLMENTS_TABLE} WHERE FulfillmentAccountID=${accountId} AND FulfillmentDeleted=0 ORDER BY FulfillmentID DESC`,
+      query: `SELECT * FROM ${process.env.FINER_fwAPI_FULFILLMENTS_TABLE} WHERE FulfillmentAccountID=${accountId} AND FulfillmentDeleted=0 AND FulfillmentSubmitted=0 ORDER BY FulfillmentID DESC`,
     };
 
     const selectData = await finerworksService.SELECT_QUERY_FINERWORKS(selectPayload);
     console.log(selectData);
+
+    // // If selectData.data is empty, skip checking and directly call the API with the orderIds
+    // if (!selectData || !selectData.data || selectData.data.length === 0) {
+    //   return callApiWithMissingOrders(orderIds, platformName, res);
+    // }
 
     // Parse FulfillmentData and collect order_po values
     const orderPos = selectData.data.map((row) => {
@@ -802,74 +755,8 @@ exports.getOrderDetailsById = async (req, res) => {
       });
     }
 
-    // Handle API calls based on platformName
-    if (platformName === 'woocommerce') {
-      try {
-        // For missing orders, make API calls to WooCommerce API
-        const apiCalls = missingOrders.map(async(order) => {
-          return axios.post(
-            'https://artsafenet.com/wp-json/finerworks-media/v1/get-order-by-id',
-            {
-              orderid: order  // Pass the orderid with 'WC_' prefix
-            }
-          )
-            .then(response => response.data)  // Resolve the response
-            .catch(error => ({ order, error: error.message }));  // Catch errors for each failed order
-        });
-
-        // Wait for all API calls to complete
-        const allOrderDetails = await Promise.all(apiCalls);
-
-        return res.status(200).json({
-          statusCode: 200,
-          status: true,
-          message: "Fetched missing order details from WooCommerce",
-          orderDetails: allOrderDetails,  // Return the order details for missing orders
-        });
-      } catch (error) {
-        return res.status(500).json({
-          statusCode: 500,
-          status: false,
-          message: "Error fetching order details from WooCommerce",
-        });
-      }
-    } else if (platformName === 'PlatformB') {
-      try {
-        // Simulate an API call for PlatformB
-        const apiCalls = missingOrders.map(order => {
-          return axios.post(
-            'https://platformb.com/api/get-order-by-id',
-            {
-              orderid: order  // Assuming PlatformB uses order without the 'WC_' prefix
-            }
-          )
-            .then(response => response.data)  // Resolve the response
-            .catch(error => ({ order, error: error.message }));  // Catch errors for each failed order
-        });
-
-        // Wait for all API calls to complete
-        const allOrderDetails = await Promise.all(apiCalls);
-
-        return res.status(200).json({
-          statusCode: 200,
-          status: true,
-          message: `Fetched  order details from ${platformName}`,
-          orderDetails: allOrderDetails,  // Return the order details for missing orders
-        });
-      } catch (error) {
-        return res.status(500).json({
-          statusCode: 500,
-          status: false,
-          message: "Error fetching order details from PlatformB",
-        });
-      }
-    } else {
-      return res.status(400).json({
-        statusCode: 400,
-        status: false,
-        message: "Platform not supported",
-      });
-    }
+    // Call the API with the missing orders
+    return callApiWithMissingOrders(missingOrders, platformName, res);
 
   } catch (err) {
     console.error("Error while fetching order details", JSON.stringify(err), err);
@@ -880,6 +767,69 @@ exports.getOrderDetailsById = async (req, res) => {
     });
   }
 };
+
+// Helper function to call the API for missing orders
+const callApiWithMissingOrders = async (missingOrders, platformName, res) => {
+  try {
+    let allOrderDetails = [];
+    
+    if (platformName === 'woocommerce') {
+      // Using async/await in the loop for WooCommerce
+      for (const order of missingOrders) {
+        try {
+          const response = await axios.post(
+            'https://artsafenet.com/wp-json/finerworks-media/v1/get-order-by-id',
+            { orderid: order }  // Pass the orderid with 'WC_' prefix
+          );
+          allOrderDetails.push(response.data);
+        } catch (error) {
+          allOrderDetails.push({ order, error: error.message });  // Handle errors for each failed order
+        }
+      }
+
+      return res.status(200).json({
+        statusCode: 200,
+        status: true,
+        message: "Fetched missing order details from WooCommerce",
+        orderDetails: allOrderDetails,  // Return the order details for missing orders
+      });
+    } else if (platformName === 'PlatformB') {
+      // Using async/await in the loop for PlatformB
+      for (const order of missingOrders) {
+        try {
+          const response = await axios.post(
+            'https://platformb.com/api/get-order-by-id',
+            { orderid: order }  // Assuming PlatformB uses order without the 'WC_' prefix
+          );
+          allOrderDetails.push(response.data);
+        } catch (error) {
+          allOrderDetails.push({ order, error: error.message });  // Handle errors for each failed order
+        }
+      }
+
+      return res.status(200).json({
+        statusCode: 200,
+        status: true,
+        message: `Fetched order details from ${platformName}`,
+        orderDetails: allOrderDetails,  // Return the order details for missing orders
+      });
+    } else {
+      return res.status(400).json({
+        statusCode: 400,
+        status: false,
+        message: "Platform not supported",
+      });
+    }
+  } catch (error) {
+    return res.status(500).json({
+      statusCode: 500,
+      status: false,
+      message: `Error fetching order details from ${platformName}`,
+    });
+  }
+};
+
+
 
 exports.softDeleteOrders = async (req, res) => {
   try {
@@ -953,6 +903,67 @@ exports.softDeleteOrders = async (req, res) => {
       statusCode: 500,
       status: false,
       message: "Internal server error. Please try again later.",
+      error: err?.message || "Unknown error",
+    });
+  }
+};
+
+
+
+exports.disconnectAndProcess = async (req, res) => {
+  try {
+    const { client_id, platformName } = req.body;
+
+    // Validate client_id
+    if (!client_id) {
+      return res.status(400).json({
+        statusCode: 400,
+        status: false,
+        message: "client_id is missing or invalid.",
+      });
+    }
+
+    console.log("Received client_id:", client_id);
+
+    let internalApiResponse;
+
+    if (platformName === 'woocommerce') {
+      internalApiResponse = await axios.post(
+        "https://artsafenet.com/wp-json/finerworks-media/v1/deauthorize",
+        { client_id }
+      );
+    } else {
+      // Handle other platformNames or return error if unsupported
+      return res.status(400).json({
+        statusCode: 400,
+        status: false,
+        message: `Unsupported platformName: ${platformName}`,
+      });
+    }
+
+    if (internalApiResponse.status !== 200) {
+      return res.status(500).json({
+        statusCode: 500,
+        status: false,
+        message: "Failed to deauthorize client_id with internal API.",
+      });
+    }
+
+    // Success
+    return res.status(200).json({
+      statusCode: 200,
+      status: true,
+      message: "Client successfully deauthorized.",
+      data: internalApiResponse.data,
+    });
+
+  } catch (err) {
+    console.error("Error while processing client_id:", err);
+
+    return res.status(500).json({
+      statusCode: 500,
+      status: false,
+      message: err?.response?.data?.message || "Internal server error. Please try again later.",
       error: err?.message || "Unknown error",
     });
   }
