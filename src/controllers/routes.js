@@ -5,7 +5,7 @@ const { getClientToken, addPaymentCard, createCustomer, getFullCustomerDetails, 
 const { validateOrders, validateSubmitOrders, uploadOrdersToLocalDatabase, updateOrder } = require('./upload-orders'); 
 const { listVirtualInventory, validateListVirtualInventory, validateUpdateVirtualInventory, updateVirtualInventory, validateSkus, deleteVirtualInventory, getProductBySku } = require('./virtual-inventory');
 const { validateAddProduct, addProduct, getProductDetails,increaseProductQuantity,exportToWoocomercev1 } = require('./products-management');
-const { viewOrderDetails, viewAllOrders, updateOrderByProductSkuCode, createNewOrder, deleteOrder, orderSubmitStatus, getOrderPrice, submitOrders,getOrderDetailsById } = require('./orders');
+const { viewOrderDetails, viewAllOrders, updateOrderByProductSkuCode, createNewOrder, deleteOrder, orderSubmitStatus, getOrderPrice, submitOrders,getOrderDetailsById,softDeleteOrders ,disconnectAndProcess,disconnectProductsFromInventory} = require('./orders');
 const { listShippingOptions } = require('./shipping-options');
 const { getUserPaymentToken } = require('./payment-token');
 const {updateUserInformation}=require('./userInformation')
@@ -41,7 +41,13 @@ app.post('/add-token-to-user', updateUserInformation);
 app.post('/increase-product-quantity', increaseProductQuantity);
 app.post('/export-to-woocommerce', exportToWoocomercev1);
 app.post('/remove-card', removePaymentCard);
-app.get('/get-order-details-by-id', getOrderDetailsById);
+app.post('/get-order-details-by-id', getOrderDetailsById);
+app.post('/soft-delete-after-payment', softDeleteOrders);
+app.post('/disconnect', disconnectAndProcess);
+app.post('/disconnect-products-virtualInventory', disconnectProductsFromInventory);
+
+
+
 
 
 

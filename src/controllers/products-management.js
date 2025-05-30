@@ -91,8 +91,9 @@ exports.getProductDetails = async (req, res) => {
         message: "Bad Request: Request body is missing or invalid",
       });
     }
-
+    console.log("reqBody=========",reqBody);
     const productDetails = await finerworksService.GET_PRODUCTS_DETAILS(reqBody);
+    console.log("productDetails==========>>>>>>>>>>",productDetails);
 
     if (!productDetails || !productDetails.status) {
       return res.status(404).json({

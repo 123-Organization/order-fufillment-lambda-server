@@ -15,7 +15,7 @@ const businessInfoSchema = Joi.object({
   address_2: Joi.string().optional().allow(''),
   address_3: Joi.string().optional().allow(null),
   city: Joi.string().required(),
-  state_code: Joi.string().length(2).required(), // assuming state_code is a 2-character state code
+  state_code: Joi.string().length(2).optional().allow(''), // assuming state_code is a 2-character state code
   province: Joi.string().optional().allow(null),
   zip_postal_code: Joi.string().required(),
   country_code: Joi.string().length(2).required(), // assuming country_code is a 2-character country code
@@ -36,13 +36,13 @@ exports.updateCompanyInformation = async (req, res) => {
   try {
       const reqBody = JSON.parse(JSON.stringify(req.body));
       let payloadForCompanyInformation = {};
-      if (!reqBody.account_key) {
-          res.status(400).json({
-              statusCode: 400,
-              status: false,
-              message: 'Account key is required',
-          });
-          return;
+      const accountKeyRegex = /^[a-f0-9]{8}-([a-f0-9]{4}-){3}[a-f0-9]{12}$/i;
+      if (!reqBody.account_key || !accountKeyRegex.test(reqBody.account_key)) {
+        return res.status(400).json({
+          statusCode: 400,
+          status: false,
+          message: 'Invalid account key format. Must be a valid UUID.',
+        });
       }
 
       payloadForCompanyInformation.account_key = reqBody.account_key;
