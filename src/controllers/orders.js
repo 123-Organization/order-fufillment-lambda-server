@@ -9,6 +9,83 @@ const axios = require('axios'); // Import axios for making HTTP requests
 
 
 
+// exports.viewAllOrders = async (req, res) => {
+//   try {
+//     // Validate request body format
+//     if (!req.body || typeof req.body !== "object") {
+//       return res.status(400).json({
+//         statusCode: 400,
+//         status: false,
+//         message: "Invalid request format. Expected a JSON object.",
+//       });
+//     }
+
+//     const { accountId } = req.body;
+//     if (!accountId) {
+//       return res.status(400).json({
+//         statusCode: 400,
+//         status: false,
+//         message: "Account ID is missing or invalid.",
+//       });
+//     }
+
+//     log("Request to get order details for", JSON.stringify(req.body));
+
+//     const selectPayload = {
+//       query: `SELECT * FROM ${process.env.FINER_fwAPI_FULFILLMENTS_TABLE} WHERE FulfillmentAccountID=${accountId} AND FulfillmentDeleted=0 ORDER BY FulfillmentID DESC`,
+//     };
+
+//     const selectData = await finerworksService.SELECT_QUERY_FINERWORKS(selectPayload);
+
+//     if (!selectData || !selectData.data || !Array.isArray(selectData.data)) {
+//       log("No orders found for account ID:", accountId);
+//       return res.status(200).json({
+//         statusCode: 200,
+//         status: false,
+//         message: "No orders found for the provided account ID.",
+//       });
+//     }
+//     console.log("selectPayload",selectData);
+//     // Process orders
+//     let allOrders = selectData.data.map((order) => {
+//       let orderData = urlDecodeJSON(order.FulfillmentData);
+//       orderData.orderFullFillmentId = order.FulfillmentID;
+//       return orderData;
+//     });
+
+//     // Handle empty order array case
+//     if (allOrders.length === 0) {
+//       log("No orders found after processing for account ID:", accountId);
+//       return res.status(200).json({
+//         statusCode: 200,
+//         status: false,
+//         message: "No orders available for this account.",
+//         data: [],
+//       });
+//     }
+
+//     res.status(200).json({
+//       statusCode: 200,
+//       status: true,
+//       message: "Orders found successfully.",
+//       data: allOrders,
+//     });
+
+//   } catch (err) {
+//     log("Error while fetching orders:", err?.message || JSON.stringify(err));
+
+//     res.status(500).json({
+//       statusCode: 500,
+//       status: false,
+//       message: "Internal server error. Please try again later.",
+//       error: err?.message || "Unknown error",
+//     });
+//   }
+// };
+
+
+
+
 exports.viewAllOrders = async (req, res) => {
   try {
     // Validate request body format
@@ -20,7 +97,8 @@ exports.viewAllOrders = async (req, res) => {
       });
     }
 
-    const { accountId } = req.body;
+    const { accountId, page , limit  } = req.body;
+
     if (!accountId) {
       return res.status(400).json({
         statusCode: 400,
@@ -28,6 +106,10 @@ exports.viewAllOrders = async (req, res) => {
         message: "Account ID is missing or invalid.",
       });
     }
+
+    // Convert page and limit to numbers and ensure positive integers
+    const pageNum = parseInt(page, 10) > 0 ? parseInt(page, 10) : 1;
+    const limitNum = parseInt(limit, 10) > 0 ? parseInt(limit, 10) : 10;
 
     log("Request to get order details for", JSON.stringify(req.body));
 
@@ -53,7 +135,6 @@ exports.viewAllOrders = async (req, res) => {
       return orderData;
     });
 
-    // Handle empty order array case
     if (allOrders.length === 0) {
       log("No orders found after processing for account ID:", accountId);
       return res.status(200).json({
@@ -64,11 +145,26 @@ exports.viewAllOrders = async (req, res) => {
       });
     }
 
+    // Pagination calculations
+    const totalOrders = allOrders.length;
+    const totalPages = Math.ceil(totalOrders / limitNum);
+    const startIndex = (pageNum - 1) * limitNum;
+    const endIndex = startIndex + limitNum;
+
+    // Slice orders for current page
+    const paginatedOrders = allOrders.slice(startIndex, endIndex);
+
     res.status(200).json({
       statusCode: 200,
       status: true,
       message: "Orders found successfully.",
-      data: allOrders,
+      data: paginatedOrders,
+      pagination: {
+        totalOrders,
+        totalPages,
+        currentPage: pageNum,
+        pageSize: limitNum,
+      },
     });
 
   } catch (err) {
@@ -82,7 +178,6 @@ exports.viewAllOrders = async (req, res) => {
     });
   }
 };
-
 
 exports.viewOrderDetails = async (req, res) => {
   try {
@@ -169,7 +264,7 @@ exports.updateOrderByProductSkuCode = async (req, res) => {
     }
     const orderDetails = selectData.data[0];
     // If order exist then find the product details
-    const { skuCode, productCode, fromTheInventory,account_key } = reqBody;
+    const { skuCode, productCode, fromTheInventory, account_key } = reqBody;
     const searchListVirtualInventoryParams = {};
     if (skuCode != "") {
       searchListVirtualInventoryParams.sku_filter = [skuCode];
@@ -190,14 +285,14 @@ exports.updateOrderByProductSkuCode = async (req, res) => {
         searchListVirtualInventoryParams
       );
       console.log("only sku", getProductDetails);
-      if(getProductDetails.products.length===0){
-         return res.status(200).json({
+      if (getProductDetails.products.length === 0) {
+        return res.status(200).json({
           statusCode: 200,
           status: true,
           message: "No product found!",
         });
       }
-      
+
       if (getProductDetails?.status?.success) {
         let product = getProductDetails.products;
         console.log("product====", product)
@@ -772,7 +867,7 @@ exports.getOrderDetailsById = async (req, res) => {
 const callApiWithMissingOrders = async (missingOrders, platformName, res) => {
   try {
     let allOrderDetails = [];
-    
+
     if (platformName === 'woocommerce') {
       // Using async/await in the loop for WooCommerce
       for (const order of missingOrders) {
@@ -932,6 +1027,31 @@ exports.disconnectAndProcess = async (req, res) => {
         "https://artsafenet.com/wp-json/finerworks-media/v1/deauthorize",
         { client_id }
       );
+      const getInformation = await finerworksService.GET_INFO({ account_key: client_id });
+      console.log("getInformation==============>>>>>>>>>>", getInformation);
+      // Defensive check if connections exist
+      const connections = getInformation?.user_account?.connections || [];
+
+      // Filter out objects with name === "WooCommerce"
+      const filteredConnections = connections.filter(conn => conn.name !== "WooCommerce");
+
+      console.log("Filtered connections:", filteredConnections);
+      const payloadForCompanyInformation={
+        "account_key": client_id,
+        connections:filteredConnections
+      }
+      // const temp={
+      //   "name": "WooCommerce",
+      //   "id": "artsafenet.com?auth_code=a1d24c5f-bf43-4e0a-b555-1d1331a92033",
+      //   "data": ""
+      // }
+      // const payloadForCompanyInformation={
+      //   "account_key": client_id,
+      //   connections:[temp]
+      // }
+      console.log("payloadForCompanyInformation=========",payloadForCompanyInformation);
+      await finerworksService.UPDATE_INFO(payloadForCompanyInformation);
+
     } else {
       // Handle other platformNames or return error if unsupported
       return res.status(400).json({
@@ -959,6 +1079,78 @@ exports.disconnectAndProcess = async (req, res) => {
 
   } catch (err) {
     console.error("Error while processing client_id:", err);
+
+    return res.status(500).json({
+      statusCode: 500,
+      status: false,
+      message: err?.response?.data?.message || "Internal server error. Please try again later.",
+      error: err?.message || "Unknown error",
+    });
+  }
+};
+
+exports.disconnectProductsFromInventory = async (req, res) => {
+  try {
+    const { platform, account_key } = req.body;
+
+    // Validate input
+    if (!platform || typeof platform !== 'string') {
+      return res.status(400).json({
+        statusCode: 400,
+        status: false,
+        message: "Platform is missing or invalid.",
+      });
+    }
+
+    if (!account_key || typeof account_key !== 'string') {
+      return res.status(400).json({
+        statusCode: 400,
+        status: false,
+        message: "Account key is missing or invalid.",
+      });
+    }
+
+    console.log(`[Disconnect] Platform: ${platform}, Account Key: ${account_key}`);
+
+    switch (platform.toLowerCase()) {
+      case "woocommerce":
+        console.log(`[Disconnect] Processing WooCommerce products for account: ${account_key}`);
+
+        // Pass both platform and account_key to the disconnect API
+        await finerworksService.DISCONNECT_VIRTUAL_INVENTORY({ 
+          platform, 
+          account_key 
+        });
+        return res.status(200).json({
+          statusCode: 200,
+          status: true,
+          message: "WooCommerce products disconnected from inventory successfully.",
+        });
+
+      case "shopify":
+        console.log(`[Disconnect] Processing Shopify products for account: ${account_key}`);
+
+        // Pass both platform and account_key here too if applicable
+        await finerworksService.DISCONNECT_VIRTUAL_INVENTORY({ 
+          platform, 
+          account_key 
+        });
+
+        return res.status(200).json({
+          statusCode: 200,
+          status: true,
+          message: "Shopify products disconnected from inventory successfully.",
+        });
+
+      default:
+        return res.status(400).json({
+          statusCode: 400,
+          status: false,
+          message: `Unsupported platform: ${platform}`,
+        });
+    }
+  } catch (err) {
+    console.error("[Disconnect] Error while disconnecting products:", err);
 
     return res.status(500).json({
       statusCode: 500,

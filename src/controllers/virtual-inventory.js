@@ -134,7 +134,8 @@ const UpdateVirtualInventorySchema = Joi.object({
                 woocommerce_variant_id: Joi.any().allow(null).optional()
             }).required()
         })
-    ).required()
+    ).required(),
+    account_key:Joi.string().optional()
 });
 // Middleware for validation
 exports.validateUpdateVirtualInventory = async(req, res, next) => {

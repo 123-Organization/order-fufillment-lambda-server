@@ -236,3 +236,13 @@ exports.UPDATE_VIRTUAL_INVENTORY = async (payload) => {
   });
   return postData.data;
 };
+
+exports.DISCONNECT_VIRTUAL_INVENTORY = async (payload) => {
+  const postData = await axios({
+    method: 'PUT',
+    url: process.env.FINER_WORKS_URL + 'disconnect_virtual_inventory',
+    headers: getHeaders(),
+    data: payload
+  });
+  return postData.data;
+};
