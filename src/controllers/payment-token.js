@@ -36,6 +36,31 @@ exports.getUserPaymentToken = async (req, res) => {
   }
 };
 
+
+exports.getCompanyInfo = async (req, res) => {
+  try {
+    // Prepare the request payload with only the necessary credentials
+   
+    console.log("came herererererere")
+    // Perform the API call
+    const response = await finerworksService.GET_COMPANY_INFO();
+
+    // Return the response from the external API
+    res.status(200).json({
+      statusCode: 200,
+      status: true,
+      data: response.data,
+    });
+  } catch (err) {
+    console.error("Error while fetching company info:", err);
+    res.status(500).json({
+      statusCode: 500,
+      status: false,
+      message: "Internal Server Error",
+    });
+  }
+};
+
 function urlDecodeJSON(data) {
   const decodedJsonString = decodeURIComponent(data);
   const decodedJsonObject = JSON.parse(decodedJsonString);

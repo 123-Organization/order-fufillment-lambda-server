@@ -54,7 +54,7 @@ Resources:
         - MyLambdaExecutionRole
         - Arn
       Runtime: nodejs18.x
-      CodeUri: s3://order-fullfilment-app-lambda-server/b678a82d589a85c85c55096f8fc56b13
+      CodeUri: s3://order-fullfilment-app-lambda-server/18f2e60a026b146269b5494e7fd67417
       MemorySize: 3008
       Timeout: 900
       Environment:
@@ -299,6 +299,13 @@ Resources:
               Ref: MyApiGateway
             Method: POST
             Path: /api/disconnect-products-virtualInventory
+        GetCompanyInfo:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: GET
+            Path: /api/get-company-info
     Metadata:
       SamResourceId: OrderFullFillmentServerLessDevServer
   OrderFullFillmentServerLessDevServerLogGroup:

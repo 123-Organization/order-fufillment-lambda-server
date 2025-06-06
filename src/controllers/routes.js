@@ -7,7 +7,7 @@ const { listVirtualInventory, validateListVirtualInventory, validateUpdateVirtua
 const { validateAddProduct, addProduct, getProductDetails,increaseProductQuantity,exportToWoocomercev1 } = require('./products-management');
 const { viewOrderDetails, viewAllOrders, updateOrderByProductSkuCode, createNewOrder, deleteOrder, orderSubmitStatus, getOrderPrice, submitOrders,getOrderDetailsById,softDeleteOrders ,disconnectAndProcess,disconnectProductsFromInventory} = require('./orders');
 const { listShippingOptions } = require('./shipping-options');
-const { getUserPaymentToken } = require('./payment-token');
+const { getUserPaymentToken,getCompanyInfo } = require('./payment-token');
 const {updateUserInformation}=require('./userInformation')
 const app = Router();
 app.put('/update-company-information',updateCompanyInformation);
@@ -45,6 +45,8 @@ app.post('/get-order-details-by-id', getOrderDetailsById);
 app.post('/soft-delete-after-payment', softDeleteOrders);
 app.post('/disconnect', disconnectAndProcess);
 app.post('/disconnect-products-virtualInventory', disconnectProductsFromInventory);
+app.get('/get-company-info', getCompanyInfo);
+
 
 
 
