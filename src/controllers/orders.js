@@ -863,22 +863,90 @@ exports.getOrderDetailsById = async (req, res) => {
   }
 };
 
-// Helper function to call the API for missing orders
+// // Helper function to call the API for missing orders
+// const callApiWithMissingOrders = async (missingOrders, platformName, res) => {
+//   try {
+//     let allOrderDetails = [];
+
+//     if (platformName === 'woocommerce') {
+//       // Using async/await in the loop for WooCommerce
+//       for (const order of missingOrders) {
+//         try {
+//           const response = await axios.post(
+//             'https://artsafenet.com/wp-json/finerworks-media/v1/get-order-by-id',
+//             { orderid: order }  // Pass the orderid with 'WC_' prefix
+//           );
+//           allOrderDetails.push(response.data);
+//         } catch (error) {
+//           allOrderDetails.push({ order, error: error.message });  // Handle errors for each failed order
+//         }
+//       }
+
+//       return res.status(200).json({
+//         statusCode: 200,
+//         status: true,
+//         message: "Fetched missing order details from WooCommerce",
+//         orderDetails: allOrderDetails,  // Return the order details for missing orders
+//       });
+//     } else if (platformName === 'PlatformB') {
+//       // Using async/await in the loop for PlatformB
+//       for (const order of missingOrders) {
+//         try {
+//           const response = await axios.post(
+//             'https://platformb.com/api/get-order-by-id',
+//             { orderid: order }  // Assuming PlatformB uses order without the 'WC_' prefix
+//           );
+//           allOrderDetails.push(response.data);
+//         } catch (error) {
+//           allOrderDetails.push({ order, error: error.message });  // Handle errors for each failed order
+//         }
+//       }
+
+//       return res.status(200).json({
+//         statusCode: 200,
+//         status: true,
+//         message: `Fetched order details from ${platformName}`,
+//         orderDetails: allOrderDetails,  // Return the order details for missing orders
+//       });
+//     } else {
+//       return res.status(400).json({
+//         statusCode: 400,
+//         status: false,
+//         message: "Platform not supported",
+//       });
+//     }
+//   } catch (error) {
+//     return res.status(500).json({
+//       statusCode: 500,
+//       status: false,
+//       message: `Error fetching order details from ${platformName}`,
+//     });
+//   }
+// };
+
 const callApiWithMissingOrders = async (missingOrders, platformName, res) => {
   try {
     let allOrderDetails = [];
 
     if (platformName === 'woocommerce') {
-      // Using async/await in the loop for WooCommerce
+      const wooCommerceUrl = process.env.FINERWORKS_WOOCOMMERCE_URL;
+      if (!wooCommerceUrl) {
+        return res.status(500).json({
+          statusCode: 500,
+          status: false,
+          message: "WooCommerce URL is not configured in environment variables",
+        });
+      }
+
       for (const order of missingOrders) {
         try {
           const response = await axios.post(
-            'https://artsafenet.com/wp-json/finerworks-media/v1/get-order-by-id',
-            { orderid: order }  // Pass the orderid with 'WC_' prefix
+            wooCommerceUrl + '/get-order-by-id',
+            { orderid: order } // assuming order id includes 'WC_' prefix if required
           );
           allOrderDetails.push(response.data);
         } catch (error) {
-          allOrderDetails.push({ order, error: error.message });  // Handle errors for each failed order
+          allOrderDetails.push({ order, error: error.message });
         }
       }
 
@@ -886,19 +954,18 @@ const callApiWithMissingOrders = async (missingOrders, platformName, res) => {
         statusCode: 200,
         status: true,
         message: "Fetched missing order details from WooCommerce",
-        orderDetails: allOrderDetails,  // Return the order details for missing orders
+        orderDetails: allOrderDetails,
       });
     } else if (platformName === 'PlatformB') {
-      // Using async/await in the loop for PlatformB
       for (const order of missingOrders) {
         try {
           const response = await axios.post(
             'https://platformb.com/api/get-order-by-id',
-            { orderid: order }  // Assuming PlatformB uses order without the 'WC_' prefix
+            { orderid: order }
           );
           allOrderDetails.push(response.data);
         } catch (error) {
-          allOrderDetails.push({ order, error: error.message });  // Handle errors for each failed order
+          allOrderDetails.push({ order, error: error.message });
         }
       }
 
@@ -906,7 +973,7 @@ const callApiWithMissingOrders = async (missingOrders, platformName, res) => {
         statusCode: 200,
         status: true,
         message: `Fetched order details from ${platformName}`,
-        orderDetails: allOrderDetails,  // Return the order details for missing orders
+        orderDetails: allOrderDetails,
       });
     } else {
       return res.status(400).json({
@@ -920,9 +987,11 @@ const callApiWithMissingOrders = async (missingOrders, platformName, res) => {
       statusCode: 500,
       status: false,
       message: `Error fetching order details from ${platformName}`,
+      error: error.message,
     });
   }
 };
+
 
 
 
@@ -1023,12 +1092,21 @@ exports.disconnectAndProcess = async (req, res) => {
     let internalApiResponse;
 
     if (platformName === 'woocommerce') {
-      internalApiResponse = await axios.post(
-        "https://artsafenet.com/wp-json/finerworks-media/v1/deauthorize",
-        { client_id }
-      );
+      const apiEndpoint = `${process.env.FINERWORKS_WOOCOMMERCE_URL}deauthorize`;
+      console.log("apiEndpoint=============+>>>>>>",apiEndpoint);
+      if (!apiEndpoint) {
+        return res.status(500).json({
+          statusCode: 500,
+          status: false,
+          message: "Deauthorize API endpoint is not configured in environment variables.",
+        });
+      }
+
+      internalApiResponse = await axios.post(apiEndpoint, { client_id });
+
       const getInformation = await finerworksService.GET_INFO({ account_key: client_id });
       console.log("getInformation==============>>>>>>>>>>", getInformation);
+
       // Defensive check if connections exist
       const connections = getInformation?.user_account?.connections || [];
 
@@ -1036,20 +1114,12 @@ exports.disconnectAndProcess = async (req, res) => {
       const filteredConnections = connections.filter(conn => conn.name !== "WooCommerce");
 
       console.log("Filtered connections:", filteredConnections);
-      const payloadForCompanyInformation={
-        "account_key": client_id,
-        connections:filteredConnections
-      }
-      // const temp={
-      //   "name": "WooCommerce",
-      //   "id": "artsafenet.com?auth_code=a1d24c5f-bf43-4e0a-b555-1d1331a92033",
-      //   "data": ""
-      // }
-      // const payloadForCompanyInformation={
-      //   "account_key": client_id,
-      //   connections:[temp]
-      // }
-      console.log("payloadForCompanyInformation=========",payloadForCompanyInformation);
+      const payloadForCompanyInformation = {
+        account_key: client_id,
+        connections: filteredConnections,
+      };
+
+      console.log("payloadForCompanyInformation=========", payloadForCompanyInformation);
       await finerworksService.UPDATE_INFO(payloadForCompanyInformation);
 
     } else {

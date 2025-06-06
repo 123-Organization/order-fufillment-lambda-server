@@ -289,6 +289,13 @@ Resources:
               Ref: MyApiGateway
             Method: POST
             Path: /api/disconnect-products-virtualInventory
+        GetCompanyInfo:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: GET
+            Path: /api/get-company-info
   OrderFullFillmentServerLessDevServerLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:

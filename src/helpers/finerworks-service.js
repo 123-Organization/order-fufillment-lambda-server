@@ -246,3 +246,13 @@ exports.DISCONNECT_VIRTUAL_INVENTORY = async (payload) => {
   });
   return postData.data;
 };
+
+exports.GET_COMPANY_INFO = async () => {
+  const postData = await axios({
+    method: 'GET',
+    url: `${process.env.FINER_WORKS_URL}get_company_info?web_api_key=${process.env.FINER_WORKS_WEB_API_KEY}&app_key=${process.env.FINER_WORKS_APP_KEY}`,
+    headers: getHeaders(),
+  });
+
+  return postData;
+};
