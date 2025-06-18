@@ -1,0 +1,41 @@
+name: Deploy SAM App
+
+on:
+  push:
+    branches:
+      - develop
+
+jobs:
+  deploy:
+    name: Package and Deploy Lambda
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up AWS CLI
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Install AWS SAM CLI
+        run: |
+          pip install aws-sam-cli
+
+      - name: Package SAM Template
+        run: |
+          sam package \
+            --template-file template.yaml \
+            --s3-bucket order-fullfilment-app-lambda-server \
+            --output-template-file packaged.yaml
+
+      # - name: Deploy SAM Stack
+      #   run: |
+      #     sam deploy \
+      #       --template-file packaged.yaml \
+      #       --stack-name order-fullfilment-stack \
+      #       --capabilities CAPABILITY_IAM \
+      #       --region us-east-1
