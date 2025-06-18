@@ -338,20 +338,37 @@ exports.updateOrderByProductSkuCode = async (req, res) => {
 
       }
     } else if (productCode) {
-      var payload = [{
-        "product_order_po": "ORDER_PO_927668",
-        "product_qty": 1,
-        "product_sku": skuCode ? skuCode : productCode,
-        "product_image": {
-          "pixel_width": reqBody.pixel_width,
-          "pixel_height": reqBody.pixel_height,
-          "product_url_file": reqBody.product_url_file[0],
-          "product_url_thumbnail": reqBody.product_url_thumbnail[0]
-        }
-      }];
+      console.log("got the entry 12121212")
+      // var payload = [{
+      //   // "product_order_po": "ORDER_PO_927668",
+      //   "product_qty": 1,
+      //   "product_sku": skuCode ? skuCode : productCode,
+      //   "product_image": {
+      //     "pixel_width": reqBody.pixel_width,
+      //     "pixel_height": reqBody.pixel_height,
+      //     "product_url_file": reqBody.product_url_file[0],
+      //     "product_url_thumbnail": reqBody.product_url_thumbnail[0],
+          
+      //   }
+      // }];
+      const payload = {
+        products: [{
+            product_qty: 1,
+            product_sku: reqBody.skuCode ? reqBody.skuCode : reqBody.productCode,
+            product_image: {
+                pixel_width: reqBody.pixel_width,
+                pixel_height: reqBody.pixel_height,
+                product_url_file: reqBody.product_url_file[0],
+                product_url_thumbnail: reqBody.product_url_thumbnail[0]
+            }
+        }],
+        account_key: reqBody.account_key
+    };
+
       log("Product details from API", JSON.stringify(getProductDetails));
       getProductDetails = await finerworksService.GET_PRODUCTS_DETAILS(payload);
       log("Get product details", JSON.stringify(getProductDetails));
+      console.log("getProductDetails",getProductDetails);
       if (getProductDetails?.status?.success) {
         let products = skuCode
           ? getProductDetails.products

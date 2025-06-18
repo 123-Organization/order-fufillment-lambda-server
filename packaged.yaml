@@ -54,7 +54,7 @@ Resources:
         - MyLambdaExecutionRole
         - Arn
       Runtime: nodejs18.x
-      CodeUri: s3://order-fullfilment-app-lambda-server/9bcdecfe680b8056a0a9c6a59ee7c4fd
+      CodeUri: s3://order-fullfilment-app-lambda-server/b53dfaddf0e9dee150f4038a9cebdfd2
       MemorySize: 3008
       Timeout: 900
       Environment:
