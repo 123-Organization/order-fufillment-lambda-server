@@ -29,11 +29,15 @@ const getErrorMessage = (error) => {
 //   privateKey: "f951c0861c75fff83f212c421924aa45",
 // });
 
+const environment = process.env.BRAINTREE_ENVIRONMENT === 'Production'
+  ? braintree.Environment.Production
+  : braintree.Environment.Sandbox;
+
 const gateway = new braintree.BraintreeGateway({
-  environment: braintree.Environment[process.env.BRAINTREE_ENVIRONMENT],  // use environment from .env
-  merchantId: process.env.BRAINTREE_MERCHANT_ID,  // use merchant id from .env
-  publicKey: process.env.BRAINTREE_PUBLIC_KEY,  // use public key from .env
-  privateKey: process.env.BRAINTREE_PRIVATE_KEY,  // use private key from .env
+  environment: environment,  // Use the resolved environment directly
+  merchantId: process.env.BRAINTREE_MERCHANT_ID,
+  publicKey: process.env.BRAINTREE_PUBLIC_KEY,
+  privateKey: process.env.BRAINTREE_PRIVATE_KEY,
 });
 
 exports.getClientToken = async (req, res) => {
