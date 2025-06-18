@@ -22,11 +22,18 @@ const getErrorMessage = (error) => {
 };
 
 // Create a new instance of the BraintreeGateway with the provided credentials
+// const gateway = new braintree.BraintreeGateway({
+//   environment: braintree.Environment.Sandbox,
+//   merchantId: "h5wcnvynttcdssyn",
+//   publicKey: "zhj2v8cwpv3692ys",
+//   privateKey: "f951c0861c75fff83f212c421924aa45",
+// });
+
 const gateway = new braintree.BraintreeGateway({
-  environment: braintree.Environment.Sandbox,
-  merchantId: "h5wcnvynttcdssyn",
-  publicKey: "zhj2v8cwpv3692ys",
-  privateKey: "f951c0861c75fff83f212c421924aa45",
+  environment:  braintree.Environment.Production,
+  merchantId:   '8tnqnw3p2mg3xxnj',
+  publicKey:    '8rgwry579xcghyh4',
+  privateKey:   '43a8e46ac0520e6d4be37a9d27cad3c8'
 });
 
 exports.getClientToken = async (req, res) => {
