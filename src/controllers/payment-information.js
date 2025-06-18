@@ -30,10 +30,10 @@ const getErrorMessage = (error) => {
 // });
 
 const gateway = new braintree.BraintreeGateway({
-  environment:  braintree.Environment.Production,
-  merchantId:   '8tnqnw3p2mg3xxnj',
-  publicKey:    '8rgwry579xcghyh4',
-  privateKey:   '43a8e46ac0520e6d4be37a9d27cad3c8'
+  environment: braintree.Environment[process.env.BRAINTREE_ENVIRONMENT],  // use environment from .env
+  merchantId: process.env.BRAINTREE_MERCHANT_ID,  // use merchant id from .env
+  publicKey: process.env.BRAINTREE_PUBLIC_KEY,  // use public key from .env
+  privateKey: process.env.BRAINTREE_PRIVATE_KEY,  // use private key from .env
 });
 
 exports.getClientToken = async (req, res) => {
