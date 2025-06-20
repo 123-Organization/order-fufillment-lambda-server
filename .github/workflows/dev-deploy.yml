@@ -81,11 +81,6 @@ jobs:
           sed -i "s#SAM_BRAINTREE_PUBLIC_KEY#${PROD_BRAINTREE_PUBLIC_KEY}#g" .env
           sed -i "s#SAM_BRAINTREE_PRIVATE_KEY#${PROD_BRAINTREE_PRIVATE_KEY}#g" .env
 
-      - name: print .env to check
-        run: |
-          cat .env
-
-
       - name: Install AWS SAM CLI
         run: |
           pip install aws-sam-cli
