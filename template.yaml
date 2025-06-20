@@ -50,7 +50,7 @@ Resources:
       Handler: lambda.handler
       Role: !GetAtt MyLambdaExecutionRole.Arn
       Runtime: nodejs18.x
-      CodeUri: .
+      CodeUri: ./
       MemorySize: 3008
       Timeout: 900
       Environment:
