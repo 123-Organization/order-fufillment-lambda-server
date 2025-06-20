@@ -100,7 +100,9 @@ jobs:
           sam build
 
       - name: Check build output
-        run: ls -la .aws-sam/build/
+        run: |
+          cp .env .aws-sam/build/OrderFullFillmentServerLessDevServer/
+          ls -la .aws-sam/build/
 
       - name: Check for express before package
         run: find .aws-sam/build -name express
@@ -112,10 +114,10 @@ jobs:
             --s3-bucket order-fullfilment-app-lambda-server \
             --output-template-file packaged.yaml
 
-      # - name: Deploy SAM Stack
-      #   run: |
-      #     sam deploy \
-      #       --template-file packaged.yaml \
-      #       --stack-name order-fullfilment-stack \
-      #       --capabilities CAPABILITY_IAM \
-      #       --region us-east-1
+      - name: Deploy SAM Stack
+        run: |
+          sam deploy \
+            --template-file packaged.yaml \
+            --stack-name order-fullfilment-stack \
+            --capabilities CAPABILITY_IAM \
+            --region us-east-1
