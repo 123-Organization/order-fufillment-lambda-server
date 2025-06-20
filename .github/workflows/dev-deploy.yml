@@ -98,10 +98,13 @@ jobs:
         run: |
           sam build
 
+      - name: Check for express before package
+        run: find .aws-sam/build -name express
+
       - name: Package SAM Template
         run: |
           sam package \
-            --template-file template.yaml \
+            --template-file .aws-sam/build/template.yaml \
             --s3-bucket order-fullfilment-app-lambda-server \
             --output-template-file packaged.yaml
 
