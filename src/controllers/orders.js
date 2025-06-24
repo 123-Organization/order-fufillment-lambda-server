@@ -629,14 +629,14 @@ exports.deleteOrder = async (req, res) => {
 exports.submitOrders = async (req, res) => {
   try {
     const reqBody = JSON.parse(JSON.stringify(req.body));
-    if (!reqBody?.orders || !reqBody?.payment_token || !reqBody?.accountId) {
+    if (!reqBody?.orders || !reqBody?.payment_token || !reqBody?.accountId || !reqBody?.account_key) {
       res.status(400).json({
         statusCode: 400,
         status: false,
         message: "Bad Request.",
       });
     }
-    const { accountId, payment_token } = reqBody;
+    const { accountId, payment_token,account_key } = reqBody;
     const ordersToBeSubmitted = reqBody.orders;
     if (ordersToBeSubmitted?.length) {
       let orderFulfillmentIds = [];
@@ -656,6 +656,7 @@ exports.submitOrders = async (req, res) => {
         orders: finalOrders,
         validate_only: false,
         payment_token,
+        account_key:account_key
       };
       log("Submit order in finerwork database", JSON.stringify(finalPayload));
       const submitData = await finerworksService.SUBMIT_ORDERS(finalPayload);
