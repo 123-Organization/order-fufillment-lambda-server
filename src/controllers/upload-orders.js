@@ -321,6 +321,11 @@ exports.uploadOrdersToLocalDatabaseFromExcel = async (req, res) => {
         order.createdAt = new Date();
         order.submittedAt = null;
         const urlEncodedData = urlEncodeJSON(order);
+        if (Array.isArray(order.order_items)) {
+          for (const item of order.order_items) {
+            item.product_guid = generateGUID();
+          }
+        }
         const selectPayload = {
           query: `SELECT * FROM ${process.env.FINER_fwAPI_FULFILLMENTS_TABLE} WHERE FulfillmentAccountID=${reqBody.accountId} AND FulfillmentSubmitted=0 AND FulfillmentDeleted=0 AND FulfillmentAppName='excel'`,
         };
@@ -462,5 +467,10 @@ const getFulfillmentData = (data) => {
   });
 };
 
-
+function generateGUID() {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+    const r = Math.random() * 16 | 0, v = c === 'x' ? r : (r & 0x3 | 0x8);
+    return v.toString(16);
+  });
+}
 
