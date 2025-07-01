@@ -210,7 +210,7 @@ exports.GET_PAYMENT_TOKEN = async (payload) => {
   console.log("payload",payload);
   const postData = await axios({
     method: 'GET',
-    url: process.env.FINER_WORKS_URL + 'get_payment_tokens?payment_profile_id=' + payload.payment_profile_id+ '&sandbox=true',
+    url: process.env.FINER_WORKS_URL + 'get_payment_tokens?payment_profile_id=' + payload.payment_profile_id+ '&sandbox=false',
     headers: getHeaders()
   }); 
   return postData.data;
