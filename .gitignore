@@ -13,4 +13,3 @@ npm-debug.log
 # Ignore extra files
 .nyc
 .DS_Store
-.dev-deploy.yml
