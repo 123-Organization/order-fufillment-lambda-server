@@ -435,7 +435,6 @@ exports.updateOrderByProductSkuCode = async (req, res) => {
 exports.updateOrderByValidProductSkuCode = async (req, res) => {
   try {
     const reqBody = JSON.parse(JSON.stringify(req.body));
-    console.log("testinggggggggg", req.body);
     var getProductDetails
 
     if (!reqBody.orderFullFillmentId) {
