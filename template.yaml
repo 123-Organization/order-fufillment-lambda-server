@@ -303,6 +303,13 @@ Resources:
               Ref: MyApiGateway
             Method: POST
             Path: /api/upload-orders-from-excel
+        UpdateWithValidSKU:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: POST
+            Path: /api/update-order-by-valid-product-sku
   OrderFullFillmentServerLessDevServerLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
