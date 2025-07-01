@@ -465,7 +465,6 @@ exports.updateOrderByValidProductSkuCode = async (req, res) => {
     const selectData = await finerworksService.SELECT_QUERY_FINERWORKS(
       selectPayload
     );
-    console.log("selectData=====>>>>>", selectData);
 
     log("Order Data", JSON.stringify(selectData));
     if (selectData?.data.length === 0) {
