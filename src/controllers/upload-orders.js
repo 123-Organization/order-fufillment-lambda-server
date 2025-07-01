@@ -185,8 +185,8 @@ exports.validateSubmitOrders = async (req, res, next) => {
 };
 
 
-exports.updateOrder = async (req, res)  => {
-  try{
+exports.updateOrder = async (req, res) => {
+  try {
     const reqBody = JSON.parse(JSON.stringify(req.body));
 
     const { error } = recipientSchema.validate(reqBody?.orders?.[0]?.recipient);
@@ -197,57 +197,57 @@ exports.updateOrder = async (req, res)  => {
         message: `Validation error: ${error.details[0].message}`,
       });
     }
-      if (!reqBody || !reqBody?.accountId) {
-        res.status(400).json({
-          statusCode: 400,
-          status: false,
-          message: "Bad request. This request should contain account ID",
-        });
-      } else {
-        const orders = reqBody.orders;
-        if(orders?.length){
-          for(const order of orders){
-            log('Order come to update', order.orderFullFillmentId);
-            const selectPayload = {
-              query: `SELECT * FROM ${process.env.FINER_fwAPI_FULFILLMENTS_TABLE} WHERE FulfillmentAccountID=${reqBody.accountId} AND FulfillmentID=${order.orderFullFillmentId} limit 1`,
-            };
-            const selectDataQueryExecute = await finerworksService.SELECT_QUERY_FINERWORKS(
-              selectPayload
-            );
-            log('selectDataQueryExecute', selectDataQueryExecute);
-            if(!selectDataQueryExecute){
-              res.status(400).json({
-                statusCode: 400,
-                status: false,
-                message: "Bad request. Request does't contain valid fullfillment app ID",
-              });
-            }
-            const urlEncodedData = urlEncodeJSON(order);
-            const updatePayload = {
-              tablename: process.env.FINER_fwAPI_FULFILLMENTS_TABLE,
-              fieldupdates: `FulfillmentData='${urlEncodedData}'`,
-              where: `FulfillmentID=${order.orderFullFillmentId}`,
-            };
-            const updateQueryExecute = await finerworksService.UPDATE_QUERY_FINERWORKS(
-              updatePayload
-            );
-            
-            if(updateQueryExecute){
-              log(`Order with ${order.orderFullFillmentId} has been successfully updated`);
-            }
+    if (!reqBody || !reqBody?.accountId) {
+      res.status(400).json({
+        statusCode: 400,
+        status: false,
+        message: "Bad request. This request should contain account ID",
+      });
+    } else {
+      const orders = reqBody.orders;
+      if (orders?.length) {
+        for (const order of orders) {
+          log('Order come to update', order.orderFullFillmentId);
+          const selectPayload = {
+            query: `SELECT * FROM ${process.env.FINER_fwAPI_FULFILLMENTS_TABLE} WHERE FulfillmentAccountID=${reqBody.accountId} AND FulfillmentID=${order.orderFullFillmentId} limit 1`,
+          };
+          const selectDataQueryExecute = await finerworksService.SELECT_QUERY_FINERWORKS(
+            selectPayload
+          );
+          log('selectDataQueryExecute', selectDataQueryExecute);
+          if (!selectDataQueryExecute) {
+            res.status(400).json({
+              statusCode: 400,
+              status: false,
+              message: "Bad request. Request does't contain valid fullfillment app ID",
+            });
           }
-          res.status(200).json({
-            statusCode: 200,
-            status: true,
-            message: "Orders have been successfully updated",
-            data: orders,
-          });
+          const urlEncodedData = urlEncodeJSON(order);
+          const updatePayload = {
+            tablename: process.env.FINER_fwAPI_FULFILLMENTS_TABLE,
+            fieldupdates: `FulfillmentData='${urlEncodedData}'`,
+            where: `FulfillmentID=${order.orderFullFillmentId}`,
+          };
+          const updateQueryExecute = await finerworksService.UPDATE_QUERY_FINERWORKS(
+            updatePayload
+          );
+
+          if (updateQueryExecute) {
+            log(`Order with ${order.orderFullFillmentId} has been successfully updated`);
+          }
         }
+        res.status(200).json({
+          statusCode: 200,
+          status: true,
+          message: "Orders have been successfully updated",
+          data: orders,
+        });
       }
-    } catch (err) {
-      throw err;
     }
+  } catch (err) {
+    throw err;
   }
+}
 
 
 
@@ -295,6 +295,83 @@ exports.validateOrders = async (req, res) => {
       status: false,
       message: finalMessage,
     });
+  }
+};
+
+exports.uploadOrdersToLocalDatabaseFromExcel = async (req, res) => {
+  try {
+    const reqBody = JSON.parse(JSON.stringify(req.body));
+    if (!reqBody?.orders) {
+      res.status(400).json({
+        statusCode: 400,
+        status: false,
+        message: "Bad Request. Orders are required.",
+      });
+    } else {
+      const uploadedFromAppName = reqBody.uploadedFrom ?? 'Finerworks';
+      const ordersToBeSubmitted = reqBody.orders;
+      const consolidatedOrdersData = consolidateOrderItems(ordersToBeSubmitted);
+      const payloadToBeSubmitted = {
+        orders: consolidatedOrdersData.orders,
+        validate_only: false,
+        payment_token: reqBody.payment_token,
+      };
+      const { orders } = payloadToBeSubmitted;
+      for (const order of orders) {
+        order.createdAt = new Date();
+        order.submittedAt = null;
+        const urlEncodedData = urlEncodeJSON(order);
+        if (Array.isArray(order.order_items)) {
+          for (const item of order.order_items) {
+            item.product_guid = generateGUID();
+          }
+        }
+        const selectPayload = {
+          query: `SELECT * FROM ${process.env.FINER_fwAPI_FULFILLMENTS_TABLE} WHERE FulfillmentAccountID=${reqBody.accountId} AND FulfillmentSubmitted=0 AND FulfillmentDeleted=0 AND FulfillmentAppName='excel'`,
+        };
+
+        const selectData = await finerworksService.SELECT_QUERY_FINERWORKS(selectPayload);
+
+        const orderPos = getFulfillmentData(selectData.data);
+
+        const filteredObject = orderPos.find(item => item.order_po === order.order_po);
+
+        if (filteredObject) {
+          console.log("enter in this block");
+          const updatePayload = {
+            tablename: process.env.FINER_fwAPI_FULFILLMENTS_TABLE,
+            fieldupdates: `FulfillmentData='${urlEncodedData}'`,
+            where: `FulfillmentID=${filteredObject.FulfillmentID}`,
+          };
+          const updateQueryExecute = await finerworksService.UPDATE_QUERY_FINERWORKS(updatePayload);
+        } else {
+          // console.log("yessssssssssssssssssssssssssss")
+          const insertPayload = {
+            tablename: process.env.FINER_fwAPI_FULFILLMENTS_TABLE,
+            fields:
+              "FulfillmentAccountID, FulfillmentData, FulfillmentSubmitted, FulfillmentAppName ",
+            values: `'${reqBody.accountId}', '${urlEncodedData}', 0, 'excel'`,
+
+          };
+          console.log("insertPayload============>>>>>", insertPayload);
+          log("insertPayload for the creation of the order in the local database", JSON.stringify(insertPayload));
+          const insertData = await finerworksService.INSERT_QUERY_FINERWORKS(
+            insertPayload
+          );
+          log("Response after submitted to the local database", JSON.stringify(insertData));
+          order.orderFullFillmentId = insertData.record_id;
+        }
+
+      }
+      res.status(200).json({
+        statusCode: 200,
+        status: true,
+        message: "Orders have been submitted successfully",
+        data: orders,
+      });
+    }
+  } catch (err) {
+    console.log('error is', JSON.stringify(err), err);
   }
 };
 
@@ -378,6 +455,22 @@ function consolidateOrderItems(ordersData) {
   return { orders: result, validate_only: ordersData.validate_only };
 }
 
+const getFulfillmentData = (data) => {
+  return data.map(item => {
+    const fulfillmentDataDecoded = decodeURIComponent(item.FulfillmentData);
+    const fulfillmentDataJson = JSON.parse(fulfillmentDataDecoded);
 
+    return {
+      FulfillmentID: item.FulfillmentID,
+      order_po: fulfillmentDataJson.order_po
+    };
+  });
+};
 
+function generateGUID() {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+    const r = Math.random() * 16 | 0, v = c === 'x' ? r : (r & 0x3 | 0x8);
+    return v.toString(16);
+  });
+}
 

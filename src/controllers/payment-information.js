@@ -20,15 +20,6 @@ const getErrorMessage = (error) => {
   if (error instanceof braintree.errors.TooManyRequestsError) return "Rate limit exceeded.";
   return "An unknown error occurred.";
 };
-
-// Create a new instance of the BraintreeGateway with the provided credentials
-// const gateway = new braintree.BraintreeGateway({
-//   environment: braintree.Environment.Sandbox,
-//   merchantId: "h5wcnvynttcdssyn",
-//   publicKey: "zhj2v8cwpv3692ys",
-//   privateKey: "f951c0861c75fff83f212c421924aa45",
-// });
-
 const environment = process.env.BRAINTREE_ENVIRONMENT === 'Production'
   ? braintree.Environment.Production
   : braintree.Environment.Sandbox;

@@ -97,7 +97,7 @@ exports.viewAllOrders = async (req, res) => {
       });
     }
 
-    const { accountId, page , limit  } = req.body;
+    const { accountId, page, limit } = req.body;
 
     if (!accountId) {
       return res.status(400).json({
@@ -365,6 +365,7 @@ exports.updateOrderByProductSkuCode = async (req, res) => {
       log("Product details from API", JSON.stringify(getProductDetails));
       getProductDetails = await finerworksService.GET_PRODUCTS_DETAILS(payload);
       log("Get product details", JSON.stringify(getProductDetails));
+      console.log("getProductDetails", getProductDetails);
       if (getProductDetails?.status?.success) {
         let products = skuCode
           ? getProductDetails.products
@@ -427,6 +428,226 @@ exports.updateOrderByProductSkuCode = async (req, res) => {
   }
 };
 
+
+exports.updateOrderByValidProductSkuCode = async (req, res) => {
+  try {
+    const reqBody = JSON.parse(JSON.stringify(req.body));
+    var getProductDetails
+
+    if (!reqBody.orderFullFillmentId) {
+      res.status(400).json({
+        statusCode: 400,
+        status: false,
+        message: "Orderfullfillment Id is required.",
+      });
+    }
+    if (!reqBody.skuCode && !reqBody.productCode) {
+      res.status(400).json({
+        statusCode: 400,
+        status: false,
+        message: "Sku code or Product Guid is required",
+      });
+    }
+
+    // Fetch first if order is exist
+    log(
+      "Request comes to get order details to update product details",
+      JSON.stringify(reqBody)
+    );
+    const selectPayload = {
+      query: `SELECT * FROM ${process.env.FINER_fwAPI_FULFILLMENTS_TABLE} WHERE  FulfillmentID=${reqBody.orderFullFillmentId} AND FulfillmentAccountID=${reqBody.accountId}`,
+    };
+    console.log("selectPayload=====>>>>>", selectPayload);
+    log("Select query to fetch the orders", JSON.stringify(selectPayload));
+    const selectData = await finerworksService.SELECT_QUERY_FINERWORKS(
+      selectPayload
+    );
+    console.log("selectData=====>>>>>", selectData);
+
+    log("Order Data", JSON.stringify(selectData));
+    if (selectData?.data.length === 0) {
+      res.status(400).json({
+        statusCode: 400,
+        status: false,
+        message: "Invalid order. Please try with valid order.",
+      });
+    }
+    const orderDetails = selectData.data[0];
+    // If order exist then find the product details
+    const { skuCode, productCode, fromTheInventory, account_key,toReplace } = reqBody;
+    const searchListVirtualInventoryParams = {};
+    if (skuCode != "") {
+      searchListVirtualInventoryParams.sku_filter = [skuCode];
+    }
+    if (productCode != "") {
+      searchListVirtualInventoryParams.product_code_filter = [productCode];
+    }
+    if (account_key) {
+      searchListVirtualInventoryParams.account_key = [account_key];
+    }
+    log(
+      "Request come to search product from virtual inventory for the payload",
+      JSON.stringify(searchListVirtualInventoryParams)
+    );
+    console.log("okkkkkkkkkkkkkkkkkkkkkkkkkk")
+    if (skuCode || fromTheInventory) {
+      getProductDetails = await finerworksService.LIST_VIRTUAL_INVENTORY(
+        searchListVirtualInventoryParams
+      );
+      console.log("only sku", getProductDetails);
+      if (getProductDetails.products.length === 0) {
+        return res.status(200).json({
+          statusCode: 200,
+          status: true,
+          message: "No product found!",
+        });
+      }
+
+      if (getProductDetails?.status?.success) {
+        let product = getProductDetails.products;
+        console.log("product====", product)
+        const previousOrder = urlDecodeJSON(orderDetails.FulfillmentData);
+        const orderData = {
+          product_qty: product?.[0]?.quantity ?? null,
+          product_sku: product?.[0]?.sku ? product?.[0]?.sku : product?.[0]?.product_code,
+          product_title: product?.[0]?.name ?? null,
+          product_guid: product?.[0]?.image_guid === '00000000-0000-0000-0000-000000000000'
+            ? null
+            : product?.[0]?.image_guid ?? null,
+          template: null,
+          custom_data_1: null,
+          custom_data_2: null,
+          custom_data_3: null,
+        }
+        console.log("orderData====>>>>", orderData);
+        console.log(previousOrder, "previousOrder")
+        const updatedOrder = updateOrderItems(previousOrder, orderData, toReplace);
+
+        console.log("updatedOrder",updatedOrder);
+        // previousOrder.order_items.push(orderData);
+        const urlEncodedData = urlEncodeJSON(updatedOrder);
+        const updatePayload = {
+          tablename: process.env.FINER_fwAPI_FULFILLMENTS_TABLE,
+          fieldupdates: `FulfillmentData='${urlEncodedData}'`,
+          where: `FulfillmentID=${reqBody.orderFullFillmentId}`,
+        };
+        const updateQueryExecute =
+          await finerworksService.UPDATE_QUERY_FINERWORKS(updatePayload);
+        if (updateQueryExecute) {
+          res.status(200).json({
+            statusCode: 200,
+            status: true,
+            message: "Orders have been successfully updated",
+            data: previousOrder,
+          });
+        } else {
+          res.status(400).json({
+            statusCode: 400,
+            status: true,
+            message: "Something went wrong!",
+          });
+        }
+
+
+      }
+    } else if (productCode) {
+      console.log("got the entry 12121212")
+      // var payload = [{
+      //   // "product_order_po": "ORDER_PO_927668",
+      //   "product_qty": 1,
+      //   "product_sku": skuCode ? skuCode : productCode,
+      //   "product_image": {
+      //     "pixel_width": reqBody.pixel_width,
+      //     "pixel_height": reqBody.pixel_height,
+      //     "product_url_file": reqBody.product_url_file[0],
+      //     "product_url_thumbnail": reqBody.product_url_thumbnail[0],
+
+      //   }
+      // }];
+      const payload = {
+        products: [{
+          product_qty: 1,
+          product_sku: reqBody.skuCode ? reqBody.skuCode : reqBody.productCode,
+          product_image: {
+            pixel_width: reqBody.pixel_width,
+            pixel_height: reqBody.pixel_height,
+            product_url_file: reqBody.product_url_file[0],
+            product_url_thumbnail: reqBody.product_url_thumbnail[0]
+          }
+        }],
+        account_key: reqBody.account_key
+      };
+
+      log("Product details from API", JSON.stringify(getProductDetails));
+      getProductDetails = await finerworksService.GET_PRODUCTS_DETAILS(payload);
+      log("Get product details", JSON.stringify(getProductDetails));
+      console.log("getProductDetails", getProductDetails);
+      if (getProductDetails?.status?.success) {
+        let products = skuCode
+          ? getProductDetails.products
+          : getProductDetails.product_list;
+        const previousOrder = urlDecodeJSON(orderDetails.FulfillmentData);
+        const orderData = reqBody.product_url_file.map((url, index) => ({
+          product_qty: products?.[0]?.quantity ?? null,
+          product_sku: products?.[0]?.sku ? products?.[0]?.sku : products?.[0]?.product_code,
+          product_title: products?.[0]?.name ?? null,
+          product_guid: generateGUID(),
+          template: null,
+          custom_data_1: null,
+          custom_data_2: null,
+          custom_data_3: null,
+          product_url_file: url,
+          product_url_thumbnail: reqBody.product_url_thumbnail[index],
+          pixel_width: reqBody.pixel_width ?? "",
+          pixel_height: reqBody.pixel_height ?? "",
+        }));
+
+        // if (previousOrder?.order_items) {
+        //   orderData.forEach((item, index) => {
+        //     previousOrder.order_items.push(item);
+        //   })
+        // }
+        // log("Previous order is", JSON.stringify(previousOrder));
+        // update order
+
+        console.log("orderData====>>>>", orderData);
+        console.log(previousOrder, "previousOrder");
+        const updatedOrder = updateOrderItemsV2(previousOrder, orderData, toReplace);
+        console.log("updatedOrder======>>>>>>",updatedOrder);
+        const urlEncodedData = urlEncodeJSON(updatedOrder);
+        const updatePayload = {
+          tablename: process.env.FINER_fwAPI_FULFILLMENTS_TABLE,
+          fieldupdates: `FulfillmentData='${urlEncodedData}'`,
+          where: `FulfillmentID=${reqBody.orderFullFillmentId}`,
+        };
+        const updateQueryExecute =
+          await finerworksService.UPDATE_QUERY_FINERWORKS(updatePayload);
+        if (updateQueryExecute) {
+          res.status(200).json({
+            statusCode: 200,
+            status: true,
+            message: "Orders have been successfully updated",
+            data: previousOrder,
+          });
+        } else {
+          res.status(400).json({
+            statusCode: 400,
+            status: true,
+            message: "Something went wrong!",
+          });
+        }
+      }
+    }
+
+  } catch (err) {
+    const errorMessage = err.response.data;
+    res.status(400).json({
+      statusCode: 400,
+      status: false,
+      message: errorMessage,
+    });
+  }
+};
 
 function generateGUID() {
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
@@ -625,14 +846,14 @@ exports.deleteOrder = async (req, res) => {
 exports.submitOrders = async (req, res) => {
   try {
     const reqBody = JSON.parse(JSON.stringify(req.body));
-    if (!reqBody?.orders || !reqBody?.payment_token || !reqBody?.accountId) {
+    if (!reqBody?.orders || !reqBody?.payment_token || !reqBody?.accountId || !reqBody?.account_key) {
       res.status(400).json({
         statusCode: 400,
         status: false,
         message: "Bad Request.",
       });
     }
-    const { accountId, payment_token } = reqBody;
+    const { accountId, payment_token, account_key } = reqBody;
     const ordersToBeSubmitted = reqBody.orders;
     if (ordersToBeSubmitted?.length) {
       let orderFulfillmentIds = [];
@@ -652,6 +873,7 @@ exports.submitOrders = async (req, res) => {
         orders: finalOrders,
         validate_only: false,
         payment_token,
+        account_key: account_key
       };
       log("Submit order in finerwork database", JSON.stringify(finalPayload));
       const submitData = await finerworksService.SUBMIT_ORDERS(finalPayload);
@@ -1106,7 +1328,7 @@ exports.disconnectAndProcess = async (req, res) => {
 
     if (platformName === 'woocommerce') {
       const apiEndpoint = `${process.env.FINERWORKS_WOOCOMMERCE_URL}deauthorize`;
-      console.log("apiEndpoint=============+>>>>>>",apiEndpoint);
+      console.log("apiEndpoint=============+>>>>>>", apiEndpoint);
       if (!apiEndpoint) {
         return res.status(500).json({
           statusCode: 500,
@@ -1200,9 +1422,9 @@ exports.disconnectProductsFromInventory = async (req, res) => {
         console.log(`[Disconnect] Processing WooCommerce products for account: ${account_key}`);
 
         // Pass both platform and account_key to the disconnect API
-        await finerworksService.DISCONNECT_VIRTUAL_INVENTORY({ 
-          platform, 
-          account_key 
+        await finerworksService.DISCONNECT_VIRTUAL_INVENTORY({
+          platform,
+          account_key
         });
         return res.status(200).json({
           statusCode: 200,
@@ -1214,9 +1436,9 @@ exports.disconnectProductsFromInventory = async (req, res) => {
         console.log(`[Disconnect] Processing Shopify products for account: ${account_key}`);
 
         // Pass both platform and account_key here too if applicable
-        await finerworksService.DISCONNECT_VIRTUAL_INVENTORY({ 
-          platform, 
-          account_key 
+        await finerworksService.DISCONNECT_VIRTUAL_INVENTORY({
+          platform,
+          account_key
         });
 
         return res.status(200).json({
@@ -1255,4 +1477,57 @@ function urlEncodeJSON(data) {
   const jsonString = JSON.stringify(data);
   const encodedString = encodeURIComponent(jsonString);
   return encodedString;
+}
+
+function updateOrderItems(previousOrder, orderData, toReplace) {
+  // Make a copy of previousOrder to ensure it remains unchanged
+  const updatedOrder = JSON.parse(JSON.stringify(previousOrder));
+
+  // Flag to check if a match is found
+  let matchFound = false;
+
+  // Loop through the order items to find and replace the matched SKU with toReplace
+  updatedOrder.order_items = updatedOrder.order_items.filter(item => {
+    if (item.product_sku === toReplace) {
+      matchFound = true; // Set flag to true if match is found
+      return false; // Remove the matched item from the array
+    }
+    return true;
+  });
+
+  // If a match was found, add the new orderData to the order_items array
+  if (matchFound) {
+    updatedOrder.order_items.push(orderData);
+  }
+
+  return updatedOrder;
+}
+
+function updateOrderItemsV2(previousOrder, orderData, toReplace) {
+  // Make a copy of previousOrder to ensure it remains unchanged
+  const updatedOrder = JSON.parse(JSON.stringify(previousOrder));
+
+  // Flag to check if a match is found
+  let matchFound = false;
+
+  // Loop through the order items to find and replace the matched SKU with toReplace
+  updatedOrder.order_items = updatedOrder.order_items.filter(item => {
+    if (item.product_sku === toReplace) {
+      matchFound = true; // Set flag to true if match is found
+      return false; // Remove the matched item from the array
+    }
+    return true;
+  });
+
+  // If a match was found, add the new orderData to the order_items array
+  if (matchFound) {
+    // Check if orderData is an array, and add all its items to order_items
+    if (Array.isArray(orderData)) {
+      updatedOrder.order_items.push(...orderData);
+    } else {
+      updatedOrder.order_items.push(orderData);
+    }
+  }
+
+  return updatedOrder;
 }

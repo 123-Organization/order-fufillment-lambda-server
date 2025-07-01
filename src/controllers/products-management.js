@@ -80,6 +80,54 @@ exports.addProduct = async (req, res) => {
 // # endregion
 
 
+// exports.getProductDetails = async (req, res) => {
+//   try {
+//     const reqBody = req.body;
+
+//     if (!reqBody || Object.keys(reqBody).length === 0) {
+//       return res.status(400).json({
+//         statusCode: 400,
+//         status: false,
+//         message: "Bad Request: Request body is missing or invalid",
+//       });
+//     }
+//     console.log("reqBody=========",reqBody);
+//     const productDetails = await finerworksService.GET_PRODUCTS_DETAILS(reqBody);
+//     console.log("productDetails==========>>>>>>>>>>",productDetails);
+
+//     if (!productDetails || !productDetails.status) {
+//       return res.status(404).json({
+//         statusCode: 404,
+//         status: false,
+//         message: "Product details not found",
+//       });
+//     }
+
+//     // Calculate total price if product list exists
+//     const totalPrice = productDetails.product_list?.reduce(
+//       (sum, product) => sum + (product.total_price || 0),
+//       0
+//     );
+
+//     return res.status(200).json({
+//       statusCode: 200,
+//       status: true,
+//       message: "Product details retrieved successfully",
+//       data: productDetails,
+//       totalPrice,
+//     });
+//   } catch (error) {
+//     console.error("Error fetching product details:", error);
+
+//     return res.status(500).json({
+//       statusCode: 500,
+//       status: false,
+//       message: "Internal Server Error",
+//       error: error?.message || "An unexpected error occurred",
+//     });
+//   }
+// };
+
 exports.getProductDetails = async (req, res) => {
   try {
     const reqBody = req.body;
@@ -91,9 +139,10 @@ exports.getProductDetails = async (req, res) => {
         message: "Bad Request: Request body is missing or invalid",
       });
     }
-    console.log("reqBody=========",reqBody);
+
+    console.log("reqBody=========", reqBody);
     const productDetails = await finerworksService.GET_PRODUCTS_DETAILS(reqBody);
-    console.log("productDetails==========>>>>>>>>>>",productDetails);
+    console.log("productDetails==========>>>>>>>>>>", productDetails);
 
     if (!productDetails || !productDetails.status) {
       return res.status(404).json({
@@ -103,8 +152,15 @@ exports.getProductDetails = async (req, res) => {
       });
     }
 
+    // Add the isActiveSKU field to each product based on the description_short
+    const updatedProductList = productDetails.product_list.map((product) => {
+      // Check if description_short is 'Not Available'
+      product.isActiveSKU = product.description_short !== 'Not Available';
+      return product;
+    });
+
     // Calculate total price if product list exists
-    const totalPrice = productDetails.product_list?.reduce(
+    const totalPrice = updatedProductList?.reduce(
       (sum, product) => sum + (product.total_price || 0),
       0
     );
@@ -113,7 +169,7 @@ exports.getProductDetails = async (req, res) => {
       statusCode: 200,
       status: true,
       message: "Product details retrieved successfully",
-      data: productDetails,
+      data: { ...productDetails, product_list: updatedProductList },
       totalPrice,
     });
   } catch (error) {
@@ -127,6 +183,7 @@ exports.getProductDetails = async (req, res) => {
     });
   }
 };
+
 
 
 exports.increaseProductQuantity = async (req, res) => {

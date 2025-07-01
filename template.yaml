@@ -296,6 +296,13 @@ Resources:
               Ref: ProdApiGateway
             Method: GET
             Path: /api/get-company-info
+        UploadExcelOrder:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: POST
+            Path: /api/upload-orders-from-excel
   OrderFullFillmentServerLessDevServerLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
