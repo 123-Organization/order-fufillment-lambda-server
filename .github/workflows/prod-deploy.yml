@@ -50,6 +50,7 @@ jobs:
       - name: create .env file from env
         run: | 
           mv env .env
+          ls -la
 
       - name: change common values in .env
         run : |
@@ -79,13 +80,29 @@ jobs:
           sed -i "s#SAM_BRAINTREE_PUBLIC_KEY#${PROD_BRAINTREE_PUBLIC_KEY}#g" .env
           sed -i "s#SAM_BRAINTREE_PRIVATE_KEY#${PROD_BRAINTREE_PRIVATE_KEY}#g" .env
 
-      - name: print .env to check
-        run: |
-          cat .env
 
       - name: Install AWS SAM CLI
         run: |
           pip install aws-sam-cli
+      
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+
+      - name: Build SAM App
+        run: |
+          sam build
+
+
+
+      - name: Check build output
+        run: |
+          cp .env .aws-sam/build/OrderFullFillmentServerLessProdServer/
+          ls -la .aws-sam/build/
+
+      - name: Check for express before package
+        run: find .aws-sam/build -name express
 
       - name: Package SAM Template for prod
         run: |
@@ -94,10 +111,10 @@ jobs:
             --s3-bucket orderfullfilmentprodbucketlambda \
             --output-template-file packaged.yaml
 
-      # - name: Deploy SAM Stack in prod
-      #   run: |
-      #     sam deploy \
-      #       --template-file packaged.yaml \
-      #       --stack-name order-fullfilment-stack-prod  \
-      #       --capabilities CAPABILITY_IAM \
-      #       --region us-east-1
+      - name: Deploy SAM Stack in prod
+        run: |
+          sam deploy \
+            --template-file packaged.yaml \
+            --stack-name order-fullfilment-stack-prod  \
+            --capabilities CAPABILITY_IAM \
+            --region us-east-1
