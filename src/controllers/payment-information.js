@@ -20,7 +20,6 @@ const getErrorMessage = (error) => {
   if (error instanceof braintree.errors.TooManyRequestsError) return "Rate limit exceeded.";
   return "An unknown error occurred.";
 };
-
 const environment = process.env.BRAINTREE_ENVIRONMENT === 'Production'
   ? braintree.Environment.Production
   : braintree.Environment.Sandbox;
