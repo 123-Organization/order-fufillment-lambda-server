@@ -16,7 +16,7 @@ const recipientSchema = Joi.object({
   city: Joi.string().min(1).max(100).required().label("City"),
   state: Joi.string().min(1).max(100).optional().label("State"),
   state_code: Joi.string().min(1).max(100).optional().label("state_code"),
-  zip_postal_code: Joi.string().min(1).max(20).required().label("ZIP/Postal Code"),
+  zip_postal_code: Joi.number().min(1).max(20).required().label("ZIP/Postal Code"),
   phone: Joi.string().min(10).max(15).regex(/^\d+$/).required().label("Phone Number"),
 });
 // # region Validate order schema
