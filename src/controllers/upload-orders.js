@@ -14,7 +14,8 @@ const recipientSchema = Joi.object({
   address_1: Joi.string().min(1).max(255).required().label("Address 1"),
   address_2: Joi.string().allow("").optional().label("Address 2"),
   city: Joi.string().min(1).max(100).required().label("City"),
-  state: Joi.string().min(1).max(100).required().label("State"),
+  state: Joi.string().min(1).max(100).optional().label("State"),
+  state_code: Joi.string().min(1).max(100).optional().label("state_code"),
   zip_postal_code: Joi.string().min(1).max(20).required().label("ZIP/Postal Code"),
   phone: Joi.string().min(10).max(15).regex(/^\d+$/).required().label("Phone Number"),
 });
