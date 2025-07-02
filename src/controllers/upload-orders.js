@@ -326,7 +326,7 @@ exports.uploadOrdersToLocalDatabaseFromExcel = async (req, res) => {
           }
         }
         const urlEncodedData = urlEncodeJSON(order);
-    
+        
         const selectPayload = {
           query: `SELECT * FROM ${process.env.FINER_fwAPI_FULFILLMENTS_TABLE} WHERE FulfillmentAccountID=${reqBody.accountId} AND FulfillmentSubmitted=0 AND FulfillmentDeleted=0 AND FulfillmentAppName='excel'`,
         };
