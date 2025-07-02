@@ -13,11 +13,16 @@ const recipientSchema = Joi.object({
   last_name: Joi.string().min(1).max(100).required().label("Last Name"),
   address_1: Joi.string().min(1).max(255).required().label("Address 1"),
   address_2: Joi.string().allow("").optional().label("Address 2"),
+  address_3: Joi.string().allow("").optional().label("Address 3"),
   city: Joi.string().min(1).max(100).required().label("City"),
   state: Joi.string().min(1).max(100).optional().label("State"),
   state_code: Joi.string().min(1).max(100).optional().label("state_code"),
-  zip_postal_code: Joi.number().min(1).max(20).required().label("ZIP/Postal Code"),
-  phone: Joi.string().min(10).max(15).regex(/^\d+$/).required().label("Phone Number"),
+  zip_postal_code: Joi.number().required().label("ZIP/Postal Code"),
+  phone: Joi.number().required().label("Phone Number"),
+  email: Joi.string().allow("").optional().label("email"),
+  address_order_po: Joi.string().allow("").optional().label("Address order po"),
+
+
 });
 // # region Validate order schema
 const guidRegex =
@@ -57,9 +62,9 @@ const ordersSchema = Joi.object({
           city: Joi.string(),
           state_code: Joi.string().length(2).required(),
           province: Joi.string().allow(""),
-          zip_postal_code: Joi.string().required(),
+          zip_postal_code: Joi.number().required(),
           country_code: Joi.string().length(2).required(),
-          phone: Joi.string().allow(""),
+          phone: Joi.number().allow(""),
           email: Joi.string().email(),
           address_order_po: Joi.string().allow(""),
         }),
