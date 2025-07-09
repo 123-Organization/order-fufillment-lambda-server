@@ -199,11 +199,25 @@ exports.createCustomer = async (req, res) => {
 
       // Get user details
       const getInformation = await finerworksService.GET_INFO(reqBody);
+      // let payloadForCompanyInformation = {
+      //   account_key: reqBody.account_key,
+      //   ...getInformation.user_account,
+      //   payment_profile_id: result.customer.id,
+      // };
       let payloadForCompanyInformation = {
         account_key: reqBody.account_key,
-        ...getInformation.user_account,
         payment_profile_id: result.customer.id,
       };
+
+      // Conditionally add business_info
+      if (hasAnyValue(getInformation.user_account.business_info)) {
+        payloadForCompanyInformation.business_info = getInformation.user_account.business_info;
+      }
+
+      // Conditionally add billing_info
+      if (hasAnyValue(getInformation.user_account.billing_info)) {
+        payloadForCompanyInformation.billing_info = getInformation.user_account.billing_info;
+      }
       console.log("getInformation=======>>>>>",getInformation);
       log("payloadForCompanyInformation", JSON.stringify(payloadForCompanyInformation));
       console.log("payloadForCompanyInformation=======>>>>>",payloadForCompanyInformation);
@@ -350,4 +364,11 @@ exports.removePaymentCard = async (req, res) => {
       message: JSON.stringify(error),
     });
   }
+};
+
+
+const hasAnyValue = (obj) => {
+  return obj && Object.values(obj).some(
+    (value) => value !== null && value !== undefined && value !== ''
+  );
 };
