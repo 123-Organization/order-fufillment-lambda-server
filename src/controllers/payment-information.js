@@ -109,57 +109,143 @@ exports.processVaultedPaymentToken = async (req, res) => {
   }
 };
 
+// exports.createCustomer = async (req, res) => {
+//   try {
+//     const reqBody = JSON.parse(JSON.stringify(req.body));
+//     log("requestBody", reqBody);
+//     gateway.customer.create(
+//       {
+//         firstName: reqBody.firstName,
+//         lastName: reqBody.lastName,
+//         email: reqBody.email,
+//         company: reqBody.companyName,
+//         phone: reqBody.phone,
+//       },
+//       async (err, result) => {
+//         if (err) {
+//           log("Error creating customer:", err);
+//           return;
+//         }
+//         if (result.success) {
+//           log("Customer created successfully:", result.customer.id);
+
+//           // get User Details
+//           const getInformation = await finerworksService.GET_INFO(reqBody);
+//           let payloadForCompanyInformation = {};
+//           payloadForCompanyInformation.account_key = reqBody.account_key;
+//           payloadForCompanyInformation = getInformation.user_account;
+//           payloadForCompanyInformation.payment_profile_id = result.customer.id;
+//           log(
+//             "payloadForCompanyInformation",
+//             JSON.stringify(payloadForCompanyInformation)
+//           );
+//           const updateData = await finerworksService.UPDATE_INFO(
+//             payloadForCompanyInformation
+//           );
+//           log("check if data updates", JSON.stringify(updateData));
+//           log(
+//             "Customer Id update in the api:",
+//             JSON.stringify(payloadForCompanyInformation)
+//           );
+//           res.status(200).json({
+//             statusCode: 200,
+//             status: true,
+//             message: "Customer created successfully on brain tree",
+//             customerId: result.customer.id,
+//           });
+//         } else {
+//           log("Failed to create customer:", result.message);
+//         }
+//       }
+//     );
+//   } catch (error) {
+//     log("error is", error);
+//     res.status(400).json({
+//       statusCode: 400,
+//       status: false,
+//       message: JSON.stringify(error),
+//     });
+//   }
+// };
+
+
+
 exports.createCustomer = async (req, res) => {
   try {
-    const reqBody = JSON.parse(JSON.stringify(req.body));
+    const reqBody = req.body;  // No need to stringify and parse, req.body is already parsed
     log("requestBody", reqBody);
-    gateway.customer.create(
-      {
-        firstName: reqBody.firstName,
-        lastName: reqBody.lastName,
-        email: reqBody.email,
-        company: reqBody.companyName,
-        phone: reqBody.phone,
-      },
-      async (err, result) => {
-        if (err) {
-          log("Error creating customer:", err);
-          return;
-        }
-        if (result.success) {
-          log("Customer created successfully:", result.customer.id);
 
-          // get User Details
-          const getInformation = await finerworksService.GET_INFO(reqBody);
-          let payloadForCompanyInformation = {};
-          payloadForCompanyInformation.account_key = reqBody.account_key;
-          payloadForCompanyInformation = getInformation.user_account;
-          payloadForCompanyInformation.payment_profile_id = result.customer.id;
-          log(
-            "payloadForCompanyInformation",
-            JSON.stringify(payloadForCompanyInformation)
-          );
-          const updateData = await finerworksService.UPDATE_INFO(
-            payloadForCompanyInformation
-          );
-          log("check if data updates", JSON.stringify(updateData));
-          log(
-            "Customer Id update in the api:",
-            JSON.stringify(payloadForCompanyInformation)
-          );
-          res.status(200).json({
-            statusCode: 200,
-            status: true,
-            message: "Customer created successfully on brain tree",
-            customerId: result.customer.id,
-          });
-        } else {
-          log("Failed to create customer:", result.message);
+    // Use await for customer creation
+    const result = await new Promise((resolve, reject) => {
+      gateway.customer.create(
+        {
+          firstName: reqBody.firstName,
+          lastName: reqBody.lastName,
+          email: reqBody.email,
+          company: reqBody.companyName,
+          phone: reqBody.phone,
+        },
+        (err, result) => {
+          if (err) {
+            reject(err);
+          } else {
+            resolve(result);
+          }
         }
+      );
+    });
+
+    if (result.success) {
+      log("Customer created successfully:", result.customer.id);
+      console.log("result========>>>",result);
+
+      // Get user details
+      const getInformation = await finerworksService.GET_INFO(reqBody);
+      // let payloadForCompanyInformation = {
+      //   account_key: reqBody.account_key,
+      //   ...getInformation.user_account,
+      //   payment_profile_id: result.customer.id,
+      // };
+      let payloadForCompanyInformation = {
+        account_key: reqBody.account_key,
+        payment_profile_id: result.customer.id,
+      };
+
+      // Conditionally add business_info
+      if (hasAnyValue(getInformation.user_account.business_info)) {
+        payloadForCompanyInformation.business_info = getInformation.user_account.business_info;
       }
-    );
+
+      // Conditionally add billing_info
+      if (hasAnyValue(getInformation.user_account.billing_info)) {
+        payloadForCompanyInformation.billing_info = getInformation.user_account.billing_info;
+      }
+      console.log("getInformation=======>>>>>",getInformation);
+      log("payloadForCompanyInformation", JSON.stringify(payloadForCompanyInformation));
+      console.log("payloadForCompanyInformation=======>>>>>",payloadForCompanyInformation);
+
+      // Update company information
+      const updateData = await finerworksService.UPDATE_INFO(payloadForCompanyInformation);
+      console.log("updateData=============>>>>>>>>>>>",updateData);
+      log("check if data updates", JSON.stringify(updateData));
+      log("Customer Id update in the api:", JSON.stringify(payloadForCompanyInformation));
+
+      res.status(200).json({
+        statusCode: 200,
+        status: true,
+        message: "Customer created successfully on brain tree",
+        customerId: result.customer.id,
+      });
+    } else {
+      log("Failed to create customer:", result.message);
+      res.status(400).json({
+        statusCode: 400,
+        status: false,
+        message: result.message,
+      });
+    }
   } catch (error) {
-    log("error is", error);
+    log("Error is", error);
     res.status(400).json({
       statusCode: 400,
       status: false,
@@ -167,7 +253,6 @@ exports.createCustomer = async (req, res) => {
     });
   }
 };
-
 exports.addPaymentCard = async (req, res) => {
   try {
     const reqBody = JSON.parse(JSON.stringify(req.body));
@@ -279,4 +364,11 @@ exports.removePaymentCard = async (req, res) => {
       message: JSON.stringify(error),
     });
   }
+};
+
+
+const hasAnyValue = (obj) => {
+  return obj && Object.values(obj).some(
+    (value) => value !== null && value !== undefined && value !== ''
+  );
 };
