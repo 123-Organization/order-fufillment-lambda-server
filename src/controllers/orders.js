@@ -252,7 +252,7 @@ exports.updateOrderByProductSkuCode = async (req, res) => {
     const selectData = await finerworksService.SELECT_QUERY_FINERWORKS(
       selectPayload
     );
-    console.log("selectData=====>>>>>", selectData);
+    // console.log("selectData=====>>>>>", selectData);
 
     log("Order Data", JSON.stringify(selectData));
     if (selectData?.data.length === 0) {
@@ -281,6 +281,20 @@ exports.updateOrderByProductSkuCode = async (req, res) => {
     );
     console.log("okkkkkkkkkkkkkkkkkkkkkkkkkk")
     if (skuCode || fromTheInventory) {
+      console.log("selectData============",selectData);
+      const orderDetail = urlDecodeJSON(selectData.data[0].FulfillmentData);
+      console.log("orderDetail",orderDetail);
+      const orderFound=orderDetail.order_items.filter((item)=>{
+        return item.product_sku===skuCode
+      })
+      console.log("orderFound======>>>>",orderFound);
+      if (orderFound.length>0){
+        return res.status(200).json({
+          statusCode: 200,
+          status: true,
+          message: "SKU Code is already there",
+        });
+      }
       getProductDetails = await finerworksService.LIST_VIRTUAL_INVENTORY(
         searchListVirtualInventoryParams
       );
@@ -1064,11 +1078,12 @@ exports.getOrderDetailsById = async (req, res) => {
     const orderPos = selectData.data.map((row) => {
       const fulfillmentData = urlDecodeJSON(row.FulfillmentData);
       const orderPo = fulfillmentData.order_po;
+      console.log("orderPo",orderPo)
 
       // Remove 'WC_' from the order_po
-      const orderPoNumber = orderPo.replace('WC_', '');
+      // const orderPoNumber = orderPo.replace('WC_', '');
 
-      return orderPoNumber; // Return only the number part of order_po
+      return orderPo; // Return only the number part of order_po
     });
 
     console.log("Extracted order_po values:", orderPos);
@@ -1167,6 +1182,7 @@ const callApiWithMissingOrders = async (missingOrders, platformName, res) => {
 
     if (platformName === 'woocommerce') {
       const wooCommerceUrl = process.env.FINERWORKS_WOOCOMMERCE_URL;
+      console.log("wooCommerceUrl===========",wooCommerceUrl);
       if (!wooCommerceUrl) {
         return res.status(500).json({
           statusCode: 500,
@@ -1176,11 +1192,13 @@ const callApiWithMissingOrders = async (missingOrders, platformName, res) => {
       }
 
       for (const order of missingOrders) {
+        console.log("order======",order);
         try {
           const response = await axios.post(
-            wooCommerceUrl + '/get-order-by-id',
-            { orderid: order } // assuming order id includes 'WC_' prefix if required
+            `${wooCommerceUrl}get-order-by-id?orderid=${order}`
           );
+        
+          console.log("response=======>>>>>",response);
           allOrderDetails.push(response.data);
         } catch (error) {
           allOrderDetails.push({ order, error: error.message });
