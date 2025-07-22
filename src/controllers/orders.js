@@ -1080,10 +1080,11 @@ exports.getOrderDetailsById = async (req, res) => {
       const orderPo = fulfillmentData.order_po;
       console.log("orderPo",orderPo)
 
-      // Remove 'WC_' from the order_po
-      // const orderPoNumber = orderPo.replace('WC_', '');
+      const orderPoNumber = typeof orderPo === 'string' && orderPo.startsWith('WC_') 
+    ? orderPo.slice(3)  // Removes 'WC_' (3 characters)
+    : orderPo;
 
-      return orderPo; // Return only the number part of order_po
+  return orderPoNumber; // Return the processed order_po/ Return only the number part of order_po
     });
 
     console.log("Extracted order_po values:", orderPos);
@@ -1092,6 +1093,7 @@ exports.getOrderDetailsById = async (req, res) => {
     const missingOrders = orderIds.filter(orderId => !orderPos.includes(orderId.replace('WC_', '')));
 
     console.log("Missing order numbers:", missingOrders);
+    // return
 
     // If no missing orders, return a message saying they are already present
     if (missingOrders.length === 0) {
