@@ -17,8 +17,9 @@ const recipientSchema = Joi.object({
   city: Joi.string().min(1).max(100).required().label("City"),
   state: Joi.string().min(1).max(100).optional().label("State"),
   state_code: Joi.string().min(1).max(100).optional().label("state_code"),
-  zip_postal_code: Joi.number().required().label("ZIP/Postal Code"),
-  phone: Joi.number().required().label("Phone Number"),
+  province: Joi.string().min(1).max(100).optional().allow("").label("province"),
+  zip_postal_code: Joi.number().required().allow("").label("ZIP/Postal Code"),
+  phone: Joi.number().allow("").label("Phone Number"),
   email: Joi.string().allow("").optional().label("email"),
   address_order_po: Joi.string().allow("").optional().label("Address order po"),
 
@@ -61,7 +62,7 @@ const ordersSchema = Joi.object({
           address_3: Joi.string().allow(""),
           city: Joi.string(),
           state_code: Joi.string().length(2).required(),
-          province: Joi.string().allow(""),
+          province: Joi.string().allow("").optional(),
           zip_postal_code: Joi.number().required(),
           country_code: Joi.string().length(2).required(),
           phone: Joi.number().allow(""),
@@ -480,4 +481,3 @@ function generateGUID() {
     return v.toString(16);
   });
 }
-
