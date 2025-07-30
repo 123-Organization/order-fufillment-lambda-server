@@ -5,7 +5,7 @@ const { getClientToken, addPaymentCard, createCustomer, getFullCustomerDetails, 
 const { validateOrders, validateSubmitOrders, uploadOrdersToLocalDatabase, updateOrder,uploadOrdersToLocalDatabaseFromExcel } = require('./upload-orders'); 
 const { listVirtualInventory, validateListVirtualInventory, validateUpdateVirtualInventory, updateVirtualInventory, validateSkus, deleteVirtualInventory, getProductBySku } = require('./virtual-inventory');
 const { validateAddProduct, addProduct, getProductDetails,increaseProductQuantity,exportToWoocomercev1 } = require('./products-management');
-const { viewOrderDetails, viewAllOrders, updateOrderByProductSkuCode, createNewOrder, deleteOrder, orderSubmitStatus, getOrderPrice, submitOrders,getOrderDetailsById,softDeleteOrders ,disconnectAndProcess,disconnectProductsFromInventory,updateOrderByValidProductSkuCode} = require('./orders');
+const { viewOrderDetails, viewAllOrders, updateOrderByProductSkuCode, createNewOrder, deleteOrder, orderSubmitStatus, getOrderPrice, submitOrders,submitOrdersV2,getOrderDetailsById,softDeleteOrders ,disconnectAndProcess,disconnectProductsFromInventory,updateOrderByValidProductSkuCode} = require('./orders');
 const { listShippingOptions } = require('./shipping-options');
 const { getUserPaymentToken,getCompanyInfo } = require('./payment-token');
 const {updateUserInformation}=require('./userInformation')
@@ -48,6 +48,8 @@ app.post('/disconnect-products-virtualInventory', disconnectProductsFromInventor
 app.get('/get-company-info', getCompanyInfo);
 app.post('/upload-orders-from-excel', uploadOrdersToLocalDatabaseFromExcel);
 app.post('/update-order-by-valid-product-sku', updateOrderByValidProductSkuCode);
+app.post('/submit-orders-v2', submitOrdersV2);
+
 
 
 

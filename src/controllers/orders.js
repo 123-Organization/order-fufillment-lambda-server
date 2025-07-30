@@ -936,6 +936,112 @@ exports.submitOrders = async (req, res) => {
     });
   }
 };
+
+
+exports.submitOrdersV2 = async (req, res) => {
+  try {
+    const reqBody = JSON.parse(JSON.stringify(req.body));
+    if (!reqBody?.orders || !reqBody?.payment_token || !reqBody?.accountId || !reqBody?.account_key) {
+      res.status(400).json({
+        statusCode: 400,
+        status: false,
+        message: "Bad Request.",
+      });
+    }
+    const { accountId, payment_token, account_key } = reqBody;
+    const ordersToBeSubmitted = reqBody.orders;
+    console.log("ordersToBeSubmitted=========>>>>",ordersToBeSubmitted);
+    if (ordersToBeSubmitted.length>0) {
+      console.log("got theentryyyyyyyyyyyyyyy")
+      let orderFulfillmentIds = [];
+      const finalOrders = ordersToBeSubmitted.map((order) => {
+        console.log("order==========",order);
+        if (!order.orderFullFillmentId) {
+          throw new Error("Bad request: Missing orderFullFillmentId");
+        }
+        orderFulfillmentIds.push(order.orderFullFillmentId);
+        console.log("orderFulfillmentIds=========>>>>>",orderFulfillmentIds);
+        console.log("herererererererererererererererere");
+        // const orderData = urlDecodeJSON(order);
+        // console.log("orderData=============>>>>>>>>>>>>>",orderData);
+        delete order.orderFullFillmentId;
+        delete order.createdAt;
+        delete order.submittedAt;
+
+        return order;
+      });
+      // Create a final payload to submit the order in finerworks
+      const finalPayload = {
+        orders: finalOrders,
+        validate_only: false,
+        payment_token,
+        account_key: account_key,
+        accountId:accountId
+      };
+      console.log("finalPayload========><.>>>>><><><><>",finalPayload);
+      // return  res.status(200).json({
+      //   statusCode: 200,
+      //   status: true,
+      //   data:finalPayload
+      //   // message: errorMessage,
+      // });
+      log("Submit order in finerwork database", JSON.stringify(finalPayload));
+      const submitData = await finerworksService.SUBMIT_ORDERS(finalPayload);
+      console.log("submitData==============>>>>>>>>>",submitData);
+      console.log("orderFulfillmentIds==============>>>>>>>>>",orderFulfillmentIds);
+
+
+      log(
+        "Response after submitted to the final database",
+        JSON.stringify(submitData)
+      );
+      // once it gets submitted Now update each order fulfillment Id with submitted status & submitted at time
+      if (orderFulfillmentIds.length>0) {
+        console.log(" enter the iffffffff")
+        await Promise.all(
+          orderFulfillmentIds.map(async (fulfillmentId) => {
+            log("Fetch details for the order fulfillment Id", fulfillmentId);
+            const selectPayload = {
+              query: `SELECT * FROM ${process.env.FINER_fwAPI_FULFILLMENTS_TABLE} WHERE FulfillmentID=${fulfillmentId} AND FulfillmentAccountID=${accountId}`,
+            };
+
+            const selectData = await finerworksService.SELECT_QUERY_FINERWORKS(selectPayload);
+            if (!selectData?.data.length) return;
+
+            const orderDetails = selectData.data[0];
+            const orderDetail = urlDecodeJSON(orderDetails.FulfillmentData);
+            orderDetail.submittedAt = new Date();
+            orderDetail.payment_token = payment_token;
+
+            const urlEncodedData = urlEncodeJSON(orderDetail);
+            const updatePayload = {
+              tablename: process.env.FINER_fwAPI_FULFILLMENTS_TABLE,
+              fieldupdates: `FulfillmentSubmitted=1, FulfillmentData='${urlEncodedData}'`,
+              where: `FulfillmentID=${fulfillmentId}`,
+            };
+            console.log("updatePayload================",updatePayload);
+
+            await finerworksService.UPDATE_QUERY_FINERWORKS(updatePayload);
+          })
+        );
+        return  res.status(200).json({
+        statusCode: 200,
+        status: true,
+        // data:finalPayload
+        message: "orders placed properly",
+      });
+      }
+    }
+  } catch (err) {
+    log("Error comes while submitting a new order", JSON.stringify(err), err);
+    const errorMessage = err.response.data;
+    res.status(400).json({
+      statusCode: 400,
+      status: false,
+      message: errorMessage,
+    });
+  }
+};
 exports.orderSubmitStatus = async (req, res) => {
   try {
     const reqBody = JSON.parse(JSON.stringify(req.body));
