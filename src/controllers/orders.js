@@ -1522,6 +1522,110 @@ exports.disconnectAndProcess = async (req, res) => {
   }
 };
 
+exports.connectAndProcess = async (req, res) => {
+  try {
+    const { clientId, platformName, account_key } = req.body;
+    console.log("Received body:", req.body, clientId);
+
+    // Validate client_id
+    if (!clientId) {
+      return res.status(400).json({
+        statusCode: 400,
+        status: false,
+        message: "client_id is missing or invalid.",
+      });
+    }
+
+    console.log("Received client_id:", clientId);
+
+    let internalApiResponse;
+
+    // Get information from the finerworks service
+    const getInformation = await finerworksService.GET_INFO({ account_key: account_key });
+    console.log("Fetched Information from Finerworks:", getInformation);
+
+    // Defensive check if connections exist
+    let connections = JSON.parse(JSON.stringify(getInformation?.user_account?.connections)) || [];
+    // console.log("Connections Array:", connections);
+    // const dataTemp=JSON.parse(JSON.stringify(connections.data));
+    // console.log("dataTemp:", dataTemp);
+
+
+    // Creating the payload object to be added to connections
+    const payload = {
+      name: req.body.name,
+      id: req.body.id,
+      data: JSON.stringify({
+        clientId: req.body.clientId,
+        account_key: req.body.account_key,
+        isConnected: req.body.isConnected,
+      }), // Data as stringified JSON
+    };
+
+    // If the connections array is empty, directly add the payload
+    if (connections.length === 0) {
+      connections = [payload]; // Assign the payload to the connections array
+      console.log("Connections array is empty. Added payload:", connections);
+    } else {
+      // If the connection exists, update the array
+      const filteredConnections = connections.filter(conn => conn.name === req.body.name);
+      console.log("Filtered Connections:", filteredConnections);
+
+      if (filteredConnections.length > 0) {
+        // Update the existing connection by merging with the payload
+        const payloadForCompanyInformation = {
+          account_key: account_key,
+          connections: connections.map(conn => {
+            if (conn.name === req.body.name) {
+              return { ...conn, ...payload }; // Merge the existing connection with the new payload
+            }
+            return conn;
+          }),
+        };
+        console.log("Updated payloadForCompanyInformation (Connection Exists):", payloadForCompanyInformation);
+        await finerworksService.UPDATE_INFO(payloadForCompanyInformation);
+
+        return res.status(200).json({
+          statusCode: 200,
+          status: true,
+          message: `Connection established`,
+        });
+      } else {
+        // If no connection exists, just add the payload
+        connections.push(payload);
+        console.log("Added new connection:", connections);
+      }
+    }
+
+    // Final payload to update the connections
+    const payloadForCompanyInformation = {
+      account_key: account_key,
+      connections: connections,
+    };
+
+    console.log("payloadForCompanyInformation=============>>>>>>>>>>>",payloadForCompanyInformation);
+
+    // Update the connections with the payload
+    await finerworksService.UPDATE_INFO(payloadForCompanyInformation);
+
+    return res.status(200).json({
+      statusCode: 200,
+      status: true,
+      message: "Connection added successfully",
+    });
+
+  } catch (err) {
+    console.error("Error while processing client_id:", err);
+
+    return res.status(500).json({
+      statusCode: 500,
+      status: false,
+      message: err?.response?.data?.message || "Internal server error. Please try again later.",
+      error: err?.message || "Unknown error",
+    });
+  }
+};
+
 exports.disconnectProductsFromInventory = async (req, res) => {
   try {
     const { platform, account_key } = req.body;
