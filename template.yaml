@@ -310,6 +310,20 @@ Resources:
               Ref: ProdApiGateway
             Method: POST
             Path: /api/update-order-by-valid-product-sku
+        ConnectionEstablishment:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: ProdApiGateway
+            Method: POST
+            Path: /api/connection-establishment
+        SubmitOrders:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: ProdApiGateway
+            Method: POST
+            Path: /api/submit-orders-v2
   OrderFullFillmentServerLessDevServerLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:

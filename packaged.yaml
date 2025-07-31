@@ -54,7 +54,7 @@ Resources:
         - ProdLambdaExecutionRole
         - Arn
       Runtime: nodejs18.x
-      CodeUri: s3://orderfullfilmentprodbucketlambda/a05c3caf33b182a71ae69e56873c620e
+      CodeUri: s3://orderfullfilmentprodbucketlambda/d67b22000e5c38f30863c784feae25f9
       MemorySize: 3008
       Timeout: 900
       Environment:
@@ -320,6 +320,20 @@ Resources:
               Ref: ProdApiGateway
             Method: POST
             Path: /api/update-order-by-valid-product-sku
+        ConnectionEstablishment:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: ProdApiGateway
+            Method: POST
+            Path: /api/connection-establishment
+        SubmitOrders:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: ProdApiGateway
+            Method: POST
+            Path: /api/submit-orders-v2
     Metadata:
       SamResourceId: OrderFullFillmentServerLessProdServer
   OrderFullFillmentServerLessDevServerLogGroup:
