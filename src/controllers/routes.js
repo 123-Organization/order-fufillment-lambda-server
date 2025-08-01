@@ -5,7 +5,7 @@ const { getCompanyInformation } = require('./get-company-information');
 const { getClientToken, addPaymentCard, createCustomer, getFullCustomerDetails, processVaultedPaymentToken,removePaymentCard } = require('./payment-information');
 const { validateOrders, validateSubmitOrders, uploadOrdersToLocalDatabase, updateOrder,uploadOrdersToLocalDatabaseFromExcel } = require('./upload-orders'); 
 const { listVirtualInventory, validateListVirtualInventory, validateUpdateVirtualInventory, updateVirtualInventory, validateSkus, deleteVirtualInventory, getProductBySku } = require('./virtual-inventory');
-const { validateAddProduct, addProduct, getProductDetails,increaseProductQuantity,exportToWoocomercev1 } = require('./products-management');
+const { validateAddProduct, addProduct, getProductDetails,increaseProductQuantity,exportToWoocomercev1,productTrashed,productRestored } = require('./products-management');
 const { viewOrderDetails, viewAllOrders, updateOrderByProductSkuCode, createNewOrder, deleteOrder, orderSubmitStatus, getOrderPrice, submitOrders,submitOrdersV2,getOrderDetailsById,softDeleteOrders ,disconnectAndProcess,connectAndProcess,disconnectProductsFromInventory,updateOrderByValidProductSkuCode} = require('./orders');
 const { listShippingOptions } = require('./shipping-options');
 const { getUserPaymentToken,getCompanyInfo } = require('./payment-token');
@@ -51,6 +51,10 @@ app.post('/upload-orders-from-excel', uploadOrdersToLocalDatabaseFromExcel);
 app.post('/update-order-by-valid-product-sku', updateOrderByValidProductSkuCode);
 app.post('/submit-orders-v2', submitOrdersV2);
 app.post('/connection-establishment', connectAndProcess);
+app.post('/product-trashed', productTrashed);
+app.post('/product-restored', productRestored);
+
+
 
 
 

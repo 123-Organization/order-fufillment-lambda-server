@@ -334,6 +334,169 @@ exports.exportToWoocomercev1 = async (req, res) => {
   }
 };
 
+exports.productTrashed = async (req, res) => {
+  try {
+     // Step 1: Extract the payload fields
+     const { clientId, account_key, id, name, product } = req.body;
+
+     // Step 2: Validate if clientId, account_key, product, and other necessary fields exist
+     if (!clientId || !account_key || !id || !name || !product) {
+       return res.status(400).json({
+         statusCode: 400,
+         status: false,
+         message: "Missing required fields: clientId, account_key, id, name, or product",
+       });
+     }
+     const searchListVirtualInventoryParams = {};
+    if (product.sku != "") {
+      searchListVirtualInventoryParams.sku_filter = [product.sku ];
+    }
+    const getProductDetails = await finerworksService.LIST_VIRTUAL_INVENTORY(
+         searchListVirtualInventoryParams
+       );
+       console.log("getProductDetails===========",getProductDetails)
+       if (getProductDetails && getProductDetails.products && getProductDetails.products.length > 0) {
+        const productDetails = getProductDetails.products[0]; // Assuming you're using the first product returned
+  
+        // Construct the payload
+        const finalPayload = {
+          virtual_inventory: [
+            {
+              sku: productDetails.sku,
+              asking_price: productDetails.asking_price || 0,
+              name: productDetails.name || "Untitled",
+              description: `<h4>${productDetails.name}</h4><ul>${productDetails.description_long || "No description available"}</ul>`,
+              quantity_in_stock: productDetails.quantity_in_stock || 0,
+              track_inventory: true,
+              third_party_integrations: {
+                etsy_product_id: 0,
+                shopify_product_id: 123456789, // Placeholder for the actual Shopify ID
+                shopify_variant_id: 24681012, // Placeholder for the actual Shopify Variant ID
+                squarespace_product_id: null,
+                squarespace_variant_id: null,
+                wix_inventory_id: null,
+                wix_product_id: null,
+                wix_variant_id: null,
+                woocommerce_product_id: 0,
+                woocommerce_variant_id: 0,
+              },
+            },
+          ],
+          account_key: account_key || null,
+        };
+        await finerworksService.UPDATE_VIRTUAL_INVENTORY(
+          finalPayload
+        );
+        console.log("finalPayload===========", finalPayload);
+        return res.status(200).json({
+          statusCode: 200,
+          status: true,
+          message: "Product successfully processed",
+          data: finalPayload,
+        })
+    }else {
+      return res.status(404).json({
+        statusCode: 404,
+        status: false,
+        message: "Product not found",
+      });
+    }
+
+  } catch (error) {
+    console.error("Error during product export:", error);
+
+    return res.status(500).json({
+      statusCode: 500,
+      status: false,
+      message: "Internal Server Error",
+      error: error?.message || "An unexpected error occurred",
+    });
+  }
+};
+
+
+exports.productRestored = async (req, res) => {
+  try {
+     // Step 1: Extract the payload fields
+     const { clientId, account_key, id, name, product } = req.body;
+
+     // Step 2: Validate if clientId, account_key, product, and other necessary fields exist
+     if (!clientId || !account_key || !id || !name || !product) {
+       return res.status(400).json({
+         statusCode: 400,
+         status: false,
+         message: "Missing required fields: clientId, account_key, id, name, or product",
+       });
+     }
+     const searchListVirtualInventoryParams = {};
+    if (product.sku != "") {
+      searchListVirtualInventoryParams.sku_filter = [product.sku ];
+    }
+    const getProductDetails = await finerworksService.LIST_VIRTUAL_INVENTORY(
+         searchListVirtualInventoryParams
+       );
+       console.log("getProductDetails===========",getProductDetails)
+       if (getProductDetails && getProductDetails.products && getProductDetails.products.length > 0) {
+        const productDetails = getProductDetails.products[0]; // Assuming you're using the first product returned
+  
+        // Construct the payload
+        const finalPayload = {
+          virtual_inventory: [
+            {
+              sku: productDetails.sku,
+              asking_price: productDetails.asking_price || 0,
+              name: productDetails.name || "Untitled",
+              description: `<h4>${productDetails.name}</h4><ul>${productDetails.description_long || "No description available"}</ul>`,
+              quantity_in_stock: productDetails.quantity_in_stock || 0,
+              track_inventory: true,
+              third_party_integrations: {
+                etsy_product_id: 0,
+                shopify_product_id: 123456789, // Placeholder for the actual Shopify ID
+                shopify_variant_id: 24681012, // Placeholder for the actual Shopify Variant ID
+                squarespace_product_id: null,
+                squarespace_variant_id: null,
+                wix_inventory_id: null,
+                wix_product_id: null,
+                wix_variant_id: null,
+                woocommerce_product_id: product.third_party_product_id,
+                woocommerce_variant_id: 0,
+              },
+            },
+          ],
+          account_key: account_key || null,
+        };
+        await finerworksService.UPDATE_VIRTUAL_INVENTORY(
+          finalPayload
+        );
+        console.log("finalPayload===========", finalPayload);
+        return res.status(200).json({
+          statusCode: 200,
+          status: true,
+          message: "Product successfully processed",
+          data: finalPayload,
+        })
+    }else {
+      return res.status(404).json({
+        statusCode: 404,
+        status: false,
+        message: "Product not found",
+      });
+    }
+
+  } catch (error) {
+    console.error("Error during product export:", error);
+
+    return res.status(500).json({
+      statusCode: 500,
+      status: false,
+      message: "Internal Server Error",
+      error: error?.message || "An unexpected error occurred",
+    });
+  }
+};
+
+
+
 
 
 

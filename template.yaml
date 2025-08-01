@@ -324,6 +324,20 @@ Resources:
               Ref: ProdApiGateway
             Method: POST
             Path: /api/submit-orders-v2
+        TrashProduct:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: ProdApiGateway
+            Method: POST
+            Path: /api/product-trashed
+        RestoreProduct:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: ProdApiGateway
+            Method: POST
+            Path: /api/product-restored
   OrderFullFillmentServerLessDevServerLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:

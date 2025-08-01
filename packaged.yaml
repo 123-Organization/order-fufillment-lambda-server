@@ -54,7 +54,7 @@ Resources:
         - ProdLambdaExecutionRole
         - Arn
       Runtime: nodejs18.x
-      CodeUri: s3://orderfullfilmentprodbucketlambda/d67b22000e5c38f30863c784feae25f9
+      CodeUri: s3://orderfullfilmentprodbucketlambda/f1cd62e5efe1c9b56531527d07371ac1
       MemorySize: 3008
       Timeout: 900
       Environment:
@@ -334,6 +334,20 @@ Resources:
               Ref: ProdApiGateway
             Method: POST
             Path: /api/submit-orders-v2
+        TrashProduct:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: ProdApiGateway
+            Method: POST
+            Path: /api/product-trashed
+        RestoreProduct:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: ProdApiGateway
+            Method: POST
+            Path: /api/product-restored
     Metadata:
       SamResourceId: OrderFullFillmentServerLessProdServer
   OrderFullFillmentServerLessDevServerLogGroup:
