@@ -338,6 +338,13 @@ Resources:
               Ref: MyApiGateway
             Method: POST
             Path: /api/product-restored
+        ChangeSkuWoocomerce:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: POST
+            Path: /api/product-sku-updated
   OrderFullFillmentServerLessDevServerLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
