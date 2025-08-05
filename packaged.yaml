@@ -54,7 +54,7 @@ Resources:
         - ProdLambdaExecutionRole
         - Arn
       Runtime: nodejs18.x
-      CodeUri: s3://orderfullfilmentprodbucketlambda/f1cd62e5efe1c9b56531527d07371ac1
+      CodeUri: s3://orderfullfilmentprodbucketlambda/d549e72c165d93349a0b66cac8919499
       MemorySize: 3008
       Timeout: 900
       Environment:
@@ -348,6 +348,13 @@ Resources:
               Ref: ProdApiGateway
             Method: POST
             Path: /api/product-restored
+        ChangeSkuWoocomerce:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: ProdApiGateway
+            Method: POST
+            Path: /api/product-sku-updated
     Metadata:
       SamResourceId: OrderFullFillmentServerLessProdServer
   OrderFullFillmentServerLessDevServerLogGroup:

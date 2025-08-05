@@ -32,6 +32,7 @@ exports.UPDATE_INFO = async (payload) => {
  * @returns {Promise<Object>} - The response data from the API.
  */
 exports.GET_INFO = async (payload) => {
+  console.log("payload==============>>>>>>>",payload);
   const postData = await axios({
     method: 'get',
     url: process.env.FINER_WORKS_URL + 'get_user?account_key=' + payload.account_key,
