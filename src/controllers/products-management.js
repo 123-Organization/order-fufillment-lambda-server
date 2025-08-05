@@ -341,7 +341,7 @@ exports.productTrashed = async (req, res) => {
     const { clientId, account_key, id, name, product } = req.body;
 
     // Step 2: Validate if clientId, account_key, product, and other necessary fields exist
-    if (!clientId || !account_key || !id || !name || !product) {
+    if (!clientId || !account_key || !name || !product) {
       return res.status(400).json({
         statusCode: 400,
         status: false,
@@ -422,7 +422,7 @@ exports.productSkuUpdated = async (req, res) => {
     const { clientId, account_key, id, name, product } = req.body;
 
     // Step 2: Validate if clientId, account_key, product, and other necessary fields exist
-    if (!clientId || !account_key || !id || !name || !product) {
+    if (!clientId || !account_key || !name || !product) {
       return res.status(400).json({
         statusCode: 400,
         status: false,
@@ -519,7 +519,7 @@ exports.productRestored = async (req, res) => {
     const { clientId, account_key, id, name, product } = req.body;
 
     // Step 2: Validate if clientId, account_key, product, and other necessary fields exist
-    if (!clientId || !account_key || !id || !name || !product) {
+    if (!clientId || !account_key  || !name || !product) {
       return res.status(400).json({
         statusCode: 400,
         status: false,
