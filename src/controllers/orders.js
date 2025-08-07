@@ -4,6 +4,8 @@ const debug = require("debug");
 const log = debug("app:uploadOrders");
 const Joi = require("joi");
 const { validateOrderPayload } = require("./validate-order");
+const { v4: uuidv4 } = require('uuid'); // Import uuid library for UUID generation
+
 log("Orders");
 const axios = require('axios'); // Import axios for making HTTP requests
 
@@ -281,14 +283,14 @@ exports.updateOrderByProductSkuCode = async (req, res) => {
     );
     console.log("okkkkkkkkkkkkkkkkkkkkkkkkkk")
     if (skuCode || fromTheInventory) {
-      console.log("selectData============",selectData);
+      console.log("selectData============", selectData);
       const orderDetail = urlDecodeJSON(selectData.data[0].FulfillmentData);
-      console.log("orderDetail",orderDetail);
-      const orderFound=orderDetail.order_items.filter((item)=>{
-        return item.product_sku===skuCode
+      console.log("orderDetail", orderDetail);
+      const orderFound = orderDetail.order_items.filter((item) => {
+        return item.product_sku === skuCode
       })
-      console.log("orderFound======>>>>",orderFound);
-      if (orderFound.length>0){
+      console.log("orderFound======>>>>", orderFound);
+      if (orderFound.length > 0) {
         return res.status(200).json({
           statusCode: 200,
           status: true,
@@ -490,7 +492,7 @@ exports.updateOrderByValidProductSkuCode = async (req, res) => {
     }
     const orderDetails = selectData.data[0];
     // If order exist then find the product details
-    const { skuCode, productCode, fromTheInventory, account_key,toReplace } = reqBody;
+    const { skuCode, productCode, fromTheInventory, account_key, toReplace } = reqBody;
     const searchListVirtualInventoryParams = {};
     if (skuCode != "") {
       searchListVirtualInventoryParams.sku_filter = [skuCode];
@@ -539,7 +541,7 @@ exports.updateOrderByValidProductSkuCode = async (req, res) => {
         console.log(previousOrder, "previousOrder")
         const updatedOrder = updateOrderItems(previousOrder, orderData, toReplace);
 
-        console.log("updatedOrder",updatedOrder);
+        console.log("updatedOrder", updatedOrder);
         // previousOrder.order_items.push(orderData);
         const urlEncodedData = urlEncodeJSON(updatedOrder);
         const updatePayload = {
@@ -629,7 +631,7 @@ exports.updateOrderByValidProductSkuCode = async (req, res) => {
         console.log("orderData====>>>>", orderData);
         console.log(previousOrder, "previousOrder");
         const updatedOrder = updateOrderItemsV2(previousOrder, orderData, toReplace);
-        console.log("updatedOrder======>>>>>>",updatedOrder);
+        console.log("updatedOrder======>>>>>>", updatedOrder);
         const urlEncodedData = urlEncodeJSON(updatedOrder);
         const updatePayload = {
           tablename: process.env.FINER_fwAPI_FULFILLMENTS_TABLE,
@@ -950,17 +952,17 @@ exports.submitOrdersV2 = async (req, res) => {
     }
     const { accountId, payment_token, account_key } = reqBody;
     const ordersToBeSubmitted = reqBody.orders;
-    console.log("ordersToBeSubmitted=========>>>>",ordersToBeSubmitted);
-    if (ordersToBeSubmitted.length>0) {
+    console.log("ordersToBeSubmitted=========>>>>", ordersToBeSubmitted);
+    if (ordersToBeSubmitted.length > 0) {
       console.log("got theentryyyyyyyyyyyyyyy")
       let orderFulfillmentIds = [];
       const finalOrders = ordersToBeSubmitted.map((order) => {
-        console.log("order==========",order);
+        console.log("order==========", order);
         if (!order.orderFullFillmentId) {
           throw new Error("Bad request: Missing orderFullFillmentId");
         }
         orderFulfillmentIds.push(order.orderFullFillmentId);
-        console.log("orderFulfillmentIds=========>>>>>",orderFulfillmentIds);
+        console.log("orderFulfillmentIds=========>>>>>", orderFulfillmentIds);
         console.log("herererererererererererererererere");
         // const orderData = urlDecodeJSON(order);
         // console.log("orderData=============>>>>>>>>>>>>>",orderData);
@@ -976,9 +978,9 @@ exports.submitOrdersV2 = async (req, res) => {
         validate_only: false,
         payment_token,
         account_key: account_key,
-        accountId:accountId
+        accountId: accountId
       };
-      console.log("finalPayload========><.>>>>><><><><>",finalPayload);
+      console.log("finalPayload========><.>>>>><><><><>", finalPayload);
       // return  res.status(200).json({
       //   statusCode: 200,
       //   status: true,
@@ -987,8 +989,8 @@ exports.submitOrdersV2 = async (req, res) => {
       // });
       log("Submit order in finerwork database", JSON.stringify(finalPayload));
       const submitData = await finerworksService.SUBMIT_ORDERS(finalPayload);
-      console.log("submitData==============>>>>>>>>>",submitData);
-      console.log("orderFulfillmentIds==============>>>>>>>>>",orderFulfillmentIds);
+      console.log("submitData==============>>>>>>>>>", submitData);
+      console.log("orderFulfillmentIds==============>>>>>>>>>", orderFulfillmentIds);
 
 
       log(
@@ -996,7 +998,7 @@ exports.submitOrdersV2 = async (req, res) => {
         JSON.stringify(submitData)
       );
       // once it gets submitted Now update each order fulfillment Id with submitted status & submitted at time
-      if (orderFulfillmentIds.length>0) {
+      if (orderFulfillmentIds.length > 0) {
         console.log(" enter the iffffffff")
         await Promise.all(
           orderFulfillmentIds.map(async (fulfillmentId) => {
@@ -1019,17 +1021,17 @@ exports.submitOrdersV2 = async (req, res) => {
               fieldupdates: `FulfillmentSubmitted=1, FulfillmentData='${urlEncodedData}'`,
               where: `FulfillmentID=${fulfillmentId}`,
             };
-            console.log("updatePayload================",updatePayload);
+            console.log("updatePayload================", updatePayload);
 
             await finerworksService.UPDATE_QUERY_FINERWORKS(updatePayload);
           })
         );
-        return  res.status(200).json({
-        statusCode: 200,
-        status: true,
-        // data:finalPayload
-        message: "orders placed properly",
-      });
+        return res.status(200).json({
+          statusCode: 200,
+          status: true,
+          // data:finalPayload
+          message: "orders placed properly",
+        });
       }
     }
   } catch (err) {
@@ -1184,13 +1186,13 @@ exports.getOrderDetailsById = async (req, res) => {
     const orderPos = selectData.data.map((row) => {
       const fulfillmentData = urlDecodeJSON(row.FulfillmentData);
       const orderPo = fulfillmentData.order_po;
-      console.log("orderPo",orderPo)
+      console.log("orderPo", orderPo)
 
-      const orderPoNumber = typeof orderPo === 'string' && orderPo.startsWith('WC_') 
-    ? orderPo.slice(3)  // Removes 'WC_' (3 characters)
-    : orderPo;
+      const orderPoNumber = typeof orderPo === 'string' && orderPo.startsWith('WC_')
+        ? orderPo.slice(3)  // Removes 'WC_' (3 characters)
+        : orderPo;
 
-  return orderPoNumber; // Return the processed order_po/ Return only the number part of order_po
+      return orderPoNumber; // Return the processed order_po/ Return only the number part of order_po
     });
 
     console.log("Extracted order_po values:", orderPos);
@@ -1290,7 +1292,7 @@ const callApiWithMissingOrders = async (missingOrders, platformName, res) => {
 
     if (platformName === 'woocommerce') {
       const wooCommerceUrl = process.env.FINERWORKS_WOOCOMMERCE_URL;
-      console.log("wooCommerceUrl===========",wooCommerceUrl);
+      console.log("wooCommerceUrl===========", wooCommerceUrl);
       if (!wooCommerceUrl) {
         return res.status(500).json({
           statusCode: 500,
@@ -1300,13 +1302,13 @@ const callApiWithMissingOrders = async (missingOrders, platformName, res) => {
       }
 
       for (const order of missingOrders) {
-        console.log("order======",order);
+        console.log("order======", order);
         try {
           const response = await axios.post(
             `${wooCommerceUrl}get-order-by-id?orderid=${order}`
           );
-        
-          console.log("response=======>>>>>",response);
+
+          console.log("response=======>>>>>", response);
           allOrderDetails.push(response.data);
         } catch (error) {
           allOrderDetails.push({ order, error: error.message });
@@ -1575,6 +1577,7 @@ exports.connectAndProcess = async (req, res) => {
         // Update the existing connection by merging with the payload
         const payloadForCompanyInformation = {
           account_key: account_key,
+          // connections:[]
           connections: connections.map(conn => {
             if (conn.name === req.body.name) {
               return { ...conn, ...payload }; // Merge the existing connection with the new payload
@@ -1603,7 +1606,7 @@ exports.connectAndProcess = async (req, res) => {
       connections: connections,
     };
 
-    console.log("payloadForCompanyInformation=============>>>>>>>>>>>",payloadForCompanyInformation);
+    console.log("payloadForCompanyInformation=============>>>>>>>>>>>", payloadForCompanyInformation);
 
     // Update the connections with the payload
     await finerworksService.UPDATE_INFO(payloadForCompanyInformation);
@@ -1613,6 +1616,67 @@ exports.connectAndProcess = async (req, res) => {
       status: true,
       message: "Connection added successfully",
     });
+
+  } catch (err) {
+    console.error("Error while processing client_id:", err);
+
+    return res.status(500).json({
+      statusCode: 500,
+      status: false,
+      message: err?.response?.data?.message || "Internal server error. Please try again later.",
+      error: err?.message || "Unknown error",
+    });
+  }
+};
+
+
+
+
+
+exports.testAccountKey = async (req, res) => {
+  try {
+    const { account_key, domainName } = req.body;
+    console.log("Received body:", req.body);
+
+    // Validate client_id
+    if (!account_key && domainName) {
+      return res.status(400).json({
+        statusCode: 400,
+        status: false,
+        message: "account_key is missing",
+      });
+    }
+    // Generate a unique auth code (e.g., using crypto)
+    const auth_code = uuidv4(); // Generates a UUID (v4) like 42dd816a-8107-4742-8c1b-a46067fc30c8
+
+    // Concatenate domainName and auth_code to form the ID
+    const id = `${domainName}?${auth_code}`;
+
+    // Final payload to update the connections
+    const payloadForCompanyInformation = {
+      account_key: account_key,
+      connections: [{
+        data: "",
+        name: "WooCommerce",
+        id: id
+      }],
+    };
+
+    console.log("payloadForCompanyInformation=============>>>>>>>>>>>", payloadForCompanyInformation);
+
+    // Update the connections with the payload
+    await finerworksService.UPDATE_INFO(payloadForCompanyInformation);
+
+    const getInformation = await finerworksService.GET_INFO({ account_key: account_key });
+    console.log("Fetched Information from Finerworks:", getInformation);
+    return res.status(200).json({
+      statusCode: 200,
+      status: true,
+      message: "User details found",
+      data: getInformation
+
+    });
+
 
   } catch (err) {
     console.error("Error while processing client_id:", err);
