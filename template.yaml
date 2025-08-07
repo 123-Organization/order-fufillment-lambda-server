@@ -345,6 +345,13 @@ Resources:
               Ref: MyApiGateway
             Method: POST
             Path: /api/product-sku-updated
+        CheckAccountKey:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: POST
+            Path: /api/test-account-key
   OrderFullFillmentServerLessDevServerLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
