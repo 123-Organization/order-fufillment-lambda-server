@@ -54,7 +54,7 @@ Resources:
         - ProdLambdaExecutionRole
         - Arn
       Runtime: nodejs18.x
-      CodeUri: s3://orderfullfilmentprodbucketlambda/d549e72c165d93349a0b66cac8919499
+      CodeUri: s3://orderfullfilmentprodbucketlambda/0719b7f9b690d2862318d4e124f16d64
       MemorySize: 3008
       Timeout: 900
       Environment:
@@ -355,6 +355,13 @@ Resources:
               Ref: ProdApiGateway
             Method: POST
             Path: /api/product-sku-updated
+        CheckAccountKey:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: ProdApiGateway
+            Method: POST
+            Path: /api/test-account-key
     Metadata:
       SamResourceId: OrderFullFillmentServerLessProdServer
   OrderFullFillmentServerLessDevServerLogGroup:

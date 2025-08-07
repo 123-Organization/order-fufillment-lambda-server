@@ -1522,6 +1522,65 @@ exports.connectAndProcess = async (req, res) => {
   }
 };
 
+
+exports.testAccountKey = async (req, res) => {
+  try {
+    const { account_key, domainName } = req.body;
+    console.log("Received body:", req.body);
+
+    // Validate client_id
+    if (!account_key && domainName) {
+      return res.status(400).json({
+        statusCode: 400,
+        status: false,
+        message: "account_key is missing",
+      });
+    }
+    // Generate a unique auth code (e.g., using crypto)
+    const auth_code = uuidv4(); // Generates a UUID (v4) like 42dd816a-8107-4742-8c1b-a46067fc30c8
+
+    // Concatenate domainName and auth_code to form the ID
+    const id = `${domainName}?${auth_code}`;
+
+    // Final payload to update the connections
+    const payloadForCompanyInformation = {
+      account_key: account_key,
+      connections: [{
+        data: "",
+        name: "WooCommerce",
+        id: id
+      }],
+    };
+
+    console.log("payloadForCompanyInformation=============>>>>>>>>>>>", payloadForCompanyInformation);
+
+    // Update the connections with the payload
+    await finerworksService.UPDATE_INFO(payloadForCompanyInformation);
+
+    const getInformation = await finerworksService.GET_INFO({ account_key: account_key });
+    console.log("Fetched Information from Finerworks:", getInformation);
+    return res.status(200).json({
+      statusCode: 200,
+      status: true,
+      message: "User details found",
+      data: getInformation
+
+    });
+
+
+  } catch (err) {
+    console.error("Error while processing client_id:", err);
+
+    return res.status(500).json({
+      statusCode: 500,
+      status: false,
+      message: err?.response?.data?.message || "Internal server error. Please try again later.",
+      error: err?.message || "Unknown error",
+    });
+  }
+};
+
+
 exports.disconnectProductsFromInventory = async (req, res) => {
   try {
     const { platform, account_key } = req.body;
