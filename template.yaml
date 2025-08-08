@@ -352,6 +352,13 @@ Resources:
               Ref: MyApiGateway
             Method: POST
             Path: /api/test-account-key
+        ListVirtualInventory:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: POST
+            Path: /api/list-virtual-inventory-v2
   OrderFullFillmentServerLessDevServerLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:

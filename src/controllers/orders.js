@@ -1439,9 +1439,96 @@ exports.softDeleteOrders = async (req, res) => {
 
 
 
+// exports.disconnectAndProcess = async (req, res) => {
+//   try {
+//     const { client_id, platformName } = req.body;
+
+//     // Validate client_id
+//     if (!client_id) {
+//       return res.status(400).json({
+//         statusCode: 400,
+//         status: false,
+//         message: "client_id is missing or invalid.",
+//       });
+//     }
+
+//     console.log("Received client_id:", client_id);
+
+//     let internalApiResponse;
+
+//     if (platformName === 'woocommerce') {
+//       const apiEndpoint = `${process.env.FINERWORKS_WOOCOMMERCE_URL}deauthorize`;
+//       console.log("apiEndpoint=============+>>>>>>", apiEndpoint);
+//       if (!apiEndpoint) {
+//         return res.status(500).json({
+//           statusCode: 500,
+//           status: false,
+//           message: "Deauthorize API endpoint is not configured in environment variables.",
+//         });
+//       }
+
+//       internalApiResponse = await axios.post(apiEndpoint, { client_id });
+
+//       const getInformation = await finerworksService.GET_INFO({ account_key: client_id });
+//       console.log("getInformation==============>>>>>>>>>>", getInformation);
+
+//       // Defensive check if connections exist
+//       const connections = getInformation?.user_account?.connections || [];
+
+//       // Filter out objects with name === "WooCommerce"
+//       const filteredConnections = connections.filter(conn => conn.name !== "WooCommerce");
+
+//       console.log("Filtered connections:", filteredConnections);
+//       const payloadForCompanyInformation = {
+//         account_key: client_id,
+//         connections: filteredConnections,
+//       };
+
+//       console.log("payloadForCompanyInformation=========", payloadForCompanyInformation);
+//       await finerworksService.UPDATE_INFO(payloadForCompanyInformation);
+
+//     } else {
+//       // Handle other platformNames or return error if unsupported
+//       return res.status(400).json({
+//         statusCode: 400,
+//         status: false,
+//         message: `Unsupported platformName: ${platformName}`,
+//       });
+//     }
+
+//     if (internalApiResponse.status !== 200) {
+//       return res.status(500).json({
+//         statusCode: 500,
+//         status: false,
+//         message: "Failed to deauthorize client_id with internal API.",
+//       });
+//     }
+
+//     // Success
+//     return res.status(200).json({
+//       statusCode: 200,
+//       status: true,
+//       message: "Client successfully deauthorized.",
+//       data: internalApiResponse.data,
+//     });
+
+//   } catch (err) {
+//     console.error("Error while processing client_id:", err);
+
+//     return res.status(500).json({
+//       statusCode: 500,
+//       status: false,
+//       message: err?.response?.data?.message || "Internal server error. Please try again later.",
+//       error: err?.message || "Unknown error",
+//     });
+//   }
+// };
+
+
+
 exports.disconnectAndProcess = async (req, res) => {
   try {
-    const { client_id, platformName } = req.body;
+    const { client_id, platformName,domainName } = req.body;
 
     // Validate client_id
     if (!client_id) {
@@ -1457,8 +1544,9 @@ exports.disconnectAndProcess = async (req, res) => {
     let internalApiResponse;
 
     if (platformName === 'woocommerce') {
-      const apiEndpoint = `${process.env.FINERWORKS_WOOCOMMERCE_URL}deauthorize`;
+      const apiEndpoint = `https://${domainName}/wp-json/finerworks-media/v1/deauthorize`;
       console.log("apiEndpoint=============+>>>>>>", apiEndpoint);
+      
       if (!apiEndpoint) {
         return res.status(500).json({
           statusCode: 500,
