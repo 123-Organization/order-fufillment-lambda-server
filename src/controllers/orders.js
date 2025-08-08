@@ -6,6 +6,8 @@ const Joi = require("joi");
 const { validateOrderPayload } = require("./validate-order");
 log("Orders");
 const axios = require('axios'); // Import axios for making HTTP requests
+const { v4: uuidv4 } = require('uuid'); // Import uuid library for UUID generation
+
 
 
 
@@ -1333,7 +1335,7 @@ exports.softDeleteOrders = async (req, res) => {
 
 exports.disconnectAndProcess = async (req, res) => {
   try {
-    const { client_id, platformName } = req.body;
+    const { client_id, platformName,domainName } = req.body;
 
     // Validate client_id
     if (!client_id) {
@@ -1349,8 +1351,9 @@ exports.disconnectAndProcess = async (req, res) => {
     let internalApiResponse;
 
     if (platformName === 'woocommerce') {
-      const apiEndpoint = `${process.env.FINERWORKS_WOOCOMMERCE_URL}deauthorize`;
+      const apiEndpoint = `https://${domainName}/wp-json/finerworks-media/v1/deauthorize`;
       console.log("apiEndpoint=============+>>>>>>", apiEndpoint);
+      
       if (!apiEndpoint) {
         return res.status(500).json({
           statusCode: 500,

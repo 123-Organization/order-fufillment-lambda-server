@@ -107,6 +107,37 @@ exports.listVirtualInventory = async (req, res) => {
         });
     }
 };
+
+
+exports.listVirtualInventoryV2 = async (req, res) => {
+    try {
+        const reqBody = JSON.parse(JSON.stringify(req.body));
+        const getInformation = await finerworksService.LIST_VIRTUAL_INVENTORY(reqBody);
+        if (getInformation && getInformation.status && getInformation.status.success) {
+            res.status(200).json({
+                statusCode: 200,
+                status: true,
+                data: getInformation,
+                page_number: getInformation?.page_number,
+                per_page: getInformation?.per_page,
+                count: getInformation?.count
+            });
+        } else {
+            res.status(400).json({
+                statusCode: 400,
+                status: false,
+                message: "Something went wrong"
+            });
+        }
+    } catch (error) {
+        log('Error while fetching list of virtual inventory : ', error);
+        res.status(400).json({
+            statusCode: 400,
+            status: false,
+            message: JSON.stringify(error),
+        });
+    }
+};
 // # endregion
 
 
