@@ -359,6 +359,20 @@ Resources:
               Ref: MyApiGateway
             Method: POST
             Path: /api/list-virtual-inventory-v2
+        ConnectionFromOFA:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: POST
+            Path: /api/connection-establishment-Ofa
+        CheckDomain:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: POST
+            Path: /api/check-domain
   OrderFullFillmentServerLessDevServerLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:

@@ -1150,7 +1150,7 @@ exports.getOrderDetailsById = async (req, res) => {
     }
 
     const { platformName } = req.query;
-    const { orderIds, accountId } = reqBody;
+    const { orderIds, accountId, domainName } = reqBody;
 
     if (!accountId) {
       return res.status(400).json({
@@ -1213,7 +1213,7 @@ exports.getOrderDetailsById = async (req, res) => {
     }
 
     // Call the API with the missing orders
-    return callApiWithMissingOrders(missingOrders, platformName, res);
+    return callApiWithMissingOrders(missingOrders, platformName, res, domainName);
 
   } catch (err) {
     console.error("Error while fetching order details", JSON.stringify(err), err);
@@ -1286,26 +1286,27 @@ exports.getOrderDetailsById = async (req, res) => {
 //   }
 // };
 
-const callApiWithMissingOrders = async (missingOrders, platformName, res) => {
+const callApiWithMissingOrders = async (missingOrders, platformName, res, domainName) => {
   try {
     let allOrderDetails = [];
 
     if (platformName === 'woocommerce') {
-      const wooCommerceUrl = process.env.FINERWORKS_WOOCOMMERCE_URL;
-      console.log("wooCommerceUrl===========", wooCommerceUrl);
-      if (!wooCommerceUrl) {
-        return res.status(500).json({
-          statusCode: 500,
-          status: false,
-          message: "WooCommerce URL is not configured in environment variables",
-        });
-      }
-
+      // const wooCommerceUrl = process.env.FINERWORKS_WOOCOMMERCE_URL;
+      // const apiEndpoint = `https://${domainName}/wp-json/finerworks-media/v1/deauthorize`;
+      // console.log("wooCommerceUrl===========", wooCommerceUrl);
+      // if (!wooCommerceUrl) {
+      //   return res.status(500).json({
+      //     statusCode: 500,
+      //     status: false,
+      //     message: "WooCommerce URL is not configured in environment variables",
+      //   });
+      // }
+      console.log("hererererererererererrrrrrrrrrrrrrrrrr", domainName);
       for (const order of missingOrders) {
         console.log("order======", order);
         try {
           const response = await axios.post(
-            `${wooCommerceUrl}get-order-by-id?orderid=${order}`
+            `https://${domainName}/wp-json/finerworks-media/v1/get-order-by-id?orderid=${order}`
           );
 
           console.log("response=======>>>>>", response);
@@ -1528,7 +1529,7 @@ exports.softDeleteOrders = async (req, res) => {
 
 exports.disconnectAndProcess = async (req, res) => {
   try {
-    const { client_id, platformName,domainName } = req.body;
+    const { client_id, platformName, domainName } = req.body;
 
     // Validate client_id
     if (!client_id) {
@@ -1544,9 +1545,9 @@ exports.disconnectAndProcess = async (req, res) => {
     let internalApiResponse;
 
     if (platformName === 'woocommerce') {
-      const apiEndpoint = `https://${domainName}/wp-json/finerworks-media/v1/deauthorize`;
+      const apiEndpoint = `https://${domainName}/wp-json/finerworks-media/v1/deauthorize?client_id=${client_id}`;
       console.log("apiEndpoint=============+>>>>>>", apiEndpoint);
-      
+
       if (!apiEndpoint) {
         return res.status(500).json({
           statusCode: 500,
@@ -1555,7 +1556,8 @@ exports.disconnectAndProcess = async (req, res) => {
         });
       }
 
-      internalApiResponse = await axios.post(apiEndpoint, { client_id });
+      internalApiResponse = await axios.post(apiEndpoint);
+      console.log("internalApiResponse=========>>>>>>",internalApiResponse);
 
       const getInformation = await finerworksService.GET_INFO({ account_key: client_id });
       console.log("getInformation==============>>>>>>>>>>", getInformation);
@@ -1707,6 +1709,187 @@ exports.connectAndProcess = async (req, res) => {
 
   } catch (err) {
     console.error("Error while processing client_id:", err);
+
+    return res.status(500).json({
+      statusCode: 500,
+      status: false,
+      message: err?.response?.data?.message || "Internal server error. Please try again later.",
+      error: err?.message || "Unknown error",
+    });
+  }
+};
+
+
+exports.connectAndProcessOfa = async (req, res) => {
+  try {
+    const { domainName, account_key } = req.body;
+    console.log("Received body:", req.body);
+
+    // Validate domainName and account_key
+    if (!domainName || !account_key) {
+      return res.status(400).json({
+        statusCode: 400,
+        status: false,
+        message: "domainName or account_key is missing or invalid.",
+      });
+    }
+
+    console.log("Received account_key:", account_key);
+
+    const auth_code = uuidv4(); // Generates a UUID (v4) like 42dd816a-8107-4742-8c1b-a46067fc30c8
+
+    // Concatenate domainName and auth_code to form the ID
+    const id = `${domainName}?${auth_code}`;
+
+    // Final payload to update the connections
+    const payloadForCompanyInformation = {
+      account_key: account_key,
+      connections: [{
+        data: "",
+        name: "WooCommerce",
+        id: id
+      }],
+    };
+    console.log("payloadForCompanyInformation==========>>>>>>>>>>>", payloadForCompanyInformation);
+    await finerworksService.UPDATE_INFO(payloadForCompanyInformation);
+
+    const getInformation = await finerworksService.GET_INFO({ account_key: account_key });
+    console.log("Fetched Information from Finerworks:", getInformation);
+    // return res.status(200).json({
+    //   statusCode: 200,
+    //   status: false,
+    //   message: "Authentication failed with the external service.",
+    //   data:getInformation
+    // });
+
+    // Use getInformation.user_account for internal API payload
+    const internalApiPayload = {
+      user_account:getInformation.user_account // Pass user_account from the fetched information
+    };
+
+    // Make the API request to the external API using account_key
+    const externalApiUrl = `https://${domainName}/wp-json/finerworks-media/v1/authenticate-test`;
+    console.log("externalApiUrl========>>>>", externalApiUrl);
+
+    const externalApiResponse = await axios.post(externalApiUrl, internalApiPayload); // Pass internalApiPayload here
+    console.log("externalApiResponse========>>>>", externalApiResponse);
+
+
+
+
+    if (externalApiResponse.data.status !== 'success') {
+      return res.status(400).json({
+        statusCode: 400,
+        status: false,
+        message: "Authentication failed with the external service.",
+      });
+    }
+    let connections = JSON.parse(JSON.stringify(getInformation?.user_account?.connections)) || [];
+
+    const payload = {
+      name: 'WooCommerce',
+      id: id,
+      data: JSON.stringify({
+        clientId: getInformation?.user_account?.account_id,
+        account_key: account_key,
+        isConnected: true,
+      }), // Data as stringified JSON
+    };
+
+    // If the connections array is empty, directly add the payload
+    if (connections.length === 0) {
+      connections = [payload]; // Assign the payload to the connections array
+      console.log("Connections array is empty. Added payload:", connections);
+    } else {
+      // If the connection exists, update the array
+      const filteredConnections = connections.filter(conn => conn.name === 'WooCommerce');
+      console.log("Filtered Connections:", filteredConnections);
+
+      if (filteredConnections.length > 0) {
+        // Update the existing connection by merging with the payload
+        const payloadForCompanyInformation = {
+          account_key: account_key,
+          // connections:[]
+          connections: connections.map(conn => {
+            if (conn.name === 'WooCommerce') {
+              return { ...conn, ...payload }; // Merge the existing connection with the new payload
+            }
+            return conn;
+          }),
+        };
+        console.log("Updated payloadForCompanyInformation (Connection Exists):", payloadForCompanyInformation);
+        await finerworksService.UPDATE_INFO(payloadForCompanyInformation);
+
+        return res.status(200).json({
+          statusCode: 200,
+          status: true,
+          message: `Connection established`,
+        });
+      } else {
+        // If no connection exists, just add the payload
+        connections.push(payload);
+        console.log("Added new connection:", connections);
+      }
+    }
+
+  } catch (err) {
+    console.error("Error while processing request:", err);
+
+    return res.status(500).json({
+      statusCode: 500,
+      status: false,
+      message: err?.response?.data?.message || "Internal server error. Please try again later.",
+      error: err?.message || "Unknown error",
+    });
+  }
+};
+
+
+exports.checkDomain = async (req, res) => {
+  try {
+    const { domainName } = req.body;
+    console.log("Received body:", req.body);
+
+    // Validate domainName and account_key
+    if (!domainName) {
+      return res.status(400).json({
+        statusCode: 400,
+        status: false,
+        message: "domainName  is missing or invalid.",
+      });
+    }
+
+
+
+    // Make the API request to the external API using account_key
+    const externalApiUrl = `https://${domainName}/wp-json/finerworks-media/v1/check-domain?domain=${domainName}`;
+    console.log("externalApiUrl========>>>>", externalApiUrl);
+
+    const externalApiResponse = await axios.post(externalApiUrl);
+    console.log("externalApiResponse========>>>>", externalApiResponse.data);
+
+
+
+    if (externalApiResponse.data.status !== 'success') {
+      return res.status(400).json({
+        statusCode: 400,
+        status: false,
+        message: "Authentication failed with the external service.",
+      });
+    }
+
+    // Proceed with your processing here after successful authentication
+    // For example, you can process domainName and account_key further
+
+    return res.status(200).json({
+      statusCode: 200,
+      status: true,
+      message: "Success, processed request and authenticated successfully.",
+      data: externalApiResponse.data, // You can return the response from the external API if needed
+    });
+
+  } catch (err) {
+    console.error("Error while processing request:", err);
 
     return res.status(500).json({
       statusCode: 500,
