@@ -4,10 +4,10 @@ const debug = require("debug");
 const log = debug("app:uploadOrders");
 const Joi = require("joi");
 const { validateOrderPayload } = require("./validate-order");
-log("Orders");
-const axios = require('axios'); // Import axios for making HTTP requests
 const { v4: uuidv4 } = require('uuid'); // Import uuid library for UUID generation
 
+log("Orders");
+const axios = require('axios'); // Import axios for making HTTP requests
 
 
 
@@ -938,6 +938,112 @@ exports.submitOrders = async (req, res) => {
     });
   }
 };
+
+
+exports.submitOrdersV2 = async (req, res) => {
+  try {
+    const reqBody = JSON.parse(JSON.stringify(req.body));
+    if (!reqBody?.orders || !reqBody?.payment_token || !reqBody?.accountId || !reqBody?.account_key) {
+      res.status(400).json({
+        statusCode: 400,
+        status: false,
+        message: "Bad Request.",
+      });
+    }
+    const { accountId, payment_token, account_key } = reqBody;
+    const ordersToBeSubmitted = reqBody.orders;
+    console.log("ordersToBeSubmitted=========>>>>", ordersToBeSubmitted);
+    if (ordersToBeSubmitted.length > 0) {
+      console.log("got theentryyyyyyyyyyyyyyy")
+      let orderFulfillmentIds = [];
+      const finalOrders = ordersToBeSubmitted.map((order) => {
+        console.log("order==========", order);
+        if (!order.orderFullFillmentId) {
+          throw new Error("Bad request: Missing orderFullFillmentId");
+        }
+        orderFulfillmentIds.push(order.orderFullFillmentId);
+        console.log("orderFulfillmentIds=========>>>>>", orderFulfillmentIds);
+        console.log("herererererererererererererererere");
+        // const orderData = urlDecodeJSON(order);
+        // console.log("orderData=============>>>>>>>>>>>>>",orderData);
+        delete order.orderFullFillmentId;
+        delete order.createdAt;
+        delete order.submittedAt;
+
+        return order;
+      });
+      // Create a final payload to submit the order in finerworks
+      const finalPayload = {
+        orders: finalOrders,
+        validate_only: false,
+        payment_token,
+        account_key: account_key,
+        accountId: accountId
+      };
+      console.log("finalPayload========><.>>>>><><><><>", finalPayload);
+      // return  res.status(200).json({
+      //   statusCode: 200,
+      //   status: true,
+      //   data:finalPayload
+      //   // message: errorMessage,
+      // });
+      log("Submit order in finerwork database", JSON.stringify(finalPayload));
+      const submitData = await finerworksService.SUBMIT_ORDERS(finalPayload);
+      console.log("submitData==============>>>>>>>>>", submitData);
+      console.log("orderFulfillmentIds==============>>>>>>>>>", orderFulfillmentIds);
+
+
+      log(
+        "Response after submitted to the final database",
+        JSON.stringify(submitData)
+      );
+      // once it gets submitted Now update each order fulfillment Id with submitted status & submitted at time
+      if (orderFulfillmentIds.length > 0) {
+        console.log(" enter the iffffffff")
+        await Promise.all(
+          orderFulfillmentIds.map(async (fulfillmentId) => {
+            log("Fetch details for the order fulfillment Id", fulfillmentId);
+            const selectPayload = {
+              query: `SELECT * FROM ${process.env.FINER_fwAPI_FULFILLMENTS_TABLE} WHERE FulfillmentID=${fulfillmentId} AND FulfillmentAccountID=${accountId}`,
+            };
+
+            const selectData = await finerworksService.SELECT_QUERY_FINERWORKS(selectPayload);
+            if (!selectData?.data.length) return;
+
+            const orderDetails = selectData.data[0];
+            const orderDetail = urlDecodeJSON(orderDetails.FulfillmentData);
+            orderDetail.submittedAt = new Date();
+            orderDetail.payment_token = payment_token;
+
+            const urlEncodedData = urlEncodeJSON(orderDetail);
+            const updatePayload = {
+              tablename: process.env.FINER_fwAPI_FULFILLMENTS_TABLE,
+              fieldupdates: `FulfillmentSubmitted=1, FulfillmentData='${urlEncodedData}'`,
+              where: `FulfillmentID=${fulfillmentId}`,
+            };
+            console.log("updatePayload================", updatePayload);
+
+            await finerworksService.UPDATE_QUERY_FINERWORKS(updatePayload);
+          })
+        );
+        return res.status(200).json({
+          statusCode: 200,
+          status: true,
+          // data:finalPayload
+          message: "orders placed properly",
+        });
+      }
+    }
+  } catch (err) {
+    log("Error comes while submitting a new order", JSON.stringify(err), err);
+    const errorMessage = err.response.data;
+    res.status(400).json({
+      statusCode: 400,
+      status: false,
+      message: errorMessage,
+    });
+  }
+};
 exports.orderSubmitStatus = async (req, res) => {
   try {
     const reqBody = JSON.parse(JSON.stringify(req.body));
@@ -1044,7 +1150,7 @@ exports.getOrderDetailsById = async (req, res) => {
     }
 
     const { platformName } = req.query;
-    const { orderIds, accountId } = reqBody;
+    const { orderIds, accountId, domainName } = reqBody;
 
     if (!accountId) {
       return res.status(400).json({
@@ -1107,7 +1213,7 @@ exports.getOrderDetailsById = async (req, res) => {
     }
 
     // Call the API with the missing orders
-    return callApiWithMissingOrders(missingOrders, platformName, res);
+    return callApiWithMissingOrders(missingOrders, platformName, res, domainName);
 
   } catch (err) {
     console.error("Error while fetching order details", JSON.stringify(err), err);
@@ -1180,26 +1286,27 @@ exports.getOrderDetailsById = async (req, res) => {
 //   }
 // };
 
-const callApiWithMissingOrders = async (missingOrders, platformName, res) => {
+const callApiWithMissingOrders = async (missingOrders, platformName, res, domainName) => {
   try {
     let allOrderDetails = [];
 
     if (platformName === 'woocommerce') {
-      const wooCommerceUrl = process.env.FINERWORKS_WOOCOMMERCE_URL;
-      console.log("wooCommerceUrl===========", wooCommerceUrl);
-      if (!wooCommerceUrl) {
-        return res.status(500).json({
-          statusCode: 500,
-          status: false,
-          message: "WooCommerce URL is not configured in environment variables",
-        });
-      }
-
+      // const wooCommerceUrl = process.env.FINERWORKS_WOOCOMMERCE_URL;
+      // const apiEndpoint = `https://${domainName}/wp-json/finerworks-media/v1/deauthorize`;
+      // console.log("wooCommerceUrl===========", wooCommerceUrl);
+      // if (!wooCommerceUrl) {
+      //   return res.status(500).json({
+      //     statusCode: 500,
+      //     status: false,
+      //     message: "WooCommerce URL is not configured in environment variables",
+      //   });
+      // }
+      console.log("hererererererererererrrrrrrrrrrrrrrrrr", domainName);
       for (const order of missingOrders) {
         console.log("order======", order);
         try {
           const response = await axios.post(
-            `${wooCommerceUrl}get-order-by-id?orderid=${order}`
+            `https://${domainName}/wp-json/finerworks-media/v1/get-order-by-id?orderid=${order}`
           );
 
           console.log("response=======>>>>>", response);
@@ -1333,9 +1440,96 @@ exports.softDeleteOrders = async (req, res) => {
 
 
 
+// exports.disconnectAndProcess = async (req, res) => {
+//   try {
+//     const { client_id, platformName } = req.body;
+
+//     // Validate client_id
+//     if (!client_id) {
+//       return res.status(400).json({
+//         statusCode: 400,
+//         status: false,
+//         message: "client_id is missing or invalid.",
+//       });
+//     }
+
+//     console.log("Received client_id:", client_id);
+
+//     let internalApiResponse;
+
+//     if (platformName === 'woocommerce') {
+//       const apiEndpoint = `${process.env.FINERWORKS_WOOCOMMERCE_URL}deauthorize`;
+//       console.log("apiEndpoint=============+>>>>>>", apiEndpoint);
+//       if (!apiEndpoint) {
+//         return res.status(500).json({
+//           statusCode: 500,
+//           status: false,
+//           message: "Deauthorize API endpoint is not configured in environment variables.",
+//         });
+//       }
+
+//       internalApiResponse = await axios.post(apiEndpoint, { client_id });
+
+//       const getInformation = await finerworksService.GET_INFO({ account_key: client_id });
+//       console.log("getInformation==============>>>>>>>>>>", getInformation);
+
+//       // Defensive check if connections exist
+//       const connections = getInformation?.user_account?.connections || [];
+
+//       // Filter out objects with name === "WooCommerce"
+//       const filteredConnections = connections.filter(conn => conn.name !== "WooCommerce");
+
+//       console.log("Filtered connections:", filteredConnections);
+//       const payloadForCompanyInformation = {
+//         account_key: client_id,
+//         connections: filteredConnections,
+//       };
+
+//       console.log("payloadForCompanyInformation=========", payloadForCompanyInformation);
+//       await finerworksService.UPDATE_INFO(payloadForCompanyInformation);
+
+//     } else {
+//       // Handle other platformNames or return error if unsupported
+//       return res.status(400).json({
+//         statusCode: 400,
+//         status: false,
+//         message: `Unsupported platformName: ${platformName}`,
+//       });
+//     }
+
+//     if (internalApiResponse.status !== 200) {
+//       return res.status(500).json({
+//         statusCode: 500,
+//         status: false,
+//         message: "Failed to deauthorize client_id with internal API.",
+//       });
+//     }
+
+//     // Success
+//     return res.status(200).json({
+//       statusCode: 200,
+//       status: true,
+//       message: "Client successfully deauthorized.",
+//       data: internalApiResponse.data,
+//     });
+
+//   } catch (err) {
+//     console.error("Error while processing client_id:", err);
+
+//     return res.status(500).json({
+//       statusCode: 500,
+//       status: false,
+//       message: err?.response?.data?.message || "Internal server error. Please try again later.",
+//       error: err?.message || "Unknown error",
+//     });
+//   }
+// };
+
+
+
 exports.disconnectAndProcess = async (req, res) => {
   try {
-    const { client_id, platformName,domainName } = req.body;
+    const { client_id, platformName, domainName } = req.body;
 
     // Validate client_id
     if (!client_id) {
@@ -1351,9 +1545,9 @@ exports.disconnectAndProcess = async (req, res) => {
     let internalApiResponse;
 
     if (platformName === 'woocommerce') {
-      const apiEndpoint = `https://${domainName}/wp-json/finerworks-media/v1/deauthorize`;
+      const apiEndpoint = `https://${domainName}/wp-json/finerworks-media/v1/deauthorize?client_id=${client_id}`;
       console.log("apiEndpoint=============+>>>>>>", apiEndpoint);
-      
+
       if (!apiEndpoint) {
         return res.status(500).json({
           statusCode: 500,
@@ -1362,7 +1556,8 @@ exports.disconnectAndProcess = async (req, res) => {
         });
       }
 
-      internalApiResponse = await axios.post(apiEndpoint, { client_id });
+      internalApiResponse = await axios.post(apiEndpoint);
+      console.log("internalApiResponse=========>>>>>>", internalApiResponse);
 
       const getInformation = await finerworksService.GET_INFO({ account_key: client_id });
       console.log("getInformation==============>>>>>>>>>>", getInformation);
@@ -1419,8 +1614,6 @@ exports.disconnectAndProcess = async (req, res) => {
   }
 };
 
-
-
 exports.connectAndProcess = async (req, res) => {
   try {
     const { clientId, platformName, account_key } = req.body;
@@ -1474,6 +1667,7 @@ exports.connectAndProcess = async (req, res) => {
         // Update the existing connection by merging with the payload
         const payloadForCompanyInformation = {
           account_key: account_key,
+          // connections:[]
           connections: connections.map(conn => {
             if (conn.name === req.body.name) {
               return { ...conn, ...payload }; // Merge the existing connection with the new payload
@@ -1502,7 +1696,7 @@ exports.connectAndProcess = async (req, res) => {
       connections: connections,
     };
 
-    console.log("payloadForCompanyInformation=============>>>>>>>>>>>",payloadForCompanyInformation);
+    console.log("payloadForCompanyInformation=============>>>>>>>>>>>", payloadForCompanyInformation);
 
     // Update the connections with the payload
     await finerworksService.UPDATE_INFO(payloadForCompanyInformation);
@@ -1524,6 +1718,190 @@ exports.connectAndProcess = async (req, res) => {
     });
   }
 };
+
+
+exports.connectAndProcessOfa = async (req, res) => {
+  try {
+    const { domainName, account_key } = req.body;
+    console.log("Received body:", req.body);
+
+    // Validate domainName and account_key
+    if (!domainName || !account_key) {
+      return res.status(400).json({
+        statusCode: 400,
+        status: false,
+        message: "domainName or account_key is missing or invalid.",
+      });
+    }
+
+    console.log("Received account_key:", account_key);
+
+    const auth_code = uuidv4(); // Generates a UUID (v4) like 42dd816a-8107-4742-8c1b-a46067fc30c8
+
+    // Concatenate domainName and auth_code to form the ID
+    const id = `${domainName}?${auth_code}`;
+
+    // Final payload to update the connections
+    const payloadForCompanyInformation = {
+      account_key: account_key,
+      connections: [{
+        data: "",
+        name: "WooCommerce",
+        id: id
+      }],
+    };
+    console.log("payloadForCompanyInformation==========>>>>>>>>>>>", payloadForCompanyInformation);
+    await finerworksService.UPDATE_INFO(payloadForCompanyInformation);
+
+    const getInformation = await finerworksService.GET_INFO({ account_key: account_key });
+    console.log("Fetched Information from Finerworks:", getInformation);
+    // return res.status(200).json({
+    //   statusCode: 200,
+    //   status: false,
+    //   message: "Authentication failed with the external service.",
+    //   data:getInformation
+    // });
+
+    // Use getInformation.user_account for internal API payload
+    const internalApiPayload = {
+      user_account: getInformation.user_account // Pass user_account from the fetched information
+    };
+
+    // Make the API request to the external API using account_key
+    const externalApiUrl = `https://${domainName}/wp-json/finerworks-media/v1/authenticate-test`;
+    console.log("externalApiUrl========>>>>", externalApiUrl);
+
+    const externalApiResponse = await axios.post(externalApiUrl, internalApiPayload); // Pass internalApiPayload here
+    console.log("externalApiResponse========>>>>", externalApiResponse);
+
+
+
+
+    if (externalApiResponse.data.status !== 'success') {
+      return res.status(400).json({
+        statusCode: 400,
+        status: false,
+        message: "Authentication failed with the external service.",
+      });
+    }
+    let connections = JSON.parse(JSON.stringify(getInformation?.user_account?.connections)) || [];
+
+    const payload = {
+      name: 'WooCommerce',
+      id: id,
+      data: JSON.stringify({
+        clientId: getInformation?.user_account?.account_id,
+        account_key: account_key,
+        isConnected: true,
+      }), // Data as stringified JSON
+    };
+
+    // If the connections array is empty, directly add the payload
+    if (connections.length === 0) {
+      connections = [payload]; // Assign the payload to the connections array
+      console.log("Connections array is empty. Added payload:", connections);
+    } else {
+      // If the connection exists, update the array
+      const filteredConnections = connections.filter(conn => conn.name === 'WooCommerce');
+      console.log("Filtered Connections:", filteredConnections);
+
+      if (filteredConnections.length > 0) {
+        // Update the existing connection by merging with the payload
+        const payloadForCompanyInformation = {
+          account_key: account_key,
+          // connections:[]
+          connections: connections.map(conn => {
+            if (conn.name === 'WooCommerce') {
+              return { ...conn, ...payload }; // Merge the existing connection with the new payload
+            }
+            return conn;
+          }),
+        };
+        console.log("Updated payloadForCompanyInformation (Connection Exists):", payloadForCompanyInformation);
+        await finerworksService.UPDATE_INFO(payloadForCompanyInformation);
+
+        return res.status(200).json({
+          statusCode: 200,
+          status: true,
+          message: `Connection established`,
+        });
+      } else {
+        // If no connection exists, just add the payload
+        connections.push(payload);
+        console.log("Added new connection:", connections);
+      }
+    }
+
+  } catch (err) {
+    console.error("Error while processing request:", err);
+
+    return res.status(500).json({
+      statusCode: 500,
+      status: false,
+      message: err?.response?.data?.message || "Internal server error. Please try again later.",
+      error: err?.message || "Unknown error",
+    });
+  }
+};
+
+
+exports.checkDomain = async (req, res) => {
+  try {
+    const { domainName } = req.body;
+    console.log("Received body:", req.body);
+
+    // Validate domainName and account_key
+    if (!domainName) {
+      return res.status(400).json({
+        statusCode: 400,
+        status: false,
+        message: "domainName  is missing or invalid.",
+      });
+    }
+
+
+
+    // Make the API request to the external API using account_key
+    const externalApiUrl = `https://${domainName}/wp-json/finerworks-media/v1/check-domain?domain=${domainName}`;
+    console.log("externalApiUrl========>>>>", externalApiUrl);
+
+    const externalApiResponse = await axios.post(externalApiUrl);
+    console.log("externalApiResponse========>>>>", externalApiResponse.data);
+
+
+
+    if (externalApiResponse.data.status !== 'success') {
+      return res.status(400).json({
+        statusCode: 400,
+        status: false,
+        message: "Authentication failed with the external service.",
+      });
+    }
+
+    // Proceed with your processing here after successful authentication
+    // For example, you can process domainName and account_key further
+
+    return res.status(200).json({
+      statusCode: 200,
+      status: true,
+      message: "Success, processed request and authenticated successfully.",
+      data: externalApiResponse.data, // You can return the response from the external API if needed
+    });
+
+  } catch (err) {
+    console.error("Error while processing request:", err);
+
+    return res.status(500).json({
+      statusCode: 500,
+      status: false,
+      message: err?.response?.data?.message || "Internal server error. Please try again later.",
+      error: err?.message || "Unknown error",
+    });
+  }
+};
+
+
+
 
 
 exports.testAccountKey = async (req, res) => {
@@ -1555,6 +1933,31 @@ exports.testAccountKey = async (req, res) => {
       }],
     };
 
+    const getInformationv2 = await finerworksService.GET_INFO({ account_key: account_key });
+    console.log("Fetched Information from Finerworks:", getInformationv2);
+
+    let connections = JSON.parse(JSON.stringify(getInformationv2?.user_account?.connections)) || [];
+
+    const filteredConnections = connections.filter(conn => conn.name === 'WooCommerce');
+    console.log("Filtered Connections:", filteredConnections);
+    const connection = filteredConnections[0]; // Assuming only one item in the array
+    const domainExist = connection.id.split('?')[0]; // Splitting to get the domain
+    const isConnected = JSON.parse(connection.data)?.isConnected ?? false; // Using optional chaining and nullish coalescing to handle missing key
+
+    console.log('Domain:', domainExist); // Output: finerworks1.instawp.site
+    console.log('isConnected:', isConnected);
+    console.log('connection:', connection); // Output: true
+    // Output: true
+    if(isConnected && connection){
+      if (domainExist && domainExist!==domainName){
+        return res.status(400).json({
+          statusCode: 400,
+          status: false,
+          message: "Already associated with other domain",    
+        });
+      }
+    }
+
     console.log("payloadForCompanyInformation=============>>>>>>>>>>>", payloadForCompanyInformation);
 
     // Update the connections with the payload
@@ -1582,7 +1985,6 @@ exports.testAccountKey = async (req, res) => {
     });
   }
 };
-
 
 exports.disconnectProductsFromInventory = async (req, res) => {
   try {
@@ -1652,110 +2054,6 @@ exports.disconnectProductsFromInventory = async (req, res) => {
       status: false,
       message: err?.response?.data?.message || "Internal server error. Please try again later.",
       error: err?.message || "Unknown error",
-    });
-  }
-};
-exports.submitOrdersV2 = async (req, res) => {
-  try {
-    const reqBody = JSON.parse(JSON.stringify(req.body));
-    if (!reqBody?.orders || !reqBody?.payment_token || !reqBody?.accountId || !reqBody?.account_key) {
-      res.status(400).json({
-        statusCode: 400,
-        status: false,
-        message: "Bad Request.",
-      });
-    }
-    const { accountId, payment_token, account_key } = reqBody;
-    const ordersToBeSubmitted = reqBody.orders;
-    console.log("ordersToBeSubmitted=========>>>>", ordersToBeSubmitted);
-    if (ordersToBeSubmitted.length > 0) {
-      console.log("got theentryyyyyyyyyyyyyyy")
-      let orderFulfillmentIds = [];
-      const finalOrders = ordersToBeSubmitted.map((order) => {
-        console.log("order==========", order);
-        if (!order.orderFullFillmentId) {
-          throw new Error("Bad request: Missing orderFullFillmentId");
-        }
-        orderFulfillmentIds.push(order.orderFullFillmentId);
-        console.log("orderFulfillmentIds=========>>>>>", orderFulfillmentIds);
-        console.log("herererererererererererererererere");
-        // const orderData = urlDecodeJSON(order);
-        // console.log("orderData=============>>>>>>>>>>>>>",orderData);
-        delete order.orderFullFillmentId;
-        delete order.createdAt;
-        delete order.submittedAt;
-
-        return order;
-      });
-      // Create a final payload to submit the order in finerworks
-      const finalPayload = {
-        orders: finalOrders,
-        validate_only: false,
-        payment_token,
-        account_key: account_key,
-        accountId: accountId
-      };
-      console.log("finalPayload========><.>>>>><><><><>", finalPayload);
-      // return  res.status(200).json({
-      //   statusCode: 200,
-      //   status: true,
-      //   data:finalPayload
-      //   // message: errorMessage,
-      // });
-      log("Submit order in finerwork database", JSON.stringify(finalPayload));
-      const submitData = await finerworksService.SUBMIT_ORDERS(finalPayload);
-      console.log("submitData==============>>>>>>>>>", submitData);
-      console.log("orderFulfillmentIds==============>>>>>>>>>", orderFulfillmentIds);
-
-
-      log(
-        "Response after submitted to the final database",
-        JSON.stringify(submitData)
-      );
-      // once it gets submitted Now update each order fulfillment Id with submitted status & submitted at time
-      if (orderFulfillmentIds.length > 0) {
-        console.log(" enter the iffffffff")
-        await Promise.all(
-          orderFulfillmentIds.map(async (fulfillmentId) => {
-            log("Fetch details for the order fulfillment Id", fulfillmentId);
-            const selectPayload = {
-              query: `SELECT * FROM ${process.env.FINER_fwAPI_FULFILLMENTS_TABLE} WHERE FulfillmentID=${fulfillmentId} AND FulfillmentAccountID=${accountId}`,
-            };
-
-            const selectData = await finerworksService.SELECT_QUERY_FINERWORKS(selectPayload);
-            if (!selectData?.data.length) return;
-
-            const orderDetails = selectData.data[0];
-            const orderDetail = urlDecodeJSON(orderDetails.FulfillmentData);
-            orderDetail.submittedAt = new Date();
-            orderDetail.payment_token = payment_token;
-
-            const urlEncodedData = urlEncodeJSON(orderDetail);
-            const updatePayload = {
-              tablename: process.env.FINER_fwAPI_FULFILLMENTS_TABLE,
-              fieldupdates: `FulfillmentSubmitted=1, FulfillmentData='${urlEncodedData}'`,
-              where: `FulfillmentID=${fulfillmentId}`,
-            };
-            console.log("updatePayload================", updatePayload);
-
-            await finerworksService.UPDATE_QUERY_FINERWORKS(updatePayload);
-          })
-        );
-        return res.status(200).json({
-          statusCode: 200,
-          status: true,
-          // data:finalPayload
-          message: "orders placed properly",
-        });
-      }
-    }
-  } catch (err) {
-    log("Error comes while submitting a new order", JSON.stringify(err), err);
-    const errorMessage = err.response.data;
-    res.status(400).json({
-      statusCode: 400,
-      status: false,
-      message: errorMessage,
     });
   }
 };

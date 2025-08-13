@@ -54,7 +54,7 @@ Resources:
         - ProdLambdaExecutionRole
         - Arn
       Runtime: nodejs18.x
-      CodeUri: s3://orderfullfilmentprodbucketlambda/40031869a7600ceb588ea8f253048076
+      CodeUri: s3://orderfullfilmentprodbucketlambda/6f122e2918482e2b991c1812cc806817
       MemorySize: 3008
       Timeout: 900
       Environment:
@@ -369,6 +369,20 @@ Resources:
               Ref: ProdApiGateway
             Method: POST
             Path: /api/list-virtual-inventory-v2
+        ConnectionFromOFA:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: ProdApiGateway
+            Method: POST
+            Path: /api/connection-establishment-Ofa
+        CheckDomain:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: ProdApiGateway
+            Method: POST
+            Path: /api/check-domain
     Metadata:
       SamResourceId: OrderFullFillmentServerLessProdServer
   OrderFullFillmentServerLessDevServerLogGroup:
