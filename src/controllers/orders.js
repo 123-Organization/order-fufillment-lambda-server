@@ -1933,6 +1933,31 @@ exports.testAccountKey = async (req, res) => {
       }],
     };
 
+    const getInformationv2 = await finerworksService.GET_INFO({ account_key: account_key });
+    console.log("Fetched Information from Finerworks:", getInformationv2);
+
+    let connections = JSON.parse(JSON.stringify(getInformationv2?.user_account?.connections)) || [];
+
+    const filteredConnections = connections.filter(conn => conn.name === 'WooCommerce');
+    console.log("Filtered Connections:", filteredConnections);
+    const connection = filteredConnections[0]; // Assuming only one item in the array
+    const domainExist = connection.id.split('?')[0]; // Splitting to get the domain
+    const isConnected = JSON.parse(connection.data)?.isConnected ?? false; // Using optional chaining and nullish coalescing to handle missing key
+
+    console.log('Domain:', domainExist); // Output: finerworks1.instawp.site
+    console.log('isConnected:', isConnected);
+    console.log('connection:', connection); // Output: true
+    // Output: true
+    if(isConnected && connection){
+      if (domainExist && domainExist!==domainName){
+        return res.status(400).json({
+          statusCode: 400,
+          status: false,
+          message: "Already associated with other domain",    
+        });
+      }
+    }
+
     console.log("payloadForCompanyInformation=============>>>>>>>>>>>", payloadForCompanyInformation);
 
     // Update the connections with the payload
