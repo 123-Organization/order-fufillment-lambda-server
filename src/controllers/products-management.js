@@ -352,6 +352,8 @@ exports.productTrashed = async (req, res) => {
     if (product.sku != "") {
       searchListVirtualInventoryParams.sku_filter = [product.sku];
     }
+    searchListVirtualInventoryParams.account_key=account_key
+    console.log("searchListVirtualInventoryParams==========+>>>>",searchListVirtualInventoryParams);
     const getProductDetails = await finerworksService.LIST_VIRTUAL_INVENTORY(
       searchListVirtualInventoryParams
     );
@@ -438,9 +440,14 @@ exports.productSkuUpdated = async (req, res) => {
     if (product.new_sku != "") {
       searchListVirtualInventoryParamsNew.sku_filter = [product.new_sku];
     }
+    searchListVirtualInventoryParams.account_key=account_key
+    searchListVirtualInventoryParamsNew.account_key=account_key
+
     const getProductDetails = await finerworksService.LIST_VIRTUAL_INVENTORY(
       searchListVirtualInventoryParams
     );
+
+    console.log("searchListVirtualInventoryParams=======>>>>>",searchListVirtualInventoryParams);
     console.log("getProductDetails===========", getProductDetails)
     const getProductDetailsNew = await finerworksService.LIST_VIRTUAL_INVENTORY(
       searchListVirtualInventoryParamsNew
@@ -530,6 +537,7 @@ exports.productRestored = async (req, res) => {
     if (product.sku != "") {
       searchListVirtualInventoryParams.sku_filter = [product.sku];
     }
+    searchListVirtualInventoryParams.account_key=account_key
     const getProductDetails = await finerworksService.LIST_VIRTUAL_INVENTORY(
       searchListVirtualInventoryParams
     );
