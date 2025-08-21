@@ -373,6 +373,13 @@ Resources:
               Ref: MyApiGateway
             Method: POST
             Path: /api/check-domain
+        SendOrderInformation:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: POST
+            Path: /api/send-order-information
   OrderFullFillmentServerLessDevServerLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:

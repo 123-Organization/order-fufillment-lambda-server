@@ -32,6 +32,7 @@ exports.UPDATE_INFO = async (payload) => {
  * @returns {Promise<Object>} - The response data from the API.
  */
 exports.GET_INFO = async (payload) => {
+  console.log("payload==============>>>>>>>",payload);
   const postData = await axios({
     method: 'get',
     url: process.env.FINER_WORKS_URL + 'get_user?account_key=' + payload.account_key,
@@ -94,6 +95,17 @@ exports.SELECT_QUERY_FINERWORKS = async (payload) => {
   const postData = await axios({
     method: 'POST',
     url: process.env.FINER_WORKS_URL + 'finerworks_select_query',
+    headers: getHeaders(),
+    data: payload
+  });
+  return postData.data;
+};
+
+
+exports.GET_ORDER_STATUS = async (payload) => {
+  const postData = await axios({
+    method: 'POST',
+    url: process.env.FINER_WORKS_URL + 'fetch_order_status',
     headers: getHeaders(),
     data: payload
   });
@@ -210,7 +222,7 @@ exports.GET_PAYMENT_TOKEN = async (payload) => {
   console.log("payload",payload);
   const postData = await axios({
     method: 'GET',
-    url: process.env.FINER_WORKS_URL + 'get_payment_tokens?payment_profile_id=' + payload.payment_profile_id+ '&sandbox=true',
+    url: process.env.FINER_WORKS_URL + 'get_payment_tokens?payment_profile_id=' + payload.payment_profile_id+ '&sandbox=false',
     headers: getHeaders()
   }); 
   return postData.data;
