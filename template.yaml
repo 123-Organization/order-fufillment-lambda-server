@@ -373,7 +373,7 @@ Resources:
               Ref: MyApiGateway
             Method: POST
             Path: /api/check-domain
-        SendOrderInformation:
+        OrderInformation:
           Type: Api
           Properties:
             RestApiId:
