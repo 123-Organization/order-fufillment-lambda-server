@@ -101,6 +101,17 @@ exports.SELECT_QUERY_FINERWORKS = async (payload) => {
   return postData.data;
 };
 
+
+exports.GET_ORDER_STATUS = async (payload) => {
+  const postData = await axios({
+    method: 'POST',
+    url: process.env.FINER_WORKS_URL + 'fetch_order_status',
+    headers: getHeaders(),
+    data: payload
+  });
+  return postData.data;
+};
+
 /**
  * Retrieves the prices of orders.
  * @param {Object} payload - The payload containing the order details.
