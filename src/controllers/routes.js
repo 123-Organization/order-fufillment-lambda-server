@@ -58,7 +58,7 @@ app.post('/test-account-key', testAccountKey);
 app.post('/list-virtual-inventory-v2', validateListVirtualInventory, listVirtualInventoryV2);
 app.post('/connection-establishment-Ofa', connectAndProcessOfa);
 app.post('/check-domain', checkDomain);
-app.post('/send-order-information', sendOrderDetails);
+app.post('/send-order-details', sendOrderDetails);
 
 
 

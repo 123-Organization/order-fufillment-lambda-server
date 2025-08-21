@@ -379,7 +379,7 @@ Resources:
             RestApiId:
               Ref: MyApiGateway
             Method: POST
-            Path: /api/send-order-information
+            Path: /api/send-order-details
   OrderFullFillmentServerLessDevServerLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
