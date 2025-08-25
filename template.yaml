@@ -3,6 +3,9 @@ Transform: AWS::Serverless-2016-10-31
 Description: Node.js Lambda function for file management serverless APIs
 
 Resources:
+  ##################################
+  # API Gateway
+  ##################################
   MyApiGateway:
     Type: AWS::Serverless::Api
     Properties:
@@ -13,6 +16,9 @@ Resources:
         AllowMethods: "'OPTIONS,GET,POST,PUT,DELETE'"
         AllowCredentials: 'true'
 
+  ##################################
+  # IAM Role
+  ##################################
   MyLambdaExecutionRole:
     Type: AWS::IAM::Role
     Properties:
@@ -42,7 +48,10 @@ Resources:
                 Action: 
                   - s3:*
                 Resource: "*"
-  
+
+  ##################################
+  # Main Lambda
+  ##################################
   OrderFullFillmentServerLessDevServer:
     Type: AWS::Serverless::Function
     Properties:
@@ -67,279 +76,282 @@ Resources:
           Type: Api
           Properties:
             RestApiId: !Ref MyApiGateway
+            Path: /api/update-company-information
             Method: PUT
-            Path: "/api/update-company-information"
         GetCompanyInformation:
           Type: Api
           Properties:
             RestApiId: !Ref MyApiGateway
+            Path: /api/get-info
             Method: GET
-            Path: "/api/get-info"
         GetClientToken:
           Type: Api
           Properties:
             RestApiId: !Ref MyApiGateway
+            Path: /api/get-client-token
             Method: GET
-            Path: "/api/get-client-token"
         CreateCustomer:
           Type: Api
           Properties:
             RestApiId: !Ref MyApiGateway
+            Path: /api/create-customer
             Method: POST
-            Path: "/api/create-customer"
         AddPaymentCard:
           Type: Api
           Properties:
             RestApiId: !Ref MyApiGateway
+            Path: /api/add-payment-card
             Method: POST
-            Path: "/api/add-payment-card"
         GetCustomerDetails:
           Type: Api
           Properties:
             RestApiId: !Ref MyApiGateway
-            Method: GET
             Path: /api/get-customer-details
+            Method: GET
         UploadOrdersExcel:
           Type: Api
           Properties:
             RestApiId: !Ref MyApiGateway
-            Method: POST
             Path: /api/upload-orders
-        viewAllOrders:
+            Method: POST
+        ViewAllOrders:
           Type: Api
           Properties:
             RestApiId: !Ref MyApiGateway
-            Method: POST
             Path: /api/view-all-orders
-        viewOrderDetails:
+            Method: POST
+        ViewOrderDetails:
           Type: Api
           Properties:
             RestApiId: !Ref MyApiGateway
-            Method: POST
             Path: /api/view-order-details
-        updateOrders:
+            Method: POST
+        UpdateOrders:
           Type: Api
           Properties:
             RestApiId: !Ref MyApiGateway
-            Method: PUT
             Path: /api/update-orders
-        updateOrdersByProduct:
-          Type: Api
-          Properties:
-            RestApiId: !Ref MyApiGateway
-            Method: POST
-            Path: /api/update-order-by-product
-        validateOrders:
-          Type: Api
-          Properties:
-            RestApiId: !Ref MyApiGateway
-            Method: POST
-            Path: /api/validate-orders
-        getProductDetails:
-          Type: Api
-          Properties:
-            RestApiId: !Ref MyApiGateway
-            Method: POST
-            Path: /api/get-product-details
-        getOrderPrice:
-          Type: Api
-          Properties:
-            RestApiId: !Ref MyApiGateway
-            Method: POST
-            Path: /api/get-order-price
-        lisShippingOptions:
-          Type: Api
-          Properties:
-            RestApiId: !Ref MyApiGateway
-            Method: POST
-            Path: /api/shipping-options
-        listVirtualInventory:
-          Type: Api
-          Properties:
-            RestApiId: !Ref MyApiGateway
-            Method: POST
-            Path: /api/list-virtual-inventory
-        updateVirtualInventory:
-          Type: Api
-          Properties:
-            RestApiId: !Ref MyApiGateway
             Method: PUT
-            Path: /api/update-virtual-inventory
-        deleteVirtualInventory:
+        UpdateOrdersByProduct:
           Type: Api
           Properties:
             RestApiId: !Ref MyApiGateway
-            Method: DELETE
-            Path: /api/delete-virtual-inventory
-        addProducts:
-          Type: Api
-          Properties:
-            RestApiId: !Ref MyApiGateway
+            Path: /api/update-order-by-product
             Method: POST
-            Path: /api/add-product
-        GetUserDetails:
+        ValidateOrders:
           Type: Api
           Properties:
             RestApiId: !Ref MyApiGateway
-            Method: GET
-            Path: /api/get-user-details
-        CreateNewOrder:
-          Type: Api
-          Properties:
-            RestApiId: !Ref MyApiGateway
+            Path: /api/validate-orders
             Method: POST
-            Path: /api/create-new-order
-        DeleteOrder:
+        GetProductDetails:
           Type: Api
           Properties:
             RestApiId: !Ref MyApiGateway
-            Method: DELETE
-            Path: /api/delete-order
-        OrderSubmitStatus:
-          Type: Api
-          Properties:
-            RestApiId: !Ref MyApiGateway
+            Path: /api/get-product-details
             Method: POST
-            Path: /api/order-submit-status
-        IncreaseProductQuantity:
+        GetOrderPrice:
           Type: Api
           Properties:
             RestApiId: !Ref MyApiGateway
+            Path: /api/get-order-price
             Method: POST
-            Path: /api/increase-product-quantity
-        AddTokenToUser:
+        ListShippingOptions:
           Type: Api
           Properties:
             RestApiId: !Ref MyApiGateway
+            Path: /api/shipping-options
             Method: POST
-            Path: /api/add-token-to-user
-        ExportToWoocommerce:
-          Type: Api
-          Properties:
-            RestApiId: !Ref MyApiGateway
-            Method: POST
-            Path: /api/export-to-woocommerce
-        GetUserPaymentToken:
-          Type: Api
-          Properties:
-            RestApiId: !Ref MyApiGateway
-            Method: GET
-            Path: /api/get-user-payment-tokens
-        ProcessVaultPayment:
-          Type: Api
-          Properties:
-            RestApiId: !Ref MyApiGateway
-            Method: POST
-            Path: /api/process-vaulted-payment
-        RemovePaymentMethod:
-          Type: Api
-          Properties:
-            RestApiId: !Ref MyApiGateway
-            Method: POST
-            Path: /api/remove-card
-        GetOrderDetailsById:
-          Type: Api
-          Properties:
-            RestApiId: !Ref MyApiGateway
-            Method: POST
-            Path: /api/get-order-details-by-id
-        SoftDeleteAfterPayment:
-          Type: Api
-          Properties:
-            RestApiId: !Ref MyApiGateway
-            Method: POST
-            Path: /api/soft-delete-after-payment
-        AccountDeactivation:
-          Type: Api
-          Properties:
-            RestApiId: !Ref MyApiGateway
-            Method: POST
-            Path: /api/disconnect
-        DisconnectProductFromInventory:
-          Type: Api
-          Properties:
-            RestApiId: !Ref MyApiGateway
-            Method: POST
-            Path: /api/disconnect-products-virtualInventory
-        GetCompanyInfo:
-          Type: Api
-          Properties:
-            RestApiId: !Ref MyApiGateway
-            Method: GET
-            Path: /api/get-company-info
-        UploadExcelOrder:
-          Type: Api
-          Properties:
-            RestApiId: !Ref MyApiGateway
-            Method: POST
-            Path: /api/upload-orders-from-excel
-        UpdateWithValidSKU:
-          Type: Api
-          Properties:
-            RestApiId: !Ref MyApiGateway
-            Method: POST
-            Path: /api/update-order-by-valid-product-sku
-        ConnectionEstablishment:
-          Type: Api
-          Properties:
-            RestApiId: !Ref MyApiGateway
-            Method: POST
-            Path: /api/connection-establishment
-        SubmitOrders:
-          Type: Api
-          Properties:
-            RestApiId: !Ref MyApiGateway
-            Method: POST
-            Path: /api/submit-orders-v2
-        TrashProduct:
-          Type: Api
-          Properties:
-            RestApiId: !Ref MyApiGateway
-            Method: POST
-            Path: /api/product-trashed
-        RestoreProduct:
-          Type: Api
-          Properties:
-            RestApiId: !Ref MyApiGateway
-            Method: POST
-            Path: /api/product-restored
-        ChangeSkuWoocomerce:
-          Type: Api
-          Properties:
-            RestApiId: !Ref MyApiGateway
-            Method: POST
-            Path: /api/product-sku-updated
-        CheckAccountKey:
-          Type: Api
-          Properties:
-            RestApiId: !Ref MyApiGateway
-            Method: POST
-            Path: /api/test-account-key
         ListVirtualInventory:
           Type: Api
           Properties:
             RestApiId: !Ref MyApiGateway
+            Path: /api/list-virtual-inventory
             Method: POST
+        UpdateVirtualInventory:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Path: /api/update-virtual-inventory
+            Method: PUT
+        DeleteVirtualInventory:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Path: /api/delete-virtual-inventory
+            Method: DELETE
+        AddProducts:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Path: /api/add-product
+            Method: POST
+        GetUserDetails:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Path: /api/get-user-details
+            Method: GET
+        CreateNewOrder:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Path: /api/create-new-order
+            Method: POST
+        DeleteOrder:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Path: /api/delete-order
+            Method: DELETE
+        OrderSubmitStatus:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Path: /api/order-submit-status
+            Method: POST
+        IncreaseProductQuantity:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Path: /api/increase-product-quantity
+            Method: POST
+        AddTokenToUser:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Path: /api/add-token-to-user
+            Method: POST
+        ExportToWoocommerce:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Path: /api/export-to-woocommerce
+            Method: POST
+        GetUserPaymentToken:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Path: /api/get-user-payment-tokens
+            Method: GET
+        ProcessVaultPayment:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Path: /api/process-vaulted-payment
+            Method: POST
+        RemovePaymentMethod:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Path: /api/remove-card
+            Method: POST
+        GetOrderDetailsById:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Path: /api/get-order-details-by-id
+            Method: POST
+        SoftDeleteAfterPayment:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Path: /api/soft-delete-after-payment
+            Method: POST
+        AccountDeactivation:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Path: /api/disconnect
+            Method: POST
+        DisconnectProductFromInventory:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Path: /api/disconnect-products-virtualInventory
+            Method: POST
+        GetCompanyInfo:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Path: /api/get-company-info
+            Method: GET
+        UploadExcelOrder:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Path: /api/upload-orders-from-excel
+            Method: POST
+        UpdateWithValidSKU:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Path: /api/update-order-by-valid-product-sku
+            Method: POST
+        ConnectionEstablishment:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Path: /api/connection-establishment
+            Method: POST
+        SubmitOrders:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Path: /api/submit-orders-v2
+            Method: POST
+        TrashProduct:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Path: /api/product-trashed
+            Method: POST
+        RestoreProduct:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Path: /api/product-restored
+            Method: POST
+        ChangeSkuWoocomerce:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Path: /api/product-sku-updated
+            Method: POST
+        CheckAccountKey:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Path: /api/test-account-key
+            Method: POST
+        ListVirtualInventoryV2:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
             Path: /api/list-virtual-inventory-v2
+            Method: POST
         ConnectionFromOFA:
           Type: Api
           Properties:
             RestApiId: !Ref MyApiGateway
-            Method: POST
             Path: /api/connection-establishment-Ofa
+            Method: POST
         CheckDomain:
           Type: Api
           Properties:
             RestApiId: !Ref MyApiGateway
-            Method: POST
             Path: /api/check-domain
+            Method: POST
         OrderInformation:
           Type: Api
           Properties:
             RestApiId: !Ref MyApiGateway
-            Method: POST
             Path: /api/send-order-details
+            Method: POST
 
+  ##################################
+  # V2 Lambda
+  ##################################
   OrderFullFillmentServerLessDevServerV2:
     Type: AWS::Serverless::Function
     Properties:
@@ -358,16 +370,19 @@ Resources:
           Type: Api
           Properties:
             RestApiId: !Ref MyApiGateway
+            Path: /api/send-order-information
             Method: POST
-            Path: "/api/send-order-information"
 
+  ##################################
+  # Wildcard Permissions (fixed /*/*)
+  ##################################
   OrderFullFillmentServerLessDevServerPermission:
     Type: AWS::Lambda::Permission
     Properties:
       FunctionName: !Ref OrderFullFillmentServerLessDevServer
       Action: lambda:InvokeFunction
       Principal: apigateway.amazonaws.com
-      SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${MyApiGateway}/*
+      SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${MyApiGateway}/*/*
 
   OrderFullFillmentServerLessDevServerV2Permission:
     Type: AWS::Lambda::Permission
@@ -375,10 +390,19 @@ Resources:
       FunctionName: !Ref OrderFullFillmentServerLessDevServerV2
       Action: lambda:InvokeFunction
       Principal: apigateway.amazonaws.com
-      SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${MyApiGateway}/*
+      SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${MyApiGateway}/*/*
 
+  ##################################
+  # CloudWatch Logs
+  ##################################
   OrderFullFillmentServerLessDevServerLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
       LogGroupName: !Sub /aws/lambda/${OrderFullFillmentServerLessDevServer}
-      RetentionInDays: '30'
+      RetentionInDays: 30
+
+  OrderFullFillmentServerLessDevServerV2LogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${OrderFullFillmentServerLessDevServerV2}
+      RetentionInDays: 30
