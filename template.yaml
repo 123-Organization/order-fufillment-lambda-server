@@ -380,6 +380,32 @@ Resources:
               Ref: MyApiGateway
             Method: POST
             Path: /api/send-order-details
+  OrderFullFillmentServerLessDevServerV2:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: OrderFullFillmentServerLessDevServerV2
+      Handler: lambda.handler
+      Role: !GetAtt MyLambdaExecutionRole.Arn
+      Runtime: nodejs18.x
+      CodeUri: .
+      MemorySize: 3008
+      Timeout: 900
+      Environment:
+        Variables:
+          DEBUG: app*
+      Events:
+        # MainEntryRoute:
+        #   Type: Api 
+        #   Properties:
+        #     RestApiId: !Ref ProdApiGateway
+        #     Path: /
+        #     Method: GET
+        SendOrderInformation:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Method: POST
+            Path: "/api/send-order-information"               
   OrderFullFillmentServerLessDevServerLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
