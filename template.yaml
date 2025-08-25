@@ -393,16 +393,18 @@ Resources:
       SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${MyApiGateway}/*/*
 
   ##################################
-  # CloudWatch Logs
+  # CloudWatch Logs (keep with DeletionPolicy: Retain)
   ##################################
   OrderFullFillmentServerLessDevServerLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
       LogGroupName: !Sub /aws/lambda/${OrderFullFillmentServerLessDevServer}
       RetentionInDays: 30
+    DeletionPolicy: Retain
 
   OrderFullFillmentServerLessDevServerV2LogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
       LogGroupName: !Sub /aws/lambda/${OrderFullFillmentServerLessDevServerV2}
       RetentionInDays: 30
+    DeletionPolicy: Retain
