@@ -373,6 +373,32 @@ Resources:
               Ref: ProdApiGateway
             Method: POST
             Path: /api/check-domain
+  OrderFullFillmentServerLessProdServerV2:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: OrderFullFillmentServerLessProdServerV2
+      Handler: lambda.handler
+      Role: !GetAtt ProdLambdaExecutionRole.Arn
+      Runtime: nodejs18.x
+      CodeUri: .
+      MemorySize: 3008
+      Timeout: 900
+      Environment:
+        Variables:
+          DEBUG: app*
+      Events:
+        # MainEntryRoute:
+        #   Type: Api 
+        #   Properties:
+        #     RestApiId: !Ref ProdApiGateway
+        #     Path: /
+        #     Method: GET
+        SendOrderInformation:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ProdApiGateway
+            Method: POST
+            Path: "/api/send-order-information"     
   OrderFullFillmentServerLessDevServerLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:

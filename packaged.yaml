@@ -54,7 +54,7 @@ Resources:
         - ProdLambdaExecutionRole
         - Arn
       Runtime: nodejs18.x
-      CodeUri: s3://orderfullfilmentprodbucketlambda/160713c20f131435a299ca6ecc4cb7ee
+      CodeUri: s3://orderfullfilmentprodbucketlambda/d2d782167d81e7cf1cad9c2b3a9d9cbb
       MemorySize: 3008
       Timeout: 900
       Environment:
@@ -385,6 +385,32 @@ Resources:
             Path: /api/check-domain
     Metadata:
       SamResourceId: OrderFullFillmentServerLessProdServer
+  OrderFullFillmentServerLessProdServerV2:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: OrderFullFillmentServerLessProdServerV2
+      Handler: lambda.handler
+      Role:
+        Fn::GetAtt:
+        - ProdLambdaExecutionRole
+        - Arn
+      Runtime: nodejs18.x
+      CodeUri: s3://orderfullfilmentprodbucketlambda/d2d782167d81e7cf1cad9c2b3a9d9cbb
+      MemorySize: 3008
+      Timeout: 900
+      Environment:
+        Variables:
+          DEBUG: app*
+      Events:
+        SendOrderInformation:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: ProdApiGateway
+            Method: POST
+            Path: /api/send-order-information
+    Metadata:
+      SamResourceId: OrderFullFillmentServerLessProdServerV2
   OrderFullFillmentServerLessDevServerLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
