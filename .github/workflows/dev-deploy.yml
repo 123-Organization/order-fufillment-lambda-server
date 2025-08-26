@@ -4,10 +4,11 @@ on:
   push:
     branches:
       - develop
+      - master
 
 jobs:
   deploy:
-    name: Package and Deploy Lambda
+    name: Package and Deploy Lambda (Core + Extended)
     runs-on: ubuntu-latest
     env:
       SAM_AWS_ACCESS_KEY_ID: ${{ secrets.SAM_AWS_ACCESS_KEY_ID }}
@@ -33,14 +34,6 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      - name: Extract branch name
-        id: extract-branch
-        run: |
-          ref_name="${{ github.ref }}"
-          branch_name="${ref_name#refs/heads/}"
-          echo "branch_name=$branch_name" >> "$GITHUB_OUTPUT"
-
-
       - name: Set up AWS CLI
         uses: aws-actions/configure-aws-credentials@v2
         with:
@@ -48,71 +41,52 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: us-east-1
 
-      - name: create .env file from env
-        run: | 
-          mv env .env
-          ls -la
-
-      - name: change common values in .env
-        run : |
-          sed -i "s#SAM_AWS_ACCESS_KEY_ID#${SAM_AWS_ACCESS_KEY_ID}#g" .env
-          sed -i "s#SAM_AWS_SECRET_ACCESS_KEY#${{ secrets.SAM_AWS_SECRET_ACCESS_KEY }}#g" .env
-          sed -i "s#SAM_FINER_WORKS_WEB_API_KEY#${FINER_WORKS_WEB_API_KEY}#g" .env
-          sed -i "s#SAM_FINER_WORKS_APP_KEY#${FINER_WORKS_APP_KEY}#g" .env
-          sed -i "s#SAM_FINER_WORKS_URL#${FINER_WORKS_URL}#g" .env
-          sed -i "s#SAM_FINER_fwAPI_FULFILLMENTS_TABLE#${FINER_fwAPI_FULFILLMENTS_TABLE}#g" .env
-          sed -i "s#SAM_AWS_BUCKET_URL#${AWS_BUCKET_URL}#g" .env
-          sed -i "s#SAM_AWS_BUCKET_THUMBNAIL_URL#${AWS_BUCKET_THUMBNAIL_URL}#g" .env
-          sed -i "s#SAM_FINERWORKS_WOOCOMMERCE_URL#${FINERWORKS_WOOCOMMERCE_URL}#g" .env
-
-      - name: Set Braintree secrets for develop branch
-        if: github.ref == 'refs/heads/develop'
-        run: |
-          sed -i "s#SAM_BRAINTREE_ENVIRONMENT#${DEV_BRAINTREE_ENVIRONMENT}#g" .env
-          sed -i "s#SAM_BRAINTREE_MERCHANT_ID#${DEV_BRAINTREE_MERCHANT_ID}#g" .env
-          sed -i "s#SAM_BRAINTREE_PUBLIC_KEY#${DEV_BRAINTREE_PUBLIC_KEY}#g" .env
-          sed -i "s#SAM_BRAINTREE_PRIVATE_KEY#${DEV_BRAINTREE_PRIVATE_KEY}#g" .env
-
-      - name: Set Braintree secrets for master branch
-        if: github.ref == 'refs/heads/master'
-        run: |
-          sed -i "s#SAM_BRAINTREE_ENVIRONMENT#${PROD_BRAINTREE_ENVIRONMENT}#g" .env
-          sed -i "s#SAM_BRAINTREE_MERCHANT_ID#${PROD_BRAINTREE_MERCHANT_ID}#g" .env
-          sed -i "s#SAM_BRAINTREE_PUBLIC_KEY#${PROD_BRAINTREE_PUBLIC_KEY}#g" .env
-          sed -i "s#SAM_BRAINTREE_PRIVATE_KEY#${PROD_BRAINTREE_PRIVATE_KEY}#g" .env
-
       - name: Install AWS SAM CLI
-        run: |
-          pip install aws-sam-cli
-      
+        run: pip install aws-sam-cli
+
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 18
 
-      - name: Build SAM App
-        run: |
-          sam build
+      # ----------------------
+      # Build & Deploy CORE
+      # ----------------------
+      - name: Build SAM Core
+        run: sam build --template-file order-fullfilment-core.yml
 
-      - name: Check build output
-        run: |
-          cp .env .aws-sam/build/OrderFullFillmentServerLessDevServer/
-          ls -la .aws-sam/build/
-
-      - name: Check for express before package
-        run: find .aws-sam/build -name express
-
-      - name: Package SAM Template
+      - name: Package SAM Core
         run: |
           sam package \
             --template-file .aws-sam/build/template.yaml \
             --s3-bucket order-fullfilment-app-lambda-server \
-            --output-template-file packaged.yaml
+            --output-template-file packaged-core.yaml
 
-      - name: Deploy SAM Stack
+      - name: Deploy SAM Core
         run: |
           sam deploy \
-            --template-file packaged.yaml \
-            --stack-name order-fullfilment-stack \
+            --template-file packaged-core.yaml \
+            --stack-name order-fullfilment-core \
+            --capabilities CAPABILITY_IAM \
+            --region us-east-1
+
+      # ----------------------
+      # Build & Deploy EXTENDED
+      # ----------------------
+      - name: Build SAM Extended
+        run: sam build --template-file order-fullfilment-extended.yml
+
+      - name: Package SAM Extended
+        run: |
+          sam package \
+            --template-file .aws-sam/build/template.yaml \
+            --s3-bucket order-fullfilment-app-lambda-server \
+            --output-template-file packaged-extended.yaml
+
+      - name: Deploy SAM Extended
+        run: |
+          sam deploy \
+            --template-file packaged-extended.yaml \
+            --stack-name order-fullfilment-extended \
             --capabilities CAPABILITY_IAM \
             --region us-east-1
