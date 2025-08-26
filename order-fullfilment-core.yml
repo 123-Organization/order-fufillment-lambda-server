@@ -1,0 +1,230 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Core Order Fulfilment Serverless APIs
+
+Resources:
+  MyApiGateway:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: Prod
+      Cors:
+        AllowOrigin: "'*'"
+        AllowHeaders: "'*'"
+        AllowMethods: "'OPTIONS,GET,POST,PUT,DELETE'"
+        AllowCredentials: 'true'
+
+  MyLambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: LambdaBasicExecutionPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: arn:aws:logs:*:*:*
+        - PolicyName: S3AccessPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:*
+                Resource: "*"
+
+  OrderFullFillmentServerLessDevServer:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: OrderFullFillmentServerLessDevServer
+      Handler: lambda.handler
+      Role: !GetAtt MyLambdaExecutionRole.Arn
+      Runtime: nodejs18.x
+      CodeUri: .
+      MemorySize: 3008
+      Timeout: 900
+      Environment:
+        Variables:
+          DEBUG: app*
+      Events:
+        MainEntryRoute:
+          Type: Api 
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Path: /
+            Method: GET
+        UpdateCompanyInformation:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Method: PUT
+            Path: "/api/update-company-information"
+        GetCompanyInformation:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Method: GET
+            Path: "/api/get-info"
+        GetClientToken:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Method: GET
+            Path: "/api/get-client-token"
+        CreateCustomer:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Method: POST
+            Path: "/api/create-customer"
+        AddPaymentCard:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Method: POST
+            Path: "/api/add-payment-card"
+        GetCustomerDetails:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Method: GET
+            Path: /api/get-customer-details
+        UploadOrdersExcel:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Method: POST
+            Path: /api/upload-orders
+        viewAllOrders:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Method: POST
+            Path: /api/view-all-orders
+        viewOrderDetails:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Method: POST
+            Path: /api/view-order-details
+        updateOrders:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Method: PUT
+            Path: /api/update-orders
+        updateOrdersByProduct:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Method: POST
+            Path: /api/update-order-by-product
+        validateOrders:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Method: POST
+            Path: /api/validate-orders
+        getProductDetails:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Method: POST
+            Path: /api/get-product-details
+        getOrderPrice:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Method: POST
+            Path: /api/get-order-price
+        lisShippingOptions:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Method: POST
+            Path: /api/shipping-options
+        listVirtualInventory:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Method: POST
+            Path: /api/list-virtual-inventory
+        updateVirtualInventory:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Method: PUT
+            Path: /api/update-virtual-inventory
+        deleteVirtualInventory:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Method: DELETE
+            Path: /api/delete-virtual-inventory
+        addProducts:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Method: POST
+            Path: /api/add-product
+        GetUserDetails:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Method: GET
+            Path: /api/get-user-details
+        CreateNewOrder:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Method: POST
+            Path: /api/create-new-order
+        DeleteOrder:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Method: DELETE
+            Path: /api/delete-order
+        OrderSubmitStatus:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Method: POST
+            Path: /api/order-submit-status
+        IncreaseProductQuantity:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Method: POST
+            Path: /api/increase-product-quantity
+        AddTokenToUser:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Method: POST
+            Path: /api/add-token-to-user
+
+  OrderFullFillmentServerLessDevServerLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${OrderFullFillmentServerLessDevServer}
+      RetentionInDays: '30'
+
+  # Wildcard Lambda permission to fix policy size issue
+  OrderFullFillmentServerLessDevServerPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref OrderFullFillmentServerLessDevServer
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${MyApiGateway}/*
