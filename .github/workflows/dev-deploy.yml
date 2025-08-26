@@ -93,23 +93,23 @@ jobs:
       # -------------------------------
       # Build & Deploy CORE stack
       # -------------------------------
-      - name: Build SAM Core
-        run: sam build --template-file order-fullfilment-core.yml
+      #- name: Build SAM Core
+      #  run: sam build --template-file order-fullfilment-core.yml
 
-      - name: Package SAM Core
-        run: |
-          sam package \
-            --template-file .aws-sam/build/template.yaml \
-            --s3-bucket order-fullfilment-app-lambda-server \
-            --output-template-file packaged-core.yaml
+      #- name: Package SAM Core
+       # run: |
+        #  sam package \
+         #   --template-file .aws-sam/build/template.yaml \
+          #  --s3-bucket order-fullfilment-app-lambda-server \
+           # --output-template-file packaged-core.yaml
 
-      - name: Deploy SAM Core Stack
-        run: |
-          sam deploy \
-            --template-file packaged-core.yaml \
-            --stack-name order-fullfilment-core \
-            --capabilities CAPABILITY_IAM CAPABILITY_AUTO_EXPAND \
-            --region us-east-1
+      #- name: Deploy SAM Core Stack
+       # run: |
+        #  sam deploy \
+         #   --template-file packaged-core.yaml \
+          #  --stack-name order-fullfilment-core \
+           # --capabilities CAPABILITY_IAM CAPABILITY_AUTO_EXPAND \
+            #--region us-east-1
 
       # -------------------------------
       # Build & Deploy EXTENDED stack
