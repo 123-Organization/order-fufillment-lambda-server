@@ -1,0 +1,182 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Extended Order Fulfilment Serverless APIs
+
+Resources:
+  OrderFullFillmentServerLessDevServerExtended:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: OrderFullFillmentServerLessDevServerExtended
+      Handler: lambda.handler
+      Role: !GetAtt MyLambdaExecutionRole.Arn
+      Runtime: nodejs18.x
+      CodeUri: .
+      MemorySize: 3008
+      Timeout: 900
+      Environment:
+        Variables:
+          DEBUG: app*
+      Events:
+        ExportToWoocommerce:
+          Type: Api
+          Properties:
+            RestApiId: !ImportValue MyApiGateway
+            Method: POST
+            Path: /api/export-to-woocommerce
+        GetUserPaymentToken:
+          Type: Api
+          Properties:
+            RestApiId: !ImportValue MyApiGateway
+            Method: GET
+            Path: /api/get-user-payment-tokens
+        ProcessVaultPayment:
+          Type: Api
+          Properties:
+            RestApiId: !ImportValue MyApiGateway
+            Method: POST
+            Path: /api/process-vaulted-payment
+        RemovePaymentMethod:
+          Type: Api
+          Properties:
+            RestApiId: !ImportValue MyApiGateway
+            Method: POST
+            Path: /api/remove-card
+        GetOrderDetailsById:
+          Type: Api
+          Properties:
+            RestApiId: !ImportValue MyApiGateway
+            Method: POST
+            Path: /api/get-order-details-by-id
+        SoftDeleteAfterPayment:
+          Type: Api
+          Properties:
+            RestApiId: !ImportValue MyApiGateway
+            Method: POST
+            Path: /api/soft-delete-after-payment
+        AccountDeactivation:
+          Type: Api
+          Properties:
+            RestApiId: !ImportValue MyApiGateway
+            Method: POST
+            Path: /api/disconnect
+        DisconnectProductFromInventory:
+          Type: Api
+          Properties:
+            RestApiId: !ImportValue MyApiGateway
+            Method: POST
+            Path: /api/disconnect-products-virtualInventory
+        GetCompanyInfo:
+          Type: Api
+          Properties:
+            RestApiId: !ImportValue MyApiGateway
+            Method: GET
+            Path: /api/get-company-info
+        UploadExcelOrder:
+          Type: Api
+          Properties:
+            RestApiId: !ImportValue MyApiGateway
+            Method: POST
+            Path: /api/upload-orders-from-excel
+        UpdateWithValidSKU:
+          Type: Api
+          Properties:
+            RestApiId: !ImportValue MyApiGateway
+            Method: POST
+            Path: /api/update-order-by-valid-product-sku
+        ConnectionEstablishment:
+          Type: Api
+          Properties:
+            RestApiId: !ImportValue MyApiGateway
+            Method: POST
+            Path: /api/connection-establishment
+        SubmitOrders:
+          Type: Api
+          Properties:
+            RestApiId: !ImportValue MyApiGateway
+            Method: POST
+            Path: /api/submit-orders-v2
+        TrashProduct:
+          Type: Api
+          Properties:
+            RestApiId: !ImportValue MyApiGateway
+            Method: POST
+            Path: /api/product-trashed
+        RestoreProduct:
+          Type: Api
+          Properties:
+            RestApiId: !ImportValue MyApiGateway
+            Method: POST
+            Path: /api/product-restored
+        ChangeSkuWoocomerce:
+          Type: Api
+          Properties:
+            RestApiId: !ImportValue MyApiGateway
+            Method: POST
+            Path: /api/product-sku-updated
+        CheckAccountKey:
+          Type: Api
+          Properties:
+            RestApiId: !ImportValue MyApiGateway
+            Method: POST
+            Path: /api/test-account-key
+        ListVirtualInventoryV2:
+          Type: Api
+          Properties:
+            RestApiId: !ImportValue MyApiGateway
+            Method: POST
+            Path: /api/list-virtual-inventory-v2
+        ConnectionFromOFA:
+          Type: Api
+          Properties:
+            RestApiId: !ImportValue MyApiGateway
+            Method: POST
+            Path: /api/connection-establishment-Ofa
+        CheckDomain:
+          Type: Api
+          Properties:
+            RestApiId: !ImportValue MyApiGateway
+            Method: POST
+            Path: /api/check-domain
+        OrderInformation:
+          Type: Api
+          Properties:
+            RestApiId: !ImportValue MyApiGateway
+            Method: POST
+            Path: /api/send-order-details
+
+  OrderFullFillmentServerLessDevServerV2:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: OrderFullFillmentServerLessDevServerV2
+      Handler: lambda.handler
+      Role: !GetAtt MyLambdaExecutionRole.Arn
+      Runtime: nodejs18.x
+      CodeUri: .
+      MemorySize: 3008
+      Timeout: 900
+      Environment:
+        Variables:
+          DEBUG: app*
+      Events:
+        SendOrderInformation:
+          Type: Api
+          Properties:
+            RestApiId: !ImportValue MyApiGateway
+            Method: POST
+            Path: /api/send-order-information
+
+  OrderFullFillmentServerLessDevServerExtendedPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref OrderFullFillmentServerLessDevServerExtended
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:*/*
+
+  OrderFullFillmentServerLessDevServerV2Permission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref OrderFullFillmentServerLessDevServerV2
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:*/*
