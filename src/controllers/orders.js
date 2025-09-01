@@ -2029,7 +2029,8 @@ exports.sendOrderDetails = async (req, res) => {
         statusCode: 200,
         status: true,
         message: "Orders processed and updated successfully.",
-        data: updateOrdersResponse.data, // Return the response from the internal API
+        data: updateOrdersResponse.data,
+        check:true // Return the response from the internal API
       });
     } else {
       return res.status(400).json({
