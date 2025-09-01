@@ -1995,7 +1995,7 @@ exports.checkDomain = async (req, res) => {
 exports.sendOrderDetails = async (req, res) => {
   try {
     const { account_key, orders, domainName } = req.body;
-    console.log("Received body:", req.body);
+    // console.log("Received body:", req.body);
 
     // Validate domainName and account_key
     if (!account_key) {
