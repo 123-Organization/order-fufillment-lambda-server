@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - develop
-      - master
 
 jobs:
   deploy:
@@ -41,11 +40,12 @@ jobs:
           branch_name="${ref_name#refs/heads/}"
           echo "branch_name=$branch_name" >> "$GITHUB_OUTPUT"
 
+
       - name: Set up AWS CLI
         uses: aws-actions/configure-aws-credentials@v2
         with:
-          aws-access-key-id: ${{ secrets.SAM_AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.SAM_AWS_SECRET_ACCESS_KEY }}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: us-east-1
 
       - name: create .env file from env
@@ -90,44 +90,29 @@ jobs:
         with:
           node-version: 18
 
-      # -------------------------------
-      # Build & Deploy CORE stack
-      # -------------------------------
-      #- name: Build SAM Core
-      #  run: sam build --template-file order-fullfilment-core.yml
+      - name: Build SAM App
+        run: |
+          sam build
 
-      #- name: Package SAM Core
-       # run: |
-        #  sam package \
-         #   --template-file .aws-sam/build/template.yaml \
-          #  --s3-bucket order-fullfilment-app-lambda-server \
-           # --output-template-file packaged-core.yaml
+      - name: Check build output
+        run: |
+          cp .env .aws-sam/build/OrderFullFillmentServerLessDevServer/
+          ls -la .aws-sam/build/
 
-      #- name: Deploy SAM Core Stack
-       # run: |
-        #  sam deploy \
-         #   --template-file packaged-core.yaml \
-          #  --stack-name order-fullfilment-core \
-           # --capabilities CAPABILITY_IAM CAPABILITY_AUTO_EXPAND \
-            #--region us-east-1
+      - name: Check for express before package
+        run: find .aws-sam/build -name express
 
-      # -------------------------------
-      # Build & Deploy EXTENDED stack
-      # -------------------------------
-      - name: Build SAM Extended
-        run: sam build --template-file order-fullfilment-extended.yml
-
-      - name: Package SAM Extended
+      - name: Package SAM Template
         run: |
           sam package \
             --template-file .aws-sam/build/template.yaml \
             --s3-bucket order-fullfilment-app-lambda-server \
-            --output-template-file packaged-extended.yaml
+            --output-template-file packaged.yaml
 
-      - name: Deploy SAM Extended Stack
+      - name: Deploy SAM Stack
         run: |
           sam deploy \
-            --template-file packaged-extended.yaml \
-            --stack-name order-fullfilment-extended \
-            --capabilities CAPABILITY_IAM CAPABILITY_AUTO_EXPAND \
+            --template-file packaged.yaml \
+            --stack-name order-fullfilment-stack \
+            --capabilities CAPABILITY_IAM \
             --region us-east-1
