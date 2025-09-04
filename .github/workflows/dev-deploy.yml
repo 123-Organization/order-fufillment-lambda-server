@@ -40,7 +40,6 @@ jobs:
           branch_name="${ref_name#refs/heads/}"
           echo "branch_name=$branch_name" >> "$GITHUB_OUTPUT"
 
-
       - name: Set up AWS CLI
         uses: aws-actions/configure-aws-credentials@v2
         with:
@@ -94,10 +93,39 @@ jobs:
         run: |
           sam build
 
-      - name: Check build output
+      - name: Debug build structure and copy .env
         run: |
-          cp .env .aws-sam/build/OrderFullFillmentServerLessDevServer/
+          echo "=== Build directory contents ==="
           ls -la .aws-sam/build/
+          echo ""
+          echo "=== Function directories ==="
+          find .aws-sam/build -maxdepth 1 -type d | grep -v "^.aws-sam/build$"
+          echo ""
+          echo "=== Copying .env to function directories ==="
+          
+          # Find all function directories and copy .env to each
+          FOUND_DIRS=false
+          for dir in .aws-sam/build/*/; do
+            if [ -d "$dir" ]; then
+              FOUND_DIRS=true
+              echo "Copying .env to $dir"
+              cp .env "$dir"
+            fi
+          done
+          
+          if [ "$FOUND_DIRS" = false ]; then
+            echo "ERROR: No function directories found in .aws-sam/build/"
+            echo "Available contents:"
+            ls -la .aws-sam/build/
+            exit 1
+          fi
+          
+          echo "=== Verification ==="
+          for dir in .aws-sam/build/*/; do
+            if [ -d "$dir" ] && [ -f "$dir/.env" ]; then
+              echo "✓ .env exists in $dir"
+            fi
+          done
 
       - name: Check for express before package
         run: find .aws-sam/build -name express
