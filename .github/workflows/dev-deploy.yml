@@ -137,10 +137,52 @@ jobs:
             --s3-bucket order-fullfilment-app-lambda-server \
             --output-template-file packaged.yaml
 
+      - name: Check if stack exists and get status
+        id: stack-status
+        run: |
+          if aws cloudformation describe-stacks --stack-name order-fullfilment-stack --region us-east-1 2>/dev/null; then
+            STACK_STATUS=$(aws cloudformation describe-stacks --stack-name order-fullfilment-stack --region us-east-1 --query 'Stacks[0].StackStatus' --output text)
+            echo "stack_exists=true" >> $GITHUB_OUTPUT
+            echo "stack_status=$STACK_STATUS" >> $GITHUB_OUTPUT
+            echo "Stack exists with status: $STACK_STATUS"
+          else
+            echo "stack_exists=false" >> $GITHUB_OUTPUT
+            echo "Stack does not exist"
+          fi
+
+      - name: Delete failed stack if needed
+        if: steps.stack-status.outputs.stack_exists == 'true' && (steps.stack-status.outputs.stack_status == 'ROLLBACK_COMPLETE' || steps.stack-status.outputs.stack_status == 'CREATE_FAILED' || steps.stack-status.outputs.stack_status == 'ROLLBACK_FAILED')
+        run: |
+          echo "Deleting failed stack..."
+          aws cloudformation delete-stack --stack-name order-fullfilment-stack --region us-east-1
+          echo "Waiting for stack deletion to complete..."
+          aws cloudformation wait stack-delete-complete --stack-name order-fullfilment-stack --region us-east-1
+
       - name: Deploy SAM Stack
         run: |
           sam deploy \
             --template-file packaged.yaml \
             --stack-name order-fullfilment-stack \
             --capabilities CAPABILITY_IAM \
-            --region us-east-1
+            --region us-east-1 \
+            --debug \
+            --no-fail-on-empty-changeset
+
+      - name: Get stack events on failure
+        if: failure()
+        run: |
+          echo "=== Stack Events (Last 20) ==="
+          aws cloudformation describe-stack-events \
+            --stack-name order-fullfilment-stack \
+            --region us-east-1 \
+            --max-items 20 \
+            --query 'StackEvents[?ResourceStatus==`CREATE_FAILED` || ResourceStatus==`UPDATE_FAILED` || ResourceStatus==`DELETE_FAILED`].[Timestamp,ResourceType,LogicalResourceId,ResourceStatus,ResourceStatusReason]' \
+            --output table || echo "Could not fetch stack events"
+          
+          echo ""
+          echo "=== Full Stack Status ==="
+          aws cloudformation describe-stacks \
+            --stack-name order-fullfilment-stack \
+            --region us-east-1 \
+            --query 'Stacks[0].[StackName,StackStatus,StackStatusReason]' \
+            --output table || echo "Could not fetch stack status"
