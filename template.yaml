@@ -51,7 +51,7 @@ Resources:
       Role: !GetAtt MyLambdaExecutionRole.Arn
       Runtime: nodejs18.x
       CodeUri: .
-      MemorySize: 3008
+      MemorySize: 5120
       Timeout: 900
       Environment:
         Variables:
