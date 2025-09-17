@@ -279,7 +279,9 @@ exports.validateOrders = async (req, res) => {
         orders: consolidatedOrdersData.orders,
         payment_token: reqBody.payment_token,
         validate_only: true,
+        account_key:reqBody.account_key
       };
+      console.log("payloadToBeSubmitted=====",payloadToBeSubmitted);
       const submitOrders = await finerworksService.SUBMIT_ORDERS(
         payloadToBeSubmitted
       );
@@ -325,49 +327,58 @@ exports.uploadOrdersToLocalDatabaseFromExcel = async (req, res) => {
       };
       const { orders } = payloadToBeSubmitted;
       for (const order of orders) {
-        order.createdAt = new Date();
-        order.submittedAt = null;
-        if (Array.isArray(order.order_items)) {
-          for (const item of order.order_items) {
-            item.product_guid = generateGUID();
+        console.log("order.order_items[0]?.image_url_1",order.order_items[0]?.product_url_thumbnail)
+        if (
+          (order.order_items[0]?.product_image.product_url_file && order.order_items[0].product_image.product_url_file.trim() !== "") &&
+          (order.order_items[0]?.product_image.product_url_thumbnail && order.order_items[0].product_image.product_url_thumbnail.trim() !== "")
+        ) {
+
+          console.log("order===========>>>>", order);
+          order.createdAt = new Date();
+          order.submittedAt = null;
+          if (Array.isArray(order.order_items)) {
+            for (const item of order.order_items) {
+              item.product_guid = generateGUID();
+            }
           }
-        }
-        const urlEncodedData = urlEncodeJSON(order);
-    
-        const selectPayload = {
-          query: `SELECT * FROM ${process.env.FINER_fwAPI_FULFILLMENTS_TABLE} WHERE FulfillmentAccountID=${reqBody.accountId} AND FulfillmentSubmitted=0 AND FulfillmentDeleted=0 AND FulfillmentAppName='excel'`,
-        };
+          const urlEncodedData = urlEncodeJSON(order);
 
-        const selectData = await finerworksService.SELECT_QUERY_FINERWORKS(selectPayload);
-
-        const orderPos = getFulfillmentData(selectData.data);
-
-        const filteredObject = orderPos.find(item => item.order_po === order.order_po);
-
-        if (filteredObject) {
-          console.log("enter in this block");
-          const updatePayload = {
-            tablename: process.env.FINER_fwAPI_FULFILLMENTS_TABLE,
-            fieldupdates: `FulfillmentData='${urlEncodedData}'`,
-            where: `FulfillmentID=${filteredObject.FulfillmentID}`,
+          const selectPayload = {
+            query: `SELECT * FROM ${process.env.FINER_fwAPI_FULFILLMENTS_TABLE} WHERE FulfillmentAccountID=${reqBody.accountId} AND FulfillmentSubmitted=0 AND FulfillmentDeleted=0 AND FulfillmentAppName='excel'`,
           };
-          const updateQueryExecute = await finerworksService.UPDATE_QUERY_FINERWORKS(updatePayload);
-        } else {
-          // console.log("yessssssssssssssssssssssssssss")
-          const insertPayload = {
-            tablename: process.env.FINER_fwAPI_FULFILLMENTS_TABLE,
-            fields:
-              "FulfillmentAccountID, FulfillmentData, FulfillmentSubmitted, FulfillmentAppName ",
-            values: `'${reqBody.accountId}', '${urlEncodedData}', 0, 'excel'`,
 
-          };
-          console.log("insertPayload============>>>>>", insertPayload);
-          log("insertPayload for the creation of the order in the local database", JSON.stringify(insertPayload));
-          const insertData = await finerworksService.INSERT_QUERY_FINERWORKS(
-            insertPayload
-          );
-          log("Response after submitted to the local database", JSON.stringify(insertData));
-          order.orderFullFillmentId = insertData.record_id;
+          const selectData = await finerworksService.SELECT_QUERY_FINERWORKS(selectPayload);
+
+          const orderPos = getFulfillmentData(selectData.data);
+
+          const filteredObject = orderPos.find(item => item.order_po === order.order_po);
+
+          if (filteredObject) {
+            console.log("enter in this block");
+            const updatePayload = {
+              tablename: process.env.FINER_fwAPI_FULFILLMENTS_TABLE,
+              fieldupdates: `FulfillmentData='${urlEncodedData}'`,
+              where: `FulfillmentID=${filteredObject.FulfillmentID}`,
+            };
+            console.log("updatePayload=========>>>>", updatePayload);
+            const updateQueryExecute = await finerworksService.UPDATE_QUERY_FINERWORKS(updatePayload);
+          } else {
+            // console.log("yessssssssssssssssssssssssssss")
+            const insertPayload = {
+              tablename: process.env.FINER_fwAPI_FULFILLMENTS_TABLE,
+              fields:
+                "FulfillmentAccountID, FulfillmentData, FulfillmentSubmitted, FulfillmentAppName ",
+              values: `'${reqBody.accountId}', '${urlEncodedData}', 0, 'excel'`,
+
+            };
+            console.log("insertPayload============>>>>>", insertPayload);
+            log("insertPayload for the creation of the order in the local database", JSON.stringify(insertPayload));
+            const insertData = await finerworksService.INSERT_QUERY_FINERWORKS(
+              insertPayload
+            );
+            log("Response after submitted to the local database", JSON.stringify(insertData));
+            order.orderFullFillmentId = insertData.record_id;
+          }
         }
 
       }
