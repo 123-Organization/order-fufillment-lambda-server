@@ -258,3 +258,14 @@ exports.GET_COMPANY_INFO = async () => {
 
   return postData;
 };
+
+
+exports.DELETE_PENDING_ORDER = async (payload) => {
+  const postData = await axios({
+    method: 'POST',
+    url: process.env.FINER_WORKS_URL + 'delete_pending_orders',
+    headers: getHeaders(),
+    data: payload
+  });
+  return postData.data;
+};
