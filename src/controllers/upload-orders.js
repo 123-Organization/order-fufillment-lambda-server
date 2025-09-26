@@ -225,21 +225,21 @@ const ordersSchema = Joi.object({
           city: Joi.string().optional(),
           state_code: Joi.string().length(2)
             .when('country_code', {
-              is: 'US',
+              is: Joi.string().valid('US').insensitive(),
               then: Joi.required(),
               otherwise: Joi.optional().allow("")
             })
             .required(),
           province: Joi.string()
             .when('country_code', {
-              is: Joi.not('US'),
+              is: Joi.string().valid(Joi.not('US')).insensitive(),
               then: Joi.required(),
               otherwise: Joi.optional().allow("")
             })
             .optional(),
           zip_postal_code: Joi.number().required(),
           country_code: Joi.string().length(2).required(),
-          phone: Joi.string().optional().allow(""),
+          phone: Joi.alternatives().try(Joi.string(), Joi.number()).optional().allow(""),
           email: Joi.string().email().optional(),
           address_order_po: Joi.string().optional().allow(""),
         }).required(),
@@ -250,6 +250,10 @@ const ordersSchema = Joi.object({
               product_qty: Joi.number().required(),
               product_sku: Joi.string().optional(),
               product_code: Joi.string().optional(),
+              product_cropping: Joi.string()
+                .valid('crop', 'fit')
+                .optional()
+                .allow(""),
               product_image: Joi.object({
                 pixel_width: Joi.number().optional(),
                 pixel_height: Joi.number().optional(),
@@ -506,7 +510,7 @@ exports.uploadOrdersToLocalDatabaseFromExcel = async (req, res) => {
           (order.order_items[0]?.product_image.product_url_file && order.order_items[0].product_image.product_url_file.trim() !== "") &&
           (order.order_items[0]?.product_image.product_url_thumbnail && order.order_items[0].product_image.product_url_thumbnail.trim() !== "")
         ) {
-
+          order.source = "excel"
           console.log("order===========>>>>", order);
           order.createdAt = new Date();
           order.submittedAt = null;
@@ -591,6 +595,7 @@ exports.uploadOrdersToLocalDatabase = async (req, res) => {
       for (const order of orders) {
         order.createdAt = new Date();
         order.submittedAt = null;
+        order.source = "woocommerece"
         const urlEncodedData = urlEncodeJSON(order);
         const insertPayload = {
           tablename: process.env.FINER_fwAPI_FULFILLMENTS_TABLE,
