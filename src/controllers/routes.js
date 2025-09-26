@@ -19,6 +19,7 @@ app.post('/create-customer', createCustomer);
 app.post('/add-payment-card', addPaymentCard);
 app.get('/get-customer-details', getFullCustomerDetails);
 app.post('/validate-orders', validateSubmitOrders, validateOrders);
+// app.post('/validate-orders', validateOrders);
 app.post('/get-order-price', getOrderPrice);
 app.post('/get-product-details', getProductDetails);
 app.post('/shipping-options', listShippingOptions);
@@ -34,7 +35,7 @@ app.post('/view-order-details', viewOrderDetails);
 app.post('/update-order-by-product', updateOrderByProductSkuCode);
 app.post('/create-new-order', createNewOrder);
 app.delete('/delete-order', deleteOrder);
-app.delete('/submit-order', submitOrders);
+app.delete('/submit-order', validateSubmitOrders,submitOrders);
 app.post('/order-submit-status', orderSubmitStatus);
 app.get('/get-user-payment-tokens', getUserPaymentToken);
 app.post('/process-vaulted-payment', processVaultedPaymentToken);
@@ -58,7 +59,7 @@ app.post('/test-account-key', testAccountKey);
 app.post('/list-virtual-inventory-v2', validateListVirtualInventory, listVirtualInventoryV2);
 app.post('/connection-establishment-Ofa', connectAndProcessOfa);
 app.post('/check-domain', checkDomain);
-app.post('/send-order-details', sendOrderDetails);
+app.post('/send-order-information', sendOrderDetails);
 
 
 

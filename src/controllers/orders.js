@@ -797,70 +797,148 @@ exports.createNewOrder = async (req, res) => {
     });
   }
 };
+// exports.deleteOrder = async (req, res) => {
+//   try {
+//     const reqBody = JSON.parse(JSON.stringify(req.body));
+//     if (!reqBody.accountId || !reqBody.orderFullFillmentId) {
+//       res.status(400).json({
+//         statusCode: 400,
+//         status: false,
+//         message: "Account Id and order fullfillment Id are required.",
+//       });
+//     } else {
+//       const { orderFullFillmentId, accountId } = reqBody;
+//       log("Request comes to delete order for", JSON.stringify(reqBody));
+//       const selectPayload = {
+//         query: `SELECT * FROM ${process.env.FINER_fwAPI_FULFILLMENTS_TABLE} WHERE FulfillmentID=${orderFullFillmentId} AND FulfillmentAccountID = ${accountId}`,
+//       };
+//       const selectData = await finerworksService.SELECT_QUERY_FINERWORKS(
+//         selectPayload
+//       );
+//       if (selectData?.data.length) {
+//         const orderDetails = selectData?.data[0];
+//         if (orderDetails.FulfillmentDeleted) {
+//           res.status(400).json({
+//             statusCode: 400,
+//             status: false,
+//             message: "This order has already deleted.",
+//           });
+//         } else {
+//           const updatePayload = {
+//             tablename: process.env.FINER_fwAPI_FULFILLMENTS_TABLE,
+//             fieldupdates: `FulfillmentDeleted=1`,
+//             where: `FulfillmentID=${orderFullFillmentId}`,
+//           };
+//           const updateQueryExecute =
+//             await finerworksService.UPDATE_QUERY_FINERWORKS(updatePayload);
+//           if (updateQueryExecute) {
+//             log(
+//               "Order has been successfully deleted for",
+//               JSON.stringify(reqBody)
+//             );
+//             res.status(200).json({
+//               statusCode: 200,
+//               status: true,
+//               message: `Order with fulfillment ID ${orderFullFillmentId} has been successfully deleted.`,
+//             });
+//           } else {
+//             res.status(400).json({
+//               statusCode: 400,
+//               status: true,
+//               message: `Something went wrong while deleting the order of fulfillment ID ${orderFullFillmentId}`,
+//             });
+//           }
+//         }
+//       }
+//     }
+//   } catch (err) {
+//     log("Error comes while creating a new order", JSON.stringify(err), err);
+//     const errorMessage = err.response.data;
+//     res.status(400).json({
+//       statusCode: 400,
+//       status: false,
+//       message: errorMessage,
+//     });
+//   }
+// };
+
+
 exports.deleteOrder = async (req, res) => {
   try {
     const reqBody = JSON.parse(JSON.stringify(req.body));
-    if (!reqBody.accountId || !reqBody.orderFullFillmentId) {
-      res.status(400).json({
+    const { accountId, orderFullFillmentId } = reqBody;
+
+    // Check if accountId and orderFullFillmentIds are provided
+    if (!accountId || !Array.isArray(orderFullFillmentId) || orderFullFillmentId.length === 0) {
+      return res.status(400).json({
         statusCode: 400,
         status: false,
-        message: "Account Id and order fullfillment Id are required.",
+        message: "Account Id and order fullfillment IDs are required, and IDs must be an array.",
       });
-    } else {
-      const { orderFullFillmentId, accountId } = reqBody;
-      log("Request comes to delete order for", JSON.stringify(reqBody));
-      const selectPayload = {
-        query: `SELECT * FROM ${process.env.FINER_fwAPI_FULFILLMENTS_TABLE} WHERE FulfillmentID=${orderFullFillmentId} AND FulfillmentAccountID = ${accountId}`,
-      };
-      const selectData = await finerworksService.SELECT_QUERY_FINERWORKS(
-        selectPayload
-      );
-      if (selectData?.data.length) {
-        const orderDetails = selectData?.data[0];
-        if (orderDetails.FulfillmentDeleted) {
-          res.status(400).json({
-            statusCode: 400,
-            status: false,
-            message: "This order has already deleted.",
-          });
-        } else {
-          const updatePayload = {
-            tablename: process.env.FINER_fwAPI_FULFILLMENTS_TABLE,
-            fieldupdates: `FulfillmentDeleted=1`,
-            where: `FulfillmentID=${orderFullFillmentId}`,
-          };
-          const updateQueryExecute =
-            await finerworksService.UPDATE_QUERY_FINERWORKS(updatePayload);
-          if (updateQueryExecute) {
-            log(
-              "Order has been successfully deleted for",
-              JSON.stringify(reqBody)
-            );
-            res.status(200).json({
-              statusCode: 200,
-              status: true,
-              message: `Order with fulfillment ID ${orderFullFillmentId} has been successfully deleted.`,
-            });
-          } else {
-            res.status(400).json({
-              statusCode: 400,
-              status: true,
-              message: `Something went wrong while deleting the order of fulfillment ID ${orderFullFillmentId}`,
-            });
-          }
+    }
+
+    // Log the request body
+    log("Request comes to delete orders for", JSON.stringify(reqBody));
+
+    // Build the query with multiple IDs
+    const orderFullFillmentIdsStr = orderFullFillmentId.join(",");  // Convert array to a comma-separated string
+    const selectPayload = {
+      query: `SELECT * FROM ${process.env.FINER_fwAPI_FULFILLMENTS_TABLE} WHERE FulfillmentID IN (${orderFullFillmentIdsStr}) AND FulfillmentAccountID = ${accountId} AND FulfillmentDeleted=0`,
+    };
+
+    // Fetch orders
+    const selectData = await finerworksService.SELECT_QUERY_FINERWORKS(selectPayload);
+
+    if (selectData?.data.length === 0) {
+      return res.status(404).json({
+        statusCode: 404,
+        status: false,
+        message: "No orders found with the provided IDs.",
+      });
+    }
+    console.log("selectData===",selectData);
+    
+
+    // Collect promises for deletion
+    const deletionPromises = selectData.data.map(async (orderDetails) => {
+      if (orderDetails.FulfillmentDeleted) {
+        throw new Error(`Order with Fulfillment ID ${orderDetails.FulfillmentID} has already been deleted.`);
+      } else {
+        const updatePayload = {
+          tablename: process.env.FINER_fwAPI_FULFILLMENTS_TABLE,
+          fieldupdates: `FulfillmentDeleted=1`,
+          where: `FulfillmentID=${orderDetails.FulfillmentID}`,
+        };
+
+        const updateQueryExecute = await finerworksService.UPDATE_QUERY_FINERWORKS(updatePayload);
+        
+        if (!updateQueryExecute) {
+          throw new Error(`Something went wrong while deleting the order with Fulfillment ID ${orderDetails.FulfillmentID}`);
         }
       }
-    }
+    });
+
+    // Execute all deletion promises concurrently
+    await Promise.all(deletionPromises);
+
+    // Success response after deleting all valid orders
+    log("Orders have been successfully deleted for", JSON.stringify(reqBody));
+    res.status(200).json({
+      statusCode: 200,
+      status: true,
+      message: `Orders with Fulfillment IDs [${orderFullFillmentIdsStr}] have been successfully deleted.`,
+    });
+
   } catch (err) {
-    log("Error comes while creating a new order", JSON.stringify(err), err);
-    const errorMessage = err.response.data;
+    log("Error occurred while deleting orders", JSON.stringify(err), err);
     res.status(400).json({
       statusCode: 400,
       status: false,
-      message: errorMessage,
+      message: err.message || "Unknown error",
     });
   }
 };
+
 exports.submitOrders = async (req, res) => {
   try {
     const reqBody = JSON.parse(JSON.stringify(req.body));
@@ -1995,7 +2073,7 @@ exports.checkDomain = async (req, res) => {
 exports.sendOrderDetails = async (req, res) => {
   try {
     const { account_key, orders, domainName } = req.body;
-    // console.log("Received body:", req.body);
+    console.log("Received body:", req.body);
 
     // Validate domainName and account_key
     if (!account_key) {
@@ -2029,8 +2107,7 @@ exports.sendOrderDetails = async (req, res) => {
         statusCode: 200,
         status: true,
         message: "Orders processed and updated successfully.",
-        data: updateOrdersResponse.data,
-        check:true // Return the response from the internal API
+        data: updateOrdersResponse.data, // Return the response from the internal API
       });
     } else {
       return res.status(400).json({

@@ -54,7 +54,7 @@ Resources:
         - MyLambdaExecutionRole
         - Arn
       Runtime: nodejs18.x
-      CodeUri: s3://order-fullfilment-app-lambda-server/ab9109fd7369388164467021ecc48008
+      CodeUri: s3://order-fullfilment-app-lambda-server/0e13b0b79dbdb8b9865bb0dfe17b95d8
       MemorySize: 3008
       Timeout: 900
       Environment:
@@ -306,8 +306,118 @@ Resources:
               Ref: MyApiGateway
             Method: GET
             Path: /api/get-company-info
+        UploadExcelOrder:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: POST
+            Path: /api/upload-orders-from-excel
+        UpdateWithValidSKU:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: POST
+            Path: /api/update-order-by-valid-product-sku
+        ConnectionEstablishment:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: POST
+            Path: /api/connection-establishment
+        SubmitOrders:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: POST
+            Path: /api/submit-orders-v2
+        TrashProduct:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: POST
+            Path: /api/product-trashed
+        RestoreProduct:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: POST
+            Path: /api/product-restored
+        ChangeSkuWoocomerce:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: POST
+            Path: /api/product-sku-updated
+        CheckAccountKey:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: POST
+            Path: /api/test-account-key
+        ListVirtualInventory:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: POST
+            Path: /api/list-virtual-inventory-v2
+        ConnectionFromOFA:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: POST
+            Path: /api/connection-establishment-Ofa
+        CheckDomain:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: POST
+            Path: /api/check-domain
+        OrderInformation:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: POST
+            Path: /api/send-order-details
     Metadata:
       SamResourceId: OrderFullFillmentServerLessDevServer
+  OrderFullFillmentServerLessDevServerV2:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: OrderFullFillmentServerLessDevServerV2
+      Handler: lambda.handler
+      Role:
+        Fn::GetAtt:
+        - MyLambdaExecutionRole
+        - Arn
+      Runtime: nodejs18.x
+      CodeUri: s3://order-fullfilment-app-lambda-server/0e13b0b79dbdb8b9865bb0dfe17b95d8
+      MemorySize: 3008
+      Timeout: 900
+      Environment:
+        Variables:
+          DEBUG: app*
+      Events:
+        SendOrderInformation:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: POST
+            Path: /api/send-order-information
+    Metadata:
+      SamResourceId: OrderFullFillmentServerLessDevServerV2
   OrderFullFillmentServerLessDevServerLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:

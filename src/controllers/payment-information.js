@@ -168,8 +168,6 @@ exports.processVaultedPaymentToken = async (req, res) => {
 //   }
 // };
 
-
-
 exports.createCustomer = async (req, res) => {
   try {
     const reqBody = req.body;  // No need to stringify and parse, req.body is already parsed
@@ -253,6 +251,8 @@ exports.createCustomer = async (req, res) => {
     });
   }
 };
+
+
 exports.addPaymentCard = async (req, res) => {
   try {
     const reqBody = JSON.parse(JSON.stringify(req.body));
