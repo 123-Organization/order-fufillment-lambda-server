@@ -54,7 +54,7 @@ Resources:
         - ProdLambdaExecutionRole
         - Arn
       Runtime: nodejs18.x
-      CodeUri: s3://orderfullfilmentprodbucketlambda/77313ce39be921db389f411af664546b
+      CodeUri: s3://orderfullfilmentprodbucketlambda/82e6d0a5a7c35f31ecb44750ea243290
       MemorySize: 3008
       Timeout: 900
       Environment:
@@ -395,7 +395,7 @@ Resources:
         - ProdLambdaExecutionRole
         - Arn
       Runtime: nodejs18.x
-      CodeUri: s3://orderfullfilmentprodbucketlambda/77313ce39be921db389f411af664546b
+      CodeUri: s3://orderfullfilmentprodbucketlambda/82e6d0a5a7c35f31ecb44750ea243290
       MemorySize: 3008
       Timeout: 900
       Environment:
@@ -409,6 +409,20 @@ Resources:
               Ref: ProdApiGateway
             Method: POST
             Path: /api/send-order-information
+        ShippingOptionsV2:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: ProdApiGateway
+            Method: POST
+            Path: /api/shipping-options-v2
+        ShippingOptionsList:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: ProdApiGateway
+            Method: GET
+            Path: /api/shipping-options-list
     Metadata:
       SamResourceId: OrderFullFillmentServerLessProdServerV2
   OrderFullFillmentServerLessDevServerLogGroup:
