@@ -373,13 +373,13 @@ Resources:
               Ref: MyApiGateway
             Method: POST
             Path: /api/check-domain
-        OrderInformation:
-          Type: Api
-          Properties:
-            RestApiId:
-              Ref: MyApiGateway
-            Method: POST
-            Path: /api/send-order-details
+        # OrderInformation:
+        #   Type: Api
+        #   Properties:
+        #     RestApiId:
+        #       Ref: MyApiGateway
+        #     Method: POST
+        #     Path: /api/send-order-details
   OrderFullFillmentServerLessDevServerV2:
     Type: AWS::Serverless::Function
     Properties:

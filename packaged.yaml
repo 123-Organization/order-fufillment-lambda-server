@@ -54,7 +54,7 @@ Resources:
         - MyLambdaExecutionRole
         - Arn
       Runtime: nodejs18.x
-      CodeUri: s3://order-fullfilment-app-lambda-server/be398da2a8100e11c5a4176731ba53ad
+      CodeUri: s3://order-fullfilment-app-lambda-server/67a8c31ca4b4387f97ec2edcbe326146
       MemorySize: 3008
       Timeout: 900
       Environment:
@@ -383,13 +383,6 @@ Resources:
               Ref: MyApiGateway
             Method: POST
             Path: /api/check-domain
-        OrderInformation:
-          Type: Api
-          Properties:
-            RestApiId:
-              Ref: MyApiGateway
-            Method: POST
-            Path: /api/send-order-details
     Metadata:
       SamResourceId: OrderFullFillmentServerLessDevServer
   OrderFullFillmentServerLessDevServerV2:
@@ -402,7 +395,7 @@ Resources:
         - MyLambdaExecutionRole
         - Arn
       Runtime: nodejs18.x
-      CodeUri: s3://order-fullfilment-app-lambda-server/be398da2a8100e11c5a4176731ba53ad
+      CodeUri: s3://order-fullfilment-app-lambda-server/67a8c31ca4b4387f97ec2edcbe326146
       MemorySize: 3008
       Timeout: 900
       Environment:
