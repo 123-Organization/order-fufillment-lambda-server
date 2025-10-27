@@ -405,7 +405,19 @@ Resources:
           Properties:
             RestApiId: !Ref MyApiGateway
             Method: POST
-            Path: "/api/send-order-information"               
+            Path: "/api/send-order-information"     
+        ShippingOptionsV2:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Method: POST
+            Path: "/api/shipping-options-v2"
+        ShippingOptionsList:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Method: GET
+            Path: "/api/shipping-options-list"          
   OrderFullFillmentServerLessDevServerLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:

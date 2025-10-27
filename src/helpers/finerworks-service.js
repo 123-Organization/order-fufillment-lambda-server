@@ -258,3 +258,37 @@ exports.GET_COMPANY_INFO = async () => {
 
   return postData;
 };
+
+
+exports.DELETE_PENDING_ORDER = async (payload) => {
+  const postData = await axios({
+    method: 'POST',
+    url: process.env.FINER_WORKS_URL + 'delete_pending_orders',
+    headers: getHeaders(),
+    data: payload
+  });
+  return postData.data;
+};
+
+
+exports.SHIPPING_OPTIONS_LIST = async (type) => {
+  try {
+    const params = {};
+    if (type) {
+      params.type = type; // only add if provided
+    }
+
+    const response = await axios.get(
+      `${process.env.FINER_WORKS_URL}get_shipping_options_ids`,
+      {
+        headers: getHeaders(),
+        params, // ?type=value (only if type exists)
+      }
+    );
+
+    return response.data;
+  } catch (error) {
+    console.error("Error fetching shipping options:", error.message);
+    throw error;
+  }
+};

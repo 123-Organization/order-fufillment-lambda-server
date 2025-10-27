@@ -136,7 +136,13 @@ exports.viewAllOrders = async (req, res) => {
       orderData.orderFullFillmentId = order.FulfillmentID;
       return orderData;
     });
+    allOrders.sort((a, b) => {
+      const numA = parseInt(a.order_po.replace(/\D/g, ""), 10);
+      const numB = parseInt(b.order_po.replace(/\D/g, ""), 10);
+      return numA - numB;
+    });
 
+    
     if (allOrders.length === 0) {
       log("No orders found after processing for account ID:", accountId);
       return res.status(200).json({
@@ -896,8 +902,8 @@ exports.deleteOrder = async (req, res) => {
         message: "No orders found with the provided IDs.",
       });
     }
-    console.log("selectData===",selectData);
-    
+    console.log("selectData===", selectData);
+
 
     // Collect promises for deletion
     const deletionPromises = selectData.data.map(async (orderDetails) => {
@@ -911,7 +917,7 @@ exports.deleteOrder = async (req, res) => {
         };
 
         const updateQueryExecute = await finerworksService.UPDATE_QUERY_FINERWORKS(updatePayload);
-        
+
         if (!updateQueryExecute) {
           throw new Error(`Something went wrong while deleting the order with Fulfillment ID ${orderDetails.FulfillmentID}`);
         }
@@ -1030,7 +1036,7 @@ exports.submitOrdersV2 = async (req, res) => {
     }
     const { accountId, payment_token, account_key } = reqBody;
     const ordersToBeSubmitted = reqBody.orders;
-    const ordersToBeSubmittedv2=JSON.parse(JSON.stringify(reqBody.orders));
+    const ordersToBeSubmittedv2 = JSON.parse(JSON.stringify(reqBody.orders));
     console.log("ordersToBeSubmitted=========>>>>", ordersToBeSubmitted);
     if (ordersToBeSubmitted.length > 0) {
       console.log("got theentryyyyyyyyyyyyyyy")
@@ -1111,14 +1117,14 @@ exports.submitOrdersV2 = async (req, res) => {
         const updatedOrders = submitData.orders.map(order => {
           // Find all matching orders in ordersToBeSubmitted using filter
           const orderDetailsArray = ordersToBeSubmittedv2.filter(o => o.order_po === order.order_po);
-        
+
           if (orderDetailsArray.length > 0) {
             // Assuming you want to use the first match
             const orderDetails = orderDetailsArray[0];
-        
+
             console.log('Found order details:', orderDetails); // Log the found order to check if it's matching
             console.log('orderFullFillmentId:', orderDetails.orderFullFillmentId); // Check if orderFullFillmentId exists
-        
+
             // Create the new payload
             return {
               order_po: order.order_po,
@@ -1130,10 +1136,10 @@ exports.submitOrdersV2 = async (req, res) => {
           } else {
             console.log('Order not found for order_po:', order.order_po); // Log if order_po is not found
           }
-        
+
           return null;
         }).filter(Boolean); // Remove null entries (if any)
-        
+
         return res.status(200).json({
           statusCode: 200,
           status: true,
@@ -1255,12 +1261,12 @@ exports.orderSubmitStatus = async (req, res) => {
         selectOrderId
       );
       console.log("orderStatusData===============", orderStatusData);
-      if(orderStatusData){
+      if (orderStatusData) {
         res.status(200).json({
-                statusCode: 200,
-                status: true,
-                data:orderStatusData
-              });
+          statusCode: 200,
+          status: true,
+          data: orderStatusData
+        });
       }
     }
   } catch (err) {

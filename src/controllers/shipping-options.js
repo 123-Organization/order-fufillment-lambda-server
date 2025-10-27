@@ -93,6 +93,35 @@ exports.listShippingOptionsV2 = async (req, res) => {
   }
 };
 
+exports.listShippingOptionsV3 = async (req, res) => {
+  try {
+    // Pass the modified orders array to the shipping service
+    const shippingOptions = await finerworksService.SHIPPING_OPTIONS_LIST();
+    if (!shippingOptions) {
+      return res.status(404).json({
+        statusCode: 404,
+        status: false,
+        message: "No shipping options found",
+      });
+    }
+
+    return res.status(200).json({
+      statusCode: 200,
+      status: true,
+      data: shippingOptions,
+    });
+  } catch (err) {
+    console.error("Error fetching shipping options:", err);
+
+    return res.status(err?.response?.status || 500).json({
+      statusCode: err?.response?.status || 500,
+      status: false,
+      message: err?.response?.data?.message || "Internal Server Error",
+      error: err?.response?.data || err.message,
+    });
+  }
+};
+
 function generateRandomUniqueNumber() {
     const randomNumber = Math.floor(10000 + Math.random() * 90000); // Generates a 5-digit number
     return randomNumber;

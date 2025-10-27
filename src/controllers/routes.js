@@ -1,4 +1,3 @@
-
 const { Router } = require('express');
 const { updateCompanyInformation } = require('./update-company-information');
 const { getCompanyInformation } = require('./get-company-information');
@@ -7,7 +6,7 @@ const { validateOrders, validateSubmitOrders, uploadOrdersToLocalDatabase, updat
 const { listVirtualInventory,listVirtualInventoryV2, validateListVirtualInventory, validateUpdateVirtualInventory, updateVirtualInventory, validateSkus, deleteVirtualInventory, getProductBySku } = require('./virtual-inventory');
 const { validateAddProduct, addProduct, getProductDetails,increaseProductQuantity,exportToWoocomercev1,productTrashed,productRestored,productSkuUpdated } = require('./products-management');
 const { viewOrderDetails, viewAllOrders, updateOrderByProductSkuCode, createNewOrder, deleteOrder, orderSubmitStatus, getOrderPrice, submitOrders,submitOrdersV2,getOrderDetailsById,softDeleteOrders ,disconnectAndProcess,connectAndProcess,connectAndProcessOfa,disconnectProductsFromInventory,updateOrderByValidProductSkuCode,testAccountKey,checkDomain,sendOrderDetails} = require('./orders');
-const { listShippingOptions,listShippingOptionsV2 } = require('./shipping-options');
+const { listShippingOptions,listShippingOptionsV2,listShippingOptionsV3 } = require('./shipping-options');
 const { getUserPaymentToken,getCompanyInfo } = require('./payment-token');
 const {updateUserInformation}=require('./userInformation')
 const app = Router();
@@ -61,6 +60,7 @@ app.post('/connection-establishment-Ofa', connectAndProcessOfa);
 app.post('/check-domain', checkDomain);
 app.post('/send-order-information', sendOrderDetails);
 app.post('/shipping-options-v2', listShippingOptionsV2);
+app.get('/shipping-options-list', listShippingOptionsV3);
 
 
 
