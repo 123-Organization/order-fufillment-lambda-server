@@ -8,7 +8,8 @@ const { validateAddProduct, addProduct, getProductDetails,increaseProductQuantit
 const { viewOrderDetails, viewAllOrders, updateOrderByProductSkuCode, createNewOrder, deleteOrder, orderSubmitStatus, getOrderPrice, submitOrders,submitOrdersV2,getOrderDetailsById,softDeleteOrders ,disconnectAndProcess,connectAndProcess,connectAndProcessOfa,disconnectProductsFromInventory,updateOrderByValidProductSkuCode,testAccountKey,checkDomain,sendOrderDetails} = require('./orders');
 const { listShippingOptions,listShippingOptionsV2,listShippingOptionsV3 } = require('./shipping-options');
 const { getUserPaymentToken,getCompanyInfo } = require('./payment-token');
-const {updateUserInformation}=require('./userInformation')
+const {updateUserInformation}=require('./userInformation');
+const { handleShopifyAuth } = require('./shopify-auth');
 const app = Router();
 app.put('/update-company-information',updateCompanyInformation);
 app.get('/get-info', getCompanyInformation);
@@ -61,6 +62,7 @@ app.post('/check-domain', checkDomain);
 app.post('/send-order-information', sendOrderDetails);
 app.post('/shipping-options-v2', listShippingOptionsV2);
 app.get('/shipping-options-list', listShippingOptionsV3);
+app.get('/shopify/callback', handleShopifyAuth);
 
 
 

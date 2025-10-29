@@ -5,7 +5,7 @@
   "main": "lambda.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "start": "set DEBUG=app:* & node lambda.js"
+    "start": "set DEBUG=app:* & nodemon lambda.js"
   },
   "author": "",
   "license": "ISC",
@@ -17,6 +17,7 @@
     "body-parser": "^1.20.2",
     "braintree": "^3.21.0",
     "cors": "^2.8.5",
+    "crypto": "^1.0.1",
     "debug": "^4.3.4",
     "dotenv": "^16.4.2",
     "express": "^4.18.2",
