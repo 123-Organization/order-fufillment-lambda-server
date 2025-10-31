@@ -75,6 +75,98 @@ const handleShopifyAuth = async (req, res) => {
     }
 };
 
+const handleShopifyCallback = async (req, res) => {
+    try {
+        // Get all query parameters
+        const queryParams = req.body;
+        console.log("queryParams=======",queryParams);
+
+        // Return all query parameters in the response
+        return res.status(200).json({
+            success: true,
+            message: 'Shopify callback received',
+            queryParameters: queryParams,
+            rawQuery: req.url.split('?')[1] || ''
+        });
+
+    } catch (error) {
+        console.error('Shopify callback error:', error);
+        return res.status(500).json({
+            success: false,
+            message: 'Failed to process Shopify callback',
+            error: error.message
+        });
+    }
+};
+
+const handleShopifyInstall = async (req, res) => {
+    try {
+        const { shop } = req.query;
+
+        // Validate shop parameter
+        if (!shop) {
+            return res.status(400).json({
+                success: false,
+                message: 'Missing required parameter: shop'
+            });
+        }
+
+        // Normalize shop domain (add .myshopify.com if not present)
+        let shopDomain = shop;
+        if (!shopDomain.includes('.')) {
+            shopDomain = `${shopDomain}.myshopify.com`;
+        }
+
+        // Validate the shop domain format
+        if (!shopDomain.match(/^[a-zA-Z0-9][a-zA-Z0-9-]*\.myshopify\.com$/)) {
+            return res.status(400).json({
+                success: false,
+                message: 'Invalid shop domain format. Expected: shopname.myshopify.com'
+            });
+        }
+
+        // Check for required environment variables
+        if (!process.env.SHOPIFY_CLIENT_ID) {
+            return res.status(500).json({
+                success: false,
+                message: 'Shopify Client ID not configured'
+            });
+        }
+
+        // Generate a random state/nonce for CSRF protection
+        const state = crypto.randomBytes(16).toString('hex');
+
+        // Determine redirect URI (use callback endpoint or environment variable)
+        const redirectUri = process.env.SHOPIFY_REDIRECT_URI || 
+            `${req.protocol}://${req.get('host')}/shopify/callback`;
+
+        // Define required scopes (adjust based on your app's needs)
+        const scopes = process.env.SHOPIFY_SCOPES || 'read_products,write_products,read_orders,write_orders';
+
+        // Construct Shopify OAuth authorization URL
+        const authUrl = `https://${shopDomain}/admin/oauth/authorize?` +
+            `client_id=${process.env.SHOPIFY_CLIENT_ID}&` +
+            `scope=${encodeURIComponent(scopes)}&` +
+            `redirect_uri=${encodeURIComponent(redirectUri)}&` +
+            `state=${state}`;
+        console.log("authUrl==========",authUrl);
+        console.log(`Redirecting to Shopify OAuth for shop: ${shopDomain}`);
+
+        // Redirect user to Shopify authorization page
+        return res.redirect(authUrl);
+
+    } catch (error) {
+        console.error('Shopify install error:', error);
+        return res.status(500).json({
+            success: false,
+            message: 'Failed to initiate Shopify installation',
+            error: error.message
+        });
+    }
+};
+
 module.exports = {
-    handleShopifyAuth
+    handleShopifyAuth,
+    handleShopifyCallback,
+    handleShopifyInstall
 };
