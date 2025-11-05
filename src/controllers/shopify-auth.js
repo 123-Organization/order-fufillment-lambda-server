@@ -1,5 +1,7 @@
 const axios = require('axios');
 const crypto = require('crypto');
+const finerworksService = require("../helpers/finerworks-service");
+
 require('dotenv').config();
 
 const validateHmac = (query) => {
@@ -79,15 +81,77 @@ const handleShopifyCallback = async (req, res) => {
     try {
         // Get all query parameters
         const queryParams = req.body;
-        console.log("queryParams=======",queryParams);
+        const account_key = queryParams.account_key;
+        delete queryParams.scope;
+        delete queryParams.account_key;
+        delete queryParams.timestamp;
+        // delete queryParams.shop_info;
+        console.log("queryParams=======", queryParams);
+
+        const getInformation = await finerworksService.GET_INFO({ account_key: account_key });
+        console.log("getInformation=======", getInformation.user_account.connections);
+        const connections = getInformation.user_account.connections;
+        const filteredConnections = connections.filter(conn => conn.name === 'Shopify');
+        console.log("filteredConnections=======", filteredConnections);
+        if (filteredConnections.length > 0) {
+            const shopifyIndex = connections.findIndex(conn => conn.name === 'Shopify');
+            if (shopifyIndex !== -1) {
+                const removedConnection = connections.splice(shopifyIndex, 1);
+                console.log("Removed Shopify connection:", connections);
+                await finerworksService.UPDATE_INFO({ account_key: account_key, connections: connections });
+                const payloadForCompanyInformation = {
+
+                    name: 'Shopify',
+                    id: queryParams.access_token,
+                    data: JSON.stringify(queryParams)
+
+                };
+                connections.push(payloadForCompanyInformation);
+
+                const payloadForCompanyInformationv2 = {
+                    account_key: account_key,
+                    connections: connections
+                };
+                console.log("payloadForCompanyInformation=======>>>>", payloadForCompanyInformationv2);
+                await finerworksService.UPDATE_INFO(payloadForCompanyInformationv2);
+
+
+            }
+            return res.status(200).json({
+                success: true,
+                message: 'Shopify connection already exists'
+            });
+
+        } else {
+            const payloadForCompanyInformation = {
+
+                name: 'Shopify',
+                id: queryParams.access_token,
+                data: JSON.stringify(queryParams)
+
+            };
+            connections.push(payloadForCompanyInformation);
+
+            const payloadForCompanyInformationv2 = {
+                account_key: account_key,
+                connections: connections
+            };
+            console.log("payloadForCompanyInformation=======>>>>", payloadForCompanyInformationv2);
+            await finerworksService.UPDATE_INFO(payloadForCompanyInformationv2);
+            return res.status(200).json({
+                success: true,
+                message: 'Shopify connection added successfully'
+            });
+        }
+
 
         // Return all query parameters in the response
-        return res.status(200).json({
-            success: true,
-            message: 'Shopify callback received',
-            queryParameters: queryParams,
-            rawQuery: req.url.split('?')[1] || ''
-        });
+        // return res.status(200).json({
+        //     success: true,
+        //     message: 'Shopify callback received',
+        //     queryParameters: queryParams,
+        //     rawQuery: req.url.split('?')[1] || ''
+        // });
 
     } catch (error) {
         console.error('Shopify callback error:', error);
@@ -137,7 +201,7 @@ const handleShopifyInstall = async (req, res) => {
         const state = crypto.randomBytes(16).toString('hex');
 
         // Determine redirect URI (use callback endpoint or environment variable)
-        const redirectUri = process.env.SHOPIFY_REDIRECT_URI || 
+        const redirectUri = process.env.SHOPIFY_REDIRECT_URI ||
             `${req.protocol}://${req.get('host')}/shopify/callback`;
 
         // Define required scopes (adjust based on your app's needs)
@@ -149,7 +213,7 @@ const handleShopifyInstall = async (req, res) => {
             `scope=${encodeURIComponent(scopes)}&` +
             `redirect_uri=${encodeURIComponent(redirectUri)}&` +
             `state=${state}`;
-        console.log("authUrl==========",authUrl);
+        console.log("authUrl==========", authUrl);
         console.log(`Redirecting to Shopify OAuth for shop: ${shopDomain}`);
 
         // Redirect user to Shopify authorization page
