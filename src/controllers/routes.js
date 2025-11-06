@@ -10,6 +10,7 @@ const { listShippingOptions,listShippingOptionsV2,listShippingOptionsV3 } = requ
 const { getUserPaymentToken,getCompanyInfo } = require('./payment-token');
 const {updateUserInformation}=require('./userInformation')
 const { handleShopifyAuth, handleShopifyCallback, handleShopifyInstall } = require('./shopify-auth');
+const { getShopifyOrders } = require('./shopify-orders');
 const app = Router();
 app.put('/update-company-information',updateCompanyInformation);
 app.get('/get-info', getCompanyInformation);
@@ -65,6 +66,7 @@ app.get('/shipping-options-list', listShippingOptionsV3);
 app.get('/shopify/auth', handleShopifyAuth);
 app.post('/shopify/callback', handleShopifyCallback);
 app.get('/shopify/', handleShopifyInstall);
+app.post('/shopify/orders', getShopifyOrders);
 
 
 

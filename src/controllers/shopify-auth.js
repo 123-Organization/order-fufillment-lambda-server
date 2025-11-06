@@ -99,21 +99,21 @@ const handleShopifyCallback = async (req, res) => {
                 const removedConnection = connections.splice(shopifyIndex, 1);
                 console.log("Removed Shopify connection:", connections);
                 await finerworksService.UPDATE_INFO({ account_key: account_key, connections: connections });
-                // const payloadForCompanyInformation = {
+                const payloadForCompanyInformation = {
 
-                //     name: 'Shopify',
-                //     id: queryParams.access_token,
-                //     data: JSON.stringify(queryParams)
+                    name: 'Shopify',
+                    id: queryParams.access_token,
+                    data: JSON.stringify(queryParams)
 
-                // };
-                // connections.push(payloadForCompanyInformation);
+                };
+                connections.push(payloadForCompanyInformation);
 
-                // const payloadForCompanyInformationv2 = {
-                //     account_key: account_key,
-                //     connections: connections
-                // };
-                // console.log("payloadForCompanyInformation=======>>>>", payloadForCompanyInformationv2);
-                // await finerworksService.UPDATE_INFO(payloadForCompanyInformationv2);
+                const payloadForCompanyInformationv2 = {
+                    account_key: account_key,
+                    connections: connections
+                };
+                console.log("payloadForCompanyInformation=======>>>>", payloadForCompanyInformationv2);
+                await finerworksService.UPDATE_INFO(payloadForCompanyInformationv2);
 
 
             }
