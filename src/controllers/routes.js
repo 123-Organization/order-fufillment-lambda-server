@@ -9,6 +9,7 @@ const { viewOrderDetails, viewAllOrders, updateOrderByProductSkuCode, createNewO
 const { listShippingOptions,listShippingOptionsV2,listShippingOptionsV3 } = require('./shipping-options');
 const { getUserPaymentToken,getCompanyInfo } = require('./payment-token');
 const {updateUserInformation}=require('./userInformation')
+const { handleShopifyAuth, handleShopifyCallback, handleShopifyInstall } = require('./shopify-auth');
 const app = Router();
 app.put('/update-company-information',updateCompanyInformation);
 app.get('/get-info', getCompanyInformation);
@@ -22,7 +23,7 @@ app.post('/validate-orders', validateSubmitOrders, validateOrders);
 app.post('/get-order-price', getOrderPrice);
 app.post('/get-product-details', getProductDetails);
 app.post('/shipping-options', listShippingOptions);
-app.post('/list-virtual-inventory', validateListVirtualInventory, listVirtualInventory);
+app.post('/list-virtual-inventory', listVirtualInventory);
 app.put('/update-virtual-inventory', validateUpdateVirtualInventory, updateVirtualInventory);
 app.delete('/delete-virtual-inventory', validateSkus, deleteVirtualInventory);
 app.post('/add-product', validateAddProduct, addProduct);
@@ -61,6 +62,9 @@ app.post('/check-domain', checkDomain);
 app.post('/send-order-information', sendOrderDetails);
 app.post('/shipping-options-v2', listShippingOptionsV2);
 app.get('/shipping-options-list', listShippingOptionsV3);
+app.get('/shopify/auth', handleShopifyAuth);
+app.post('/shopify/callback', handleShopifyCallback);
+app.get('/shopify/', handleShopifyInstall);
 
 
 

@@ -411,6 +411,12 @@ Resources:
             RestApiId: !Ref ProdApiGateway
             Method: GET
             Path: "/api/shipping-options-list"
+        ShopifyCallback:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ProdApiGateway
+            Method: POST
+            Path: "/api/shopify/callback"
   OrderFullFillmentServerLessDevServerLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
