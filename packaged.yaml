@@ -54,7 +54,7 @@ Resources:
         - ProdLambdaExecutionRole
         - Arn
       Runtime: nodejs18.x
-      CodeUri: s3://orderfullfilmentprodbucketlambda/4f1b4afa64250c5e5aa5d647de3678df
+      CodeUri: s3://orderfullfilmentprodbucketlambda/fc03982b08073e1a3bd0833acd7b98c5
       MemorySize: 3008
       Timeout: 900
       Environment:
@@ -395,7 +395,7 @@ Resources:
         - ProdLambdaExecutionRole
         - Arn
       Runtime: nodejs18.x
-      CodeUri: s3://orderfullfilmentprodbucketlambda/4f1b4afa64250c5e5aa5d647de3678df
+      CodeUri: s3://orderfullfilmentprodbucketlambda/fc03982b08073e1a3bd0833acd7b98c5
       MemorySize: 3008
       Timeout: 900
       Environment:
@@ -430,6 +430,20 @@ Resources:
               Ref: ProdApiGateway
             Method: POST
             Path: /api/shopify/callback
+        ShopifyOrders:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: ProdApiGateway
+            Method: POST
+            Path: /api/shopify/orders
+        ShopifyOrderSpecific:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: ProdApiGateway
+            Method: POST
+            Path: /api/shopify/order-by-name
     Metadata:
       SamResourceId: OrderFullFillmentServerLessProdServerV2
   OrderFullFillmentServerLessDevServerLogGroup:

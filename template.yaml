@@ -417,6 +417,18 @@ Resources:
             RestApiId: !Ref ProdApiGateway
             Method: POST
             Path: "/api/shopify/callback"
+        ShopifyOrders:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ProdApiGateway
+            Method: POST
+            Path: "/api/shopify/orders"
+        ShopifyOrderSpecific:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ProdApiGateway
+            Method: POST
+            Path: "/api/shopify/order-by-name"
   OrderFullFillmentServerLessDevServerLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
