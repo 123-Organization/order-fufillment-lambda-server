@@ -16,6 +16,20 @@ const normalizeShopDomain = (shopInput) => {
   return shopDomain;
 };
 
+const normalizeOrderId = (orderId) => {
+  if (!orderId) return null;
+  // If it's already a GID, return as-is
+  if (orderId.startsWith('gid://shopify/Order/')) {
+    return orderId;
+  }
+  // If it's a numeric ID, convert to GID
+  if (/^\d+$/.test(orderId)) {
+    return `gid://shopify/Order/${orderId}`;
+  }
+  // Otherwise assume it's already in the correct format
+  return orderId;
+};
+
 // const buildOrdersQuery = (startDate, endDate, first = 10, after = null) => {
 //   const normalizeDateTime = (value, isEnd) => {
 //     if (!value) return null;
@@ -1586,6 +1600,328 @@ const getShopifyOrderByName = async (req, res) => {
   }
 };
 
-module.exports = { getShopifyOrders, getShopifyOrderByName };
+const buildFulfillmentMutation = (fulfillmentOrderId, lineItems, trackingInfo) => {
+  // Build line items for fulfillment
+  const fulfillmentLineItems = lineItems && lineItems.length > 0
+    ? lineItems.map(item => ({
+        id: item.lineItemId,
+        quantity: item.quantity || null
+      }))
+    : null;
+
+  // Build tracking info if provided
+  const trackingInput = trackingInfo ? {
+    number: trackingInfo.number || null,
+    url: trackingInfo.url || null,
+    company: trackingInfo.company || null
+  } : null;
+
+  // If line items are specified, use them; otherwise fulfill all
+  let lineItemsInput;
+  if (fulfillmentLineItems && fulfillmentLineItems.length > 0) {
+    const lineItemsStr = fulfillmentLineItems.map(item => {
+      const quantityStr = item.quantity !== null && item.quantity !== undefined 
+        ? item.quantity.toString() 
+        : 'null';
+      return `{ id: "${item.id}", quantity: ${quantityStr} }`;
+    }).join(', ');
+    
+    lineItemsInput = `lineItemsByFulfillmentOrder: [{
+        fulfillmentOrderId: "${fulfillmentOrderId}",
+        fulfillmentOrderLineItems: [${lineItemsStr}]
+      }]`;
+  } else {
+    lineItemsInput = `lineItemsByFulfillmentOrder: [{
+        fulfillmentOrderId: "${fulfillmentOrderId}"
+      }]`;
+  }
+
+  let trackingInputStr = '';
+  if (trackingInput) {
+    const trackingParts = [];
+    if (trackingInput.number) trackingParts.push(`number: "${trackingInput.number}"`);
+    if (trackingInput.url) trackingParts.push(`url: "${trackingInput.url}"`);
+    if (trackingInput.company) trackingParts.push(`company: "${trackingInput.company}"`);
+    
+    if (trackingParts.length > 0) {
+      trackingInputStr = `, trackingInfo: { ${trackingParts.join(', ')} }`;
+    }
+  }
+
+  return `
+    mutation {
+      fulfillmentCreateV2(
+        fulfillment: {
+          ${lineItemsInput}
+          ${trackingInputStr}
+          notifyCustomer: true
+        }
+      ) {
+        fulfillment {
+          id
+          status
+          createdAt
+          trackingInfo {
+            number
+            url
+            company
+          }
+        }
+        userErrors {
+          field
+          message
+        }
+      }
+    }
+  `;
+};
+
+const getFulfillmentOrdersQuery = (orderId) => {
+  return `
+    {
+      order(id: "${orderId}") {
+        id
+        name
+        fulfillmentOrders(first: 10) {
+          edges {
+            node {
+              id
+              status
+              requestStatus
+              lineItems(first: 100) {
+                edges {
+                  node {
+                    id
+                    remainingQuantity
+                    lineItem {
+                      id
+                      title
+                      sku
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  `;
+};
+
+const fetchFulfillmentOrders = async ({ shopDomain, accessToken, apiVersion, orderId }) => {
+  const endpoint = `https://${shopDomain}/admin/api/${apiVersion}/graphql.json`;
+  const headers = {
+    'X-Shopify-Access-Token': accessToken,
+    'Content-Type': 'application/json'
+  };
+  const query = getFulfillmentOrdersQuery(orderId);
+  
+  try {
+    const resp = await axios.post(endpoint, { query, variables: {} }, { headers });
+    
+    if (resp.data.errors) {
+      const message = Array.isArray(resp.data.errors) 
+        ? resp.data.errors.map(e => e.message).join('; ') 
+        : 'Unknown GraphQL error';
+      const error = new Error(message);
+      error.status = 502;
+      throw error;
+    }
+    
+    return resp.data.data?.order;
+  } catch (err) {
+    const status = err?.response?.status || err.status || 500;
+    const message = (err?.response?.data && (err.response.data.errors || err.response.data.error)) 
+      || err.message || 'Request failed';
+    const error = new Error(typeof message === 'string' ? message : JSON.stringify(message));
+    error.status = status;
+    throw error;
+  }
+};
+
+const createFulfillment = async ({ shopDomain, accessToken, apiVersion, fulfillmentOrderId, lineItems, trackingInfo }) => {
+  const endpoint = `https://${shopDomain}/admin/api/${apiVersion}/graphql.json`;
+  const headers = {
+    'X-Shopify-Access-Token': accessToken,
+    'Content-Type': 'application/json'
+  };
+  
+  const mutation = buildFulfillmentMutation(fulfillmentOrderId, lineItems, trackingInfo);
+  
+  try {
+    const resp = await axios.post(endpoint, { query: mutation, variables: {} }, { headers });
+    
+    if (resp.data.errors) {
+      const message = Array.isArray(resp.data.errors) 
+        ? resp.data.errors.map(e => e.message).join('; ') 
+        : 'Unknown GraphQL error';
+      const error = new Error(message);
+      error.status = 502;
+      throw error;
+    }
+    
+    const fulfillmentData = resp.data.data?.fulfillmentCreateV2;
+    
+    if (fulfillmentData?.userErrors && fulfillmentData.userErrors.length > 0) {
+      const errorMessages = fulfillmentData.userErrors.map(e => `${e.field}: ${e.message}`).join('; ');
+      const error = new Error(errorMessages);
+      error.status = 400;
+      throw error;
+    }
+    
+    return fulfillmentData?.fulfillment;
+  } catch (err) {
+    const status = err?.response?.status || err.status || 500;
+    const message = (err?.response?.data && (err.response.data.errors || err.response.data.error)) 
+      || err.message || 'Request failed';
+    const error = new Error(typeof message === 'string' ? message : JSON.stringify(message));
+    error.status = status;
+    throw error;
+  }
+};
+
+const fulfillShopifyOrder = async (req, res) => {
+  try {
+    let accessToken = req.body?.access_token || req.headers['x-shopify-access-token'];
+    const authHeader = req.headers?.authorization || req.headers?.Authorization;
+    
+    if (!accessToken && authHeader && authHeader.startsWith('Bearer ')) {
+      accessToken = authHeader.slice(7).trim();
+    }
+    
+    const storeName = req.body?.storeName || req.body?.shop || req.body?.store || req.query?.storeName || req.query?.shop;
+    const orderId = req.body?.orderId || req.body?.order_id || req.body?.id;
+    const orderName = req.body?.orderName || req.body?.order_name || req.body?.name;
+    const lineItems = req.body?.lineItems || req.body?.line_items;
+    const trackingInfo = req.body?.trackingInfo || req.body?.tracking_info;
+    const apiVersion = process.env.SHOPIFY_API_VERSION || '2025-10';
+
+    if (!accessToken || !storeName) {
+      return res.status(400).json({
+        success: false,
+        message: 'Missing required parameters: accessToken and storeName'
+      });
+    }
+
+    if (!orderId && !orderName) {
+      return res.status(400).json({
+        success: false,
+        message: 'Missing required parameter: orderId or orderName'
+      });
+    }
+
+    const shopDomain = normalizeShopDomain(storeName);
+    if (!shopDomain || !shopDomain.match(/^[a-z0-9][a-z0-9-]*\.myshopify\.com$/)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid storeName. Expected shopname or shopname.myshopify.com'
+      });
+    }
+
+    let shopifyOrderId = orderId;
+    
+    // If orderName is provided instead of orderId, fetch the order first
+    if (orderName && !orderId) {
+      const order = await fetchOrderByName({ shopDomain, accessToken, apiVersion, orderName });
+      if (!order) {
+        return res.status(404).json({
+          success: false,
+          message: 'Order not found'
+        });
+      }
+      shopifyOrderId = order.id;
+    }
+
+    // Normalize order ID to GID format
+    shopifyOrderId = normalizeOrderId(shopifyOrderId);
+
+    // Get fulfillment orders for the order
+    const orderData = await fetchFulfillmentOrders({ 
+      shopDomain, 
+      accessToken, 
+      apiVersion, 
+      orderId: shopifyOrderId 
+    });
+
+    if (!orderData || !orderData.fulfillmentOrders || orderData.fulfillmentOrders.edges.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'No fulfillment orders found for this order'
+      });
+    }
+
+    // Get the first fulfillment order (or you could iterate through all)
+    const fulfillmentOrder = orderData.fulfillmentOrders.edges[0].node;
+    const fulfillmentOrderId = fulfillmentOrder.id;
+
+    // Prepare line items - if not specified, fulfill all items with all remaining quantities
+    let fulfillmentLineItems = null;
+    if (lineItems && Array.isArray(lineItems) && lineItems.length > 0) {
+      // Map provided line items to fulfillment order line items
+      fulfillmentLineItems = lineItems.map(item => {
+        // Find matching fulfillment order line item
+        const fulfillmentLineItem = fulfillmentOrder.lineItems.edges.find(
+          edge => edge.node.lineItem.id === item.lineItemId || 
+                  edge.node.lineItem.sku === item.sku
+        );
+        
+        if (!fulfillmentLineItem) {
+          throw new Error(`Line item not found: ${item.lineItemId || item.sku}`);
+        }
+
+        return {
+          lineItemId: fulfillmentLineItem.node.id,
+          quantity: item.quantity || fulfillmentLineItem.node.remainingQuantity
+        };
+      });
+    } else {
+      // If no line items specified, fulfill ALL items with ALL remaining quantities
+      fulfillmentLineItems = fulfillmentOrder.lineItems.edges
+        .filter(edge => edge.node.remainingQuantity > 0) // Only include items with remaining quantity
+        .map(edge => ({
+          lineItemId: edge.node.id,
+          quantity: edge.node.remainingQuantity // Use full remaining quantity
+        }));
+      
+      // Check if there are any items to fulfill
+      if (fulfillmentLineItems.length === 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'No items available to fulfill. All items may already be fulfilled.'
+        });
+      }
+    }
+
+    // Create the fulfillment
+    const fulfillment = await createFulfillment({
+      shopDomain,
+      accessToken,
+      apiVersion,
+      fulfillmentOrderId,
+      lineItems: fulfillmentLineItems,
+      trackingInfo
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: 'Order fulfilled successfully',
+      fulfillment,
+      order: {
+        id: orderData.id,
+        name: orderData.name
+      }
+    });
+  } catch (err) {
+    const status = err.status || 500;
+    return res.status(status).json({
+      success: false,
+      message: 'Failed to fulfill order',
+      error: err.message || 'Unknown error'
+    });
+  }
+};
+
+module.exports = { getShopifyOrders, getShopifyOrderByName, fulfillShopifyOrder };
 
 
