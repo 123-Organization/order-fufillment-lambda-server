@@ -2,7 +2,7 @@ const { Router } = require('express');
 const { updateCompanyInformation } = require('./update-company-information');
 const { getCompanyInformation } = require('./get-company-information');
 const { getClientToken, addPaymentCard, createCustomer, getFullCustomerDetails, processVaultedPaymentToken,removePaymentCard } = require('./payment-information');
-const { validateOrders, validateSubmitOrders, uploadOrdersToLocalDatabase, updateOrder,uploadOrdersToLocalDatabaseFromExcel } = require('./upload-orders'); 
+const { validateOrders, validateSubmitOrders, uploadOrdersToLocalDatabase,uploadOrdersToLocalDatabaseShopify, updateOrder,uploadOrdersToLocalDatabaseFromExcel } = require('./upload-orders'); 
 const { listVirtualInventory,listVirtualInventoryV2, validateListVirtualInventory, validateUpdateVirtualInventory, updateVirtualInventory, validateSkus, deleteVirtualInventory, getProductBySku } = require('./virtual-inventory');
 const { validateAddProduct, addProduct, getProductDetails,increaseProductQuantity,exportToWoocomercev1,productTrashed,productRestored,productSkuUpdated } = require('./products-management');
 const { viewOrderDetails, viewAllOrders, updateOrderByProductSkuCode, createNewOrder, deleteOrder, orderSubmitStatus, getOrderPrice, submitOrders,submitOrdersV2,getOrderDetailsById,softDeleteOrders ,disconnectAndProcess,connectAndProcess,connectAndProcessOfa,disconnectProductsFromInventory,updateOrderByValidProductSkuCode,testAccountKey,checkDomain,sendOrderDetails} = require('./orders');
@@ -10,7 +10,7 @@ const { listShippingOptions,listShippingOptionsV2,listShippingOptionsV3 } = requ
 const { getUserPaymentToken,getCompanyInfo } = require('./payment-token');
 const {updateUserInformation}=require('./userInformation')
 const { handleShopifyAuth, handleShopifyCallback, handleShopifyInstall } = require('./shopify-auth');
-const { getShopifyOrders, getShopifyOrderByName, fulfillShopifyOrder } = require('./shopify-orders');
+const { getShopifyOrders, getShopifyOrderByName, fulfillShopifyOrder, updateOrderReferenceNumbers } = require('./shopify-orders');
 const app = Router();
 app.put('/update-company-information',updateCompanyInformation);
 app.get('/get-info', getCompanyInformation);
@@ -29,6 +29,7 @@ app.put('/update-virtual-inventory', validateUpdateVirtualInventory, updateVirtu
 app.delete('/delete-virtual-inventory', validateSkus, deleteVirtualInventory);
 app.post('/add-product', validateAddProduct, addProduct);
 app.post('/upload-orders', uploadOrdersToLocalDatabase);
+app.post('/upload-orders-shopify', uploadOrdersToLocalDatabaseShopify);
 app.post('/view-all-orders', viewAllOrders);
 app.put('/update-orders', updateOrder);
 app.get('/get-product-by-sku/:sku', getProductBySku);
@@ -69,6 +70,7 @@ app.get('/shopify/', handleShopifyInstall);
 app.post('/shopify/orders', getShopifyOrders);
 app.post('/shopify/order-by-name', getShopifyOrderByName);
 app.post('/shopify/fulfill-order', fulfillShopifyOrder);
+app.post('/shopify/update-order-reference-numbers', updateOrderReferenceNumbers);
 
 
 

@@ -152,6 +152,7 @@ const UpdateVirtualInventorySchema = Joi.object({
             description: Joi.string().allow("").optional(),
             quantity_in_stock: Joi.number().integer().min(0).required(),
             track_inventory: Joi.boolean().required(),
+            updated:Joi.string().optional(),
             third_party_integrations: Joi.object({
                 etsy_product_id: Joi.any().allow(null).optional(),
                 shopify_product_id: Joi.any().allow(null).optional(),

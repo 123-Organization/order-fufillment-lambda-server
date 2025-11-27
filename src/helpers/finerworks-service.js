@@ -32,7 +32,7 @@ exports.UPDATE_INFO = async (payload) => {
  * @returns {Promise<Object>} - The response data from the API.
  */
 exports.GET_INFO = async (payload) => {
-  console.log("payload==============>>>>>>>",payload);
+  console.log("payload==============>>>>>>>", payload);
   const postData = await axios({
     method: 'get',
     url: process.env.FINER_WORKS_URL + 'get_user?account_key=' + payload.account_key,
@@ -137,7 +137,10 @@ exports.GET_PRODUCTS_DETAILS = async (payload) => {
     method: 'POST',
     url: process.env.FINER_WORKS_URL + 'get_product_details',
     headers: getHeaders(),
-    data: payload
+    data: payload,
+    validateStatus: (status) => {
+      return status >= 200 && status < 500; // Allow status codes from 200 to 499
+    },
   });
   return postData.data;
 };
@@ -219,12 +222,12 @@ exports.ADD_PRODUCT = async (payload) => {
  * @returns {Promise<Object>} - The response data from the API.
  */
 exports.GET_PAYMENT_TOKEN = async (payload) => {
-  console.log("payload",payload);
+  console.log("payload", payload);
   const postData = await axios({
     method: 'GET',
-    url: process.env.FINER_WORKS_URL + 'get_payment_tokens?payment_profile_id=' + payload.payment_profile_id+ '&sandbox=false',
+    url: process.env.FINER_WORKS_URL + 'get_payment_tokens?payment_profile_id=' + payload.payment_profile_id + '&sandbox=false',
     headers: getHeaders()
-  }); 
+  });
   return postData.data;
 };
 

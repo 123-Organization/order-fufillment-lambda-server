@@ -186,6 +186,7 @@ exports.getProductDetails = async (req, res) => {
 
 
 
+
 exports.increaseProductQuantity = async (req, res) => {
   try {
     const reqBody = req.body;

@@ -1781,6 +1781,103 @@ const createFulfillment = async ({ shopDomain, accessToken, apiVersion, fulfillm
   }
 };
 
+// Helper function to process a single order fulfillment
+const processSingleOrderFulfillment = async ({ orderData, shopDomain, accessToken, apiVersion }) => {
+  const orderId = orderData?.orderId || orderData?.order_id || orderData?.id;
+  const orderName = orderData?.orderName || orderData?.order_name || orderData?.name;
+  const lineItems = orderData?.lineItems || orderData?.line_items;
+  const trackingInfo = orderData?.trackingInfo || orderData?.tracking_info;
+
+  if (!orderId && !orderName) {
+    throw new Error('Missing required parameter: orderId or orderName');
+  }
+
+  let shopifyOrderId = orderId;
+  
+  // If orderName is provided instead of orderId, fetch the order first
+  if (orderName && !orderId) {
+    const order = await fetchOrderByName({ shopDomain, accessToken, apiVersion, orderName });
+    if (!order) {
+      throw new Error('Order not found');
+    }
+    shopifyOrderId = order.id;
+  }
+
+  // Normalize order ID to GID format
+  shopifyOrderId = normalizeOrderId(shopifyOrderId);
+
+  // Get fulfillment orders for the order
+  const orderFulfillmentData = await fetchFulfillmentOrders({ 
+    shopDomain, 
+    accessToken, 
+    apiVersion, 
+    orderId: shopifyOrderId 
+  });
+
+  if (!orderFulfillmentData || !orderFulfillmentData.fulfillmentOrders || orderFulfillmentData.fulfillmentOrders.edges.length === 0) {
+    throw new Error('No fulfillment orders found for this order');
+  }
+
+  // Get the first fulfillment order (or you could iterate through all)
+  const fulfillmentOrder = orderFulfillmentData.fulfillmentOrders.edges[0].node;
+  const fulfillmentOrderId = fulfillmentOrder.id;
+
+  // Prepare line items - if not specified, fulfill all items with all remaining quantities
+  let fulfillmentLineItems = null;
+  if (lineItems && Array.isArray(lineItems) && lineItems.length > 0) {
+    // Map provided line items to fulfillment order line items
+    fulfillmentLineItems = lineItems.map(item => {
+      // Find matching fulfillment order line item
+      const fulfillmentLineItem = fulfillmentOrder.lineItems.edges.find(
+        edge => edge.node.lineItem.id === item.lineItemId || 
+                edge.node.lineItem.sku === item.sku
+      );
+      
+      if (!fulfillmentLineItem) {
+        throw new Error(`Line item not found: ${item.lineItemId || item.sku}`);
+      }
+
+      return {
+        lineItemId: fulfillmentLineItem.node.id,
+        quantity: item.quantity || fulfillmentLineItem.node.remainingQuantity
+      };
+    });
+  } else {
+    // If no line items specified, fulfill ALL items with ALL remaining quantities
+    fulfillmentLineItems = fulfillmentOrder.lineItems.edges
+      .filter(edge => edge.node.remainingQuantity > 0) // Only include items with remaining quantity
+      .map(edge => ({
+        lineItemId: edge.node.id,
+        quantity: edge.node.remainingQuantity // Use full remaining quantity
+      }));
+    
+    // Check if there are any items to fulfill
+    if (fulfillmentLineItems.length === 0) {
+      throw new Error('No items available to fulfill. All items may already be fulfilled.');
+    }
+  }
+
+  // Create the fulfillment
+  const fulfillment = await createFulfillment({
+    shopDomain,
+    accessToken,
+    apiVersion,
+    fulfillmentOrderId,
+    lineItems: fulfillmentLineItems,
+    trackingInfo
+  });
+
+  return {
+    success: true,
+    message: 'Order fulfilled successfully',
+    fulfillment,
+    order: {
+      id: orderFulfillmentData.id,
+      name: orderFulfillmentData.name
+    }
+  };
+};
+
 const fulfillShopifyOrder = async (req, res) => {
   try {
     let accessToken = req.body?.access_token || req.headers['x-shopify-access-token'];
@@ -1790,128 +1887,125 @@ const fulfillShopifyOrder = async (req, res) => {
       accessToken = authHeader.slice(7).trim();
     }
     
-    const storeName = req.body?.storeName || req.body?.shop || req.body?.store || req.query?.storeName || req.query?.shop;
-    const orderId = req.body?.orderId || req.body?.order_id || req.body?.id;
-    const orderName = req.body?.orderName || req.body?.order_name || req.body?.name;
-    const lineItems = req.body?.lineItems || req.body?.line_items;
-    const trackingInfo = req.body?.trackingInfo || req.body?.tracking_info;
+    // Detect if request body is an array or single object
+    const isArrayRequest = Array.isArray(req.body);
+    const ordersToProcess = isArrayRequest ? req.body : [req.body];
+    
     const apiVersion = process.env.SHOPIFY_API_VERSION || '2025-10';
 
-    if (!accessToken || !storeName) {
-      return res.status(400).json({
-        success: false,
-        message: 'Missing required parameters: accessToken and storeName'
-      });
-    }
-
-    if (!orderId && !orderName) {
-      return res.status(400).json({
-        success: false,
-        message: 'Missing required parameter: orderId or orderName'
-      });
-    }
-
-    const shopDomain = normalizeShopDomain(storeName);
-    if (!shopDomain || !shopDomain.match(/^[a-z0-9][a-z0-9-]*\.myshopify\.com$/)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid storeName. Expected shopname or shopname.myshopify.com'
-      });
-    }
-
-    let shopifyOrderId = orderId;
-    
-    // If orderName is provided instead of orderId, fetch the order first
-    if (orderName && !orderId) {
-      const order = await fetchOrderByName({ shopDomain, accessToken, apiVersion, orderName });
-      if (!order) {
-        return res.status(404).json({
-          success: false,
-          message: 'Order not found'
-        });
-      }
-      shopifyOrderId = order.id;
-    }
-
-    // Normalize order ID to GID format
-    shopifyOrderId = normalizeOrderId(shopifyOrderId);
-
-    // Get fulfillment orders for the order
-    const orderData = await fetchFulfillmentOrders({ 
-      shopDomain, 
-      accessToken, 
-      apiVersion, 
-      orderId: shopifyOrderId 
-    });
-
-    if (!orderData || !orderData.fulfillmentOrders || orderData.fulfillmentOrders.edges.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: 'No fulfillment orders found for this order'
-      });
-    }
-
-    // Get the first fulfillment order (or you could iterate through all)
-    const fulfillmentOrder = orderData.fulfillmentOrders.edges[0].node;
-    const fulfillmentOrderId = fulfillmentOrder.id;
-
-    // Prepare line items - if not specified, fulfill all items with all remaining quantities
-    let fulfillmentLineItems = null;
-    if (lineItems && Array.isArray(lineItems) && lineItems.length > 0) {
-      // Map provided line items to fulfillment order line items
-      fulfillmentLineItems = lineItems.map(item => {
-        // Find matching fulfillment order line item
-        const fulfillmentLineItem = fulfillmentOrder.lineItems.edges.find(
-          edge => edge.node.lineItem.id === item.lineItemId || 
-                  edge.node.lineItem.sku === item.sku
-        );
-        
-        if (!fulfillmentLineItem) {
-          throw new Error(`Line item not found: ${item.lineItemId || item.sku}`);
-        }
-
-        return {
-          lineItemId: fulfillmentLineItem.node.id,
-          quantity: item.quantity || fulfillmentLineItem.node.remainingQuantity
-        };
-      });
-    } else {
-      // If no line items specified, fulfill ALL items with ALL remaining quantities
-      fulfillmentLineItems = fulfillmentOrder.lineItems.edges
-        .filter(edge => edge.node.remainingQuantity > 0) // Only include items with remaining quantity
-        .map(edge => ({
-          lineItemId: edge.node.id,
-          quantity: edge.node.remainingQuantity // Use full remaining quantity
-        }));
+    // For single order requests, validate required parameters upfront
+    if (!isArrayRequest) {
+      const storeName = req.body?.storeName || req.body?.shop || req.body?.store || req.query?.storeName || req.query?.shop;
       
-      // Check if there are any items to fulfill
-      if (fulfillmentLineItems.length === 0) {
+      if (!accessToken || !storeName) {
         return res.status(400).json({
           success: false,
-          message: 'No items available to fulfill. All items may already be fulfilled.'
+          message: 'Missing required parameters: accessToken and storeName'
+        });
+      }
+
+      const shopDomain = normalizeShopDomain(storeName);
+      if (!shopDomain || !shopDomain.match(/^[a-z0-9][a-z0-9-]*\.myshopify\.com$/)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid storeName. Expected shopname or shopname.myshopify.com'
         });
       }
     }
 
-    // Create the fulfillment
-    const fulfillment = await createFulfillment({
-      shopDomain,
-      accessToken,
-      apiVersion,
-      fulfillmentOrderId,
-      lineItems: fulfillmentLineItems,
-      trackingInfo
-    });
+    // Process all orders
+    const results = [];
+    let hasErrors = false;
 
-    return res.status(200).json({
-      success: true,
-      message: 'Order fulfilled successfully',
-      fulfillment,
-      order: {
-        id: orderData.id,
-        name: orderData.name
+    for (let i = 0; i < ordersToProcess.length; i++) {
+      const orderData = ordersToProcess[i];
+      
+      // For array requests, each order can have its own storeName and accessToken
+      // If not provided, use the common ones from headers/query
+      const orderAccessToken = orderData?.access_token || accessToken;
+      const orderStoreName = orderData?.storeName || orderData?.shop || orderData?.store || req.query?.storeName || req.query?.shop;
+      
+      // Validate required parameters for this order
+      if (!orderAccessToken) {
+        results.push({
+          success: false,
+          error: 'Missing required parameter: accessToken',
+          order: orderData?.orderName || orderData?.orderId || `Order at index ${i}`
+        });
+        hasErrors = true;
+        continue;
       }
-    });
+      
+      if (!orderStoreName) {
+        results.push({
+          success: false,
+          error: 'Missing required parameter: storeName',
+          order: orderData?.orderName || orderData?.orderId || `Order at index ${i}`
+        });
+        hasErrors = true;
+        continue;
+      }
+      
+      const orderShopDomain = normalizeShopDomain(orderStoreName);
+      
+      if (!orderShopDomain || !orderShopDomain.match(/^[a-z0-9][a-z0-9-]*\.myshopify\.com$/)) {
+        results.push({
+          success: false,
+          error: 'Invalid storeName for this order',
+          order: orderData?.orderName || orderData?.orderId || `Order at index ${i}`
+        });
+        hasErrors = true;
+        continue;
+      }
+
+      try {
+        const result = await processSingleOrderFulfillment({
+          orderData: {
+            ...orderData,
+            access_token: orderAccessToken
+          },
+          shopDomain: orderShopDomain,
+          accessToken: orderAccessToken,
+          apiVersion
+        });
+        results.push(result);
+      } catch (err) {
+        hasErrors = true;
+        results.push({
+          success: false,
+          error: err.message || 'Unknown error',
+          order: orderData?.orderName || orderData?.orderId || `Order at index ${i}`
+        });
+      }
+    }
+
+    // Return appropriate response format
+    if (isArrayRequest) {
+      // For array requests, always return array of results
+      const statusCode = hasErrors ? (results.some(r => r.success) ? 207 : 400) : 200; // 207 Multi-Status if mixed results
+      return res.status(statusCode).json({
+        success: !hasErrors,
+        message: hasErrors 
+          ? 'Some orders failed to fulfill' 
+          : 'All orders fulfilled successfully',
+        results,
+        total: ordersToProcess.length,
+        succeeded: results.filter(r => r.success).length,
+        failed: results.filter(r => !r.success).length
+      });
+    } else {
+      // For single order requests, maintain backward compatibility with original response format
+      const result = results[0];
+      if (result.success) {
+        return res.status(200).json(result);
+      } else {
+        return res.status(400).json({
+          success: false,
+          message: 'Failed to fulfill order',
+          error: result.error || 'Unknown error'
+        });
+      }
+    }
   } catch (err) {
     const status = err.status || 500;
     return res.status(status).json({
@@ -1922,6 +2016,251 @@ const fulfillShopifyOrder = async (req, res) => {
   }
 };
 
-module.exports = { getShopifyOrders, getShopifyOrderByName, fulfillShopifyOrder };
+// Build GraphQL mutation for setting order metafield
+const buildMetafieldSetMutation = (orderId, namespace, key, value) => {
+  // Escape special characters in GraphQL string values
+  const escapeGraphQLString = (str) => {
+    return String(str)
+      .replace(/\\/g, '\\\\')
+      .replace(/"/g, '\\"')
+      .replace(/\n/g, '\\n')
+      .replace(/\r/g, '\\r')
+      .replace(/\t/g, '\\t');
+  };
+  
+  return `
+    mutation {
+      metafieldsSet(metafields: [{
+        ownerId: "${orderId}",
+        namespace: "${escapeGraphQLString(namespace)}",
+        key: "${escapeGraphQLString(key)}",
+        value: "${escapeGraphQLString(value)}",
+        type: "single_line_text_field"
+      }]) {
+        metafields {
+          id
+          namespace
+          key
+          value
+        }
+        userErrors {
+          field
+          message
+        }
+      }
+    }
+  `;
+};
+
+// Helper function to update a single order's metafield
+const updateOrderMetafield = async ({ shopDomain, accessToken, apiVersion, orderId, referenceNumber, namespace = 'custom', key = 'reference_number' }) => {
+  const endpoint = `https://${shopDomain}/admin/api/${apiVersion}/graphql.json`;
+  const headers = {
+    'X-Shopify-Access-Token': accessToken,
+    'Content-Type': 'application/json'
+  };
+  
+  // Normalize order ID to GID format
+  const normalizedOrderId = normalizeOrderId(orderId);
+  
+  const mutation = buildMetafieldSetMutation(normalizedOrderId, namespace, key, referenceNumber);
+  
+  try {
+    const resp = await axios.post(endpoint, { query: mutation, variables: {} }, { headers });
+    
+    if (resp.data.errors) {
+      const message = Array.isArray(resp.data.errors) 
+        ? resp.data.errors.map(e => e.message).join('; ') 
+        : 'Unknown GraphQL error';
+      const error = new Error(message);
+      error.status = 502;
+      throw error;
+    }
+    
+    const metafieldData = resp.data.data?.metafieldsSet;
+    
+    if (metafieldData?.userErrors && metafieldData.userErrors.length > 0) {
+      const errorMessages = metafieldData.userErrors.map(e => `${e.field}: ${e.message}`).join('; ');
+      const error = new Error(errorMessages);
+      error.status = 400;
+      throw error;
+    }
+    
+    return {
+      success: true,
+      orderId: normalizedOrderId,
+      metafield: metafieldData?.metafields?.[0] || null
+    };
+  } catch (err) {
+    const status = err?.response?.status || err.status || 500;
+    const message = (err?.response?.data && (err.response.data.errors || err.response.data.error)) 
+      || err.message || 'Request failed';
+    const error = new Error(typeof message === 'string' ? message : JSON.stringify(message));
+    error.status = status;
+    throw error;
+  }
+};
+
+// Endpoint to update order metafields with reference numbers
+const updateOrderReferenceNumbers = async (req, res) => {
+  try {
+    let accessToken = req.body?.access_token || req.headers['x-shopify-access-token'];
+    const authHeader = req.headers?.authorization || req.headers?.Authorization;
+    
+    if (!accessToken && authHeader && authHeader.startsWith('Bearer ')) {
+      accessToken = authHeader.slice(7).trim();
+    }
+    
+    // Validate request body is an array
+    if (!Array.isArray(req.body.orders)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Request body must contain an "orders" array'
+      });
+    }
+    
+    const orders = req.body.orders;
+    const storeName = req.body?.storeName || req.body?.shop || req.body?.store || req.query?.storeName || req.query?.shop;
+    const namespace = req.body?.namespace || 'custom';
+    const metafieldKey = req.body?.metafieldKey || 'reference_number';
+    const apiVersion = process.env.SHOPIFY_API_VERSION || '2025-10';
+    
+    if (!accessToken || !storeName) {
+      return res.status(400).json({
+        success: false,
+        message: 'Missing required parameters: accessToken and storeName'
+      });
+    }
+    
+    if (orders.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Orders array cannot be empty'
+      });
+    }
+    
+    const shopDomain = normalizeShopDomain(storeName);
+    if (!shopDomain || !shopDomain.match(/^[a-z0-9][a-z0-9-]*\.myshopify\.com$/)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid storeName. Expected shopname or shopname.myshopify.com'
+      });
+    }
+    
+    // Process all orders
+    const results = [];
+    let hasErrors = false;
+    
+    for (let i = 0; i < orders.length; i++) {
+      const order = orders[i];
+      let orderId = order?.orderId || order?.order_id || order?.id;
+      const orderName = order?.orderName || order?.order_name || order?.name;
+      const referenceNumber = order?.referenceNumber || order?.reference_number || order?.reference;
+      
+      // Validate required fields for each order
+      if (!orderId && !orderName) {
+        results.push({
+          success: false,
+          error: 'Missing required parameter: orderId or orderName',
+          orderIndex: i,
+          order: `Order at index ${i}`
+        });
+        hasErrors = true;
+        continue;
+      }
+      
+      if (!referenceNumber) {
+        results.push({
+          success: false,
+          error: 'Missing required parameter: referenceNumber',
+          orderIndex: i,
+          order: orderName || orderId || `Order at index ${i}`
+        });
+        hasErrors = true;
+        continue;
+      }
+      
+      // Allow per-order access token and store name override
+      const orderAccessToken = order?.access_token || accessToken;
+      const orderStoreName = order?.storeName || order?.shop || order?.store || storeName;
+      const orderShopDomain = normalizeShopDomain(orderStoreName);
+      
+      if (!orderShopDomain || !orderShopDomain.match(/^[a-z0-9][a-z0-9-]*\.myshopify\.com$/)) {
+        results.push({
+          success: false,
+          error: 'Invalid storeName for this order',
+          orderIndex: i,
+          order: orderName || orderId || `Order at index ${i}`
+        });
+        hasErrors = true;
+        continue;
+      }
+      
+      try {
+        // If orderName is provided but not orderId, fetch the order first
+        if (orderName && !orderId) {
+          const fetchedOrder = await fetchOrderByName({ 
+            shopDomain: orderShopDomain, 
+            accessToken: orderAccessToken, 
+            apiVersion, 
+            orderName 
+          });
+          if (!fetchedOrder) {
+            throw new Error('Order not found');
+          }
+          orderId = fetchedOrder.id;
+        }
+        
+        const result = await updateOrderMetafield({
+          shopDomain: orderShopDomain,
+          accessToken: orderAccessToken,
+          apiVersion,
+          orderId,
+          referenceNumber: String(referenceNumber),
+          namespace: order?.namespace || namespace,
+          key: order?.metafieldKey || order?.metafield_key || metafieldKey
+        });
+        
+        results.push({
+          ...result,
+          orderIndex: i,
+          order: orderName || orderId,
+          referenceNumber: String(referenceNumber)
+        });
+      } catch (err) {
+        hasErrors = true;
+        results.push({
+          success: false,
+          error: err.message || 'Unknown error',
+          orderIndex: i,
+          order: orderName || orderId || `Order at index ${i}`,
+          referenceNumber: referenceNumber ? String(referenceNumber) : null
+        });
+      }
+    }
+    
+    // Return results
+    const statusCode = hasErrors ? (results.some(r => r.success) ? 207 : 400) : 200; // 207 Multi-Status if mixed results
+    return res.status(statusCode).json({
+      success: !hasErrors,
+      message: hasErrors 
+        ? 'Some orders failed to update' 
+        : 'All orders updated successfully',
+      results,
+      total: orders.length,
+      succeeded: results.filter(r => r.success).length,
+      failed: results.filter(r => !r.success).length
+    });
+  } catch (err) {
+    const status = err.status || 500;
+    return res.status(status).json({
+      success: false,
+      message: 'Failed to update order reference numbers',
+      error: err.message || 'Unknown error'
+    });
+  }
+};
+
+module.exports = { getShopifyOrders, getShopifyOrderByName, fulfillShopifyOrder, updateOrderReferenceNumbers };
 
 
