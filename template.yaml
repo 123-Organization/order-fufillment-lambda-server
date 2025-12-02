@@ -417,7 +417,53 @@ Resources:
           Properties:
             RestApiId: !Ref MyApiGateway
             Method: GET
-            Path: "/api/shipping-options-list"          
+            Path: "/api/shipping-options-list"  
+        ShopifyCallback:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Method: POST
+            Path: "/api/shopify/callback"
+        ShopifyOrders:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Method: POST
+            Path: "/api/shopify/orders"
+        ShopifyOrderSpecific:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Method: POST
+            Path: "/api/shopify/order-by-name"
+        ShopifyOrderFullfilment:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Method: POST
+            Path: "/api/shopify/fulfill-order"
+        UploadOrdersShopify:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Method: POST
+            Path: "/api/upload-orders-shopify"
+        updateOrderWithReferenceId:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Method: POST
+            Path: "/api/shopify/update-order-reference-numbers"  
+        HealthCheck:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Method: GET
+            Path: /api/health-check
+        HealthCheckSchedule:
+          Type: Schedule
+          Properties:
+            Schedule: rate(1 hour)      
   OrderFullFillmentServerLessDevServerLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:

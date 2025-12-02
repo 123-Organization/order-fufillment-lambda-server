@@ -9,7 +9,11 @@ const { viewOrderDetails, viewAllOrders, updateOrderByProductSkuCode, createNewO
 const { listShippingOptions,listShippingOptionsV2,listShippingOptionsV3 } = require('./shipping-options');
 const { getUserPaymentToken,getCompanyInfo } = require('./payment-token');
 const {updateUserInformation}=require('./userInformation')
+const healthCheck = require('./health-check');
 const app = Router();
+
+// Health-check route wired to separate controller
+app.get('/health-check', healthCheck);
 app.put('/update-company-information',updateCompanyInformation);
 app.get('/get-info', getCompanyInformation);
 app.get('/get-user-details', getCompanyInformation);

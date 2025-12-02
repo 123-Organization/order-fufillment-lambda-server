@@ -17,6 +17,7 @@ exports.getUserPaymentToken = async (req, res) => {
       const requestPayload = {
         payment_profile_id: payment_profile_id,
       };
+      console.log("requestPayload",requestPayload);
       const getInformation = await finerworksService.GET_PAYMENT_TOKEN(
         requestPayload
       );

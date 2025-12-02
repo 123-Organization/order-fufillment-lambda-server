@@ -54,7 +54,7 @@ Resources:
         - MyLambdaExecutionRole
         - Arn
       Runtime: nodejs18.x
-      CodeUri: s3://order-fullfilment-app-lambda-server/efa19ea209b4497590c1a2b7c6839401
+      CodeUri: s3://order-fullfilment-app-lambda-server/b640b90daa845e6c4b8859d0212df46f
       MemorySize: 3008
       Timeout: 900
       Environment:
@@ -395,7 +395,7 @@ Resources:
         - MyLambdaExecutionRole
         - Arn
       Runtime: nodejs18.x
-      CodeUri: s3://order-fullfilment-app-lambda-server/efa19ea209b4497590c1a2b7c6839401
+      CodeUri: s3://order-fullfilment-app-lambda-server/b640b90daa845e6c4b8859d0212df46f
       MemorySize: 3008
       Timeout: 900
       Environment:
@@ -423,6 +423,59 @@ Resources:
               Ref: MyApiGateway
             Method: GET
             Path: /api/shipping-options-list
+        ShopifyCallback:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: POST
+            Path: /api/shopify/callback
+        ShopifyOrders:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: POST
+            Path: /api/shopify/orders
+        ShopifyOrderSpecific:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: POST
+            Path: /api/shopify/order-by-name
+        ShopifyOrderFullfilment:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: POST
+            Path: /api/shopify/fulfill-order
+        UploadOrdersShopify:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: POST
+            Path: /api/upload-orders-shopify
+        updateOrderWithReferenceId:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: POST
+            Path: /api/shopify/update-order-reference-numbers
+        HealthCheck:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: GET
+            Path: /api/health-check
+        HealthCheckSchedule:
+          Type: Schedule
+          Properties:
+            Schedule: rate(1 hour)
     Metadata:
       SamResourceId: OrderFullFillmentServerLessDevServerV2
   OrderFullFillmentServerLessDevServerLogGroup:

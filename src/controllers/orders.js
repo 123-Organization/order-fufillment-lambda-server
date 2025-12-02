@@ -260,7 +260,7 @@ exports.updateOrderByProductSkuCode = async (req, res) => {
     const selectData = await finerworksService.SELECT_QUERY_FINERWORKS(
       selectPayload
     );
-    // console.log("selectData=====>>>>>", selectData);
+    console.log("selectData=====>>>>>", selectData);
 
     log("Order Data", JSON.stringify(selectData));
     if (selectData?.data.length === 0) {
@@ -303,6 +303,7 @@ exports.updateOrderByProductSkuCode = async (req, res) => {
           message: "SKU Code is already there",
         });
       }
+      console.log("searchListVirtualInventoryParams=====",searchListVirtualInventoryParams);
       getProductDetails = await finerworksService.LIST_VIRTUAL_INVENTORY(
         searchListVirtualInventoryParams
       );
@@ -388,6 +389,7 @@ exports.updateOrderByProductSkuCode = async (req, res) => {
       };
 
       log("Product details from API", JSON.stringify(getProductDetails));
+      console.log("payload=====",payload);
       getProductDetails = await finerworksService.GET_PRODUCTS_DETAILS(payload);
       log("Get product details", JSON.stringify(getProductDetails));
       console.log("getProductDetails", getProductDetails);
@@ -424,6 +426,7 @@ exports.updateOrderByProductSkuCode = async (req, res) => {
           fieldupdates: `FulfillmentData='${urlEncodedData}'`,
           where: `FulfillmentID=${reqBody.orderFullFillmentId}`,
         };
+        console.log("updatePayload=====",updatePayload);
         const updateQueryExecute =
           await finerworksService.UPDATE_QUERY_FINERWORKS(updatePayload);
         if (updateQueryExecute) {
