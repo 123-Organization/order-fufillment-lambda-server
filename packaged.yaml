@@ -54,7 +54,7 @@ Resources:
         - ProdLambdaExecutionRole
         - Arn
       Runtime: nodejs18.x
-      CodeUri: s3://orderfullfilmentprodbucketlambda/fa70ae4daa2d1d3144927ee78d0e3f96
+      CodeUri: s3://orderfullfilmentprodbucketlambda/b4fb598c83d3266183f41fda9813db46
       MemorySize: 3008
       Timeout: 900
       Environment:
@@ -395,7 +395,7 @@ Resources:
         - ProdLambdaExecutionRole
         - Arn
       Runtime: nodejs18.x
-      CodeUri: s3://orderfullfilmentprodbucketlambda/fa70ae4daa2d1d3144927ee78d0e3f96
+      CodeUri: s3://orderfullfilmentprodbucketlambda/b4fb598c83d3266183f41fda9813db46
       MemorySize: 3008
       Timeout: 900
       Environment:

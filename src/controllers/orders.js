@@ -142,7 +142,7 @@ exports.viewAllOrders = async (req, res) => {
       return numA - numB;
     });
 
-    
+
     if (allOrders.length === 0) {
       log("No orders found after processing for account ID:", accountId);
       return res.status(200).json({
@@ -281,7 +281,7 @@ exports.updateOrderByProductSkuCode = async (req, res) => {
       searchListVirtualInventoryParams.product_code_filter = [productCode];
     }
     if (account_key) {
-      searchListVirtualInventoryParams.account_key = [account_key];
+      searchListVirtualInventoryParams.account_key = account_key;
     }
     log(
       "Request come to search product from virtual inventory for the payload",
