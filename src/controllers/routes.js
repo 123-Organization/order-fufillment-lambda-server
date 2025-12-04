@@ -2,13 +2,15 @@ const { Router } = require('express');
 const { updateCompanyInformation } = require('./update-company-information');
 const { getCompanyInformation } = require('./get-company-information');
 const { getClientToken, addPaymentCard, createCustomer, getFullCustomerDetails, processVaultedPaymentToken,removePaymentCard } = require('./payment-information');
-const { validateOrders, validateSubmitOrders, uploadOrdersToLocalDatabase, updateOrder,uploadOrdersToLocalDatabaseFromExcel } = require('./upload-orders'); 
+const { validateOrders, validateSubmitOrders, uploadOrdersToLocalDatabase,uploadOrdersToLocalDatabaseShopify, updateOrder,uploadOrdersToLocalDatabaseFromExcel } = require('./upload-orders'); 
 const { listVirtualInventory,listVirtualInventoryV2, validateListVirtualInventory, validateUpdateVirtualInventory, updateVirtualInventory, validateSkus, deleteVirtualInventory, getProductBySku } = require('./virtual-inventory');
 const { validateAddProduct, addProduct, getProductDetails,increaseProductQuantity,exportToWoocomercev1,productTrashed,productRestored,productSkuUpdated } = require('./products-management');
 const { viewOrderDetails, viewAllOrders, updateOrderByProductSkuCode, createNewOrder, deleteOrder, orderSubmitStatus, getOrderPrice, submitOrders,submitOrdersV2,getOrderDetailsById,softDeleteOrders ,disconnectAndProcess,connectAndProcess,connectAndProcessOfa,disconnectProductsFromInventory,updateOrderByValidProductSkuCode,testAccountKey,checkDomain,sendOrderDetails} = require('./orders');
 const { listShippingOptions,listShippingOptionsV2,listShippingOptionsV3 } = require('./shipping-options');
 const { getUserPaymentToken,getCompanyInfo } = require('./payment-token');
 const {updateUserInformation}=require('./userInformation')
+const { handleShopifyAuth, handleShopifyCallback, handleShopifyInstall } = require('./shopify-auth');
+const { getShopifyOrders, getShopifyOrderByName, fulfillShopifyOrder, updateOrderReferenceNumbers } = require('./shopify-orders');
 const healthCheck = require('./health-check');
 const app = Router();
 
@@ -65,7 +67,13 @@ app.post('/check-domain', checkDomain);
 app.post('/send-order-information', sendOrderDetails);
 app.post('/shipping-options-v2', listShippingOptionsV2);
 app.get('/shipping-options-list', listShippingOptionsV3);
-
+app.get('/shopify/auth', handleShopifyAuth);
+app.post('/shopify/callback', handleShopifyCallback);
+app.get('/shopify/', handleShopifyInstall);
+app.post('/shopify/orders', getShopifyOrders);
+app.post('/shopify/order-by-name', getShopifyOrderByName);
+app.post('/shopify/fulfill-order', fulfillShopifyOrder);
+app.post('/shopify/update-order-reference-numbers', updateOrderReferenceNumbers);
 
 
 

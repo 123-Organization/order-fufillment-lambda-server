@@ -448,7 +448,7 @@ const buildOrdersQuery = (startDate, endDate, first = 10, after = null) => {
           }
         }
         
-        # Line Items with enhanced details
+        # Line Items with enhanced details and inventory locations
         lineItems(first: 100) {
           edges {
             node {
@@ -498,6 +498,28 @@ const buildOrdersQuery = (startDate, endDate, first = 10, after = null) => {
                   featuredImage { 
                     url 
                     altText 
+                  }
+                }
+                # Inventory locations for this variant
+                inventoryItem {
+                  id
+                  inventoryLevels(first: 10) {
+                    edges {
+                      node {
+                        location {
+                          id
+                          name
+                          address {
+                            address1
+                            address2
+                            city
+                            province
+                            country
+                            zip
+                          }
+                        }
+                      }
+                    }
                   }
                 }
               }
@@ -776,7 +798,19 @@ const getShopifyOrders = async (req, res) => {
     }
     var shippingOptions = await finerworksService.SHIPPING_OPTIONS_LIST();
     const query = req.body?.query; // optional override for custom queries
-    const orders = await fetchAllOrders({ shopDomain, accessToken, apiVersion, query, startDate, endDate });
+    let orders = await fetchAllOrders({ shopDomain, accessToken, apiVersion, query, startDate, endDate });
+
+    // Filter orders to only those with at least one line item sourced from "Shop location"
+    const TARGET_LOCATION_NAME = 'Shop location';
+    orders = orders.filter(order => {
+      const lineItemEdges = order?.lineItems?.edges || [];
+      return lineItemEdges.some(liEdge => {
+        const inventoryItem = liEdge?.node?.variant?.inventoryItem;
+        const inventoryLevelEdges = inventoryItem?.inventoryLevels?.edges || [];
+        return inventoryLevelEdges.some(levelEdge => levelEdge?.node?.location?.name === TARGET_LOCATION_NAME);
+      });
+    });
+
     orders.forEach(order => {
       order.shippingLines.edges.forEach(edge => {
         if(edge.node.title === 'Standard') {
