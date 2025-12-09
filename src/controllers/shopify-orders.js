@@ -2295,4 +2295,137 @@ const updateOrderReferenceNumbers = async (req, res) => {
   }
 };
 
-module.exports = { getShopifyOrders, getShopifyOrderByName, fulfillShopifyOrder, updateOrderReferenceNumbers };
+// Endpoint to update a single order's fulfillment status via metafield.
+// Accepts: storeName, access_token, orderNumber/orderName, status
+// Uses Shopify GraphQL Admin API under the hood to set a metafield on the Order.
+const updateOrderFulfillmentStatus = async (req, res) => {
+  try {
+    let accessToken = req.body?.access_token || req.headers['x-shopify-access-token'];
+    const authHeader = req.headers?.authorization || req.headers?.Authorization;
+
+    if (!accessToken && authHeader && authHeader.startsWith('Bearer ')) {
+      accessToken = authHeader.slice(7).trim();
+    }
+
+    const storeName =
+      req.body?.storeName ||
+      req.body?.shop ||
+      req.body?.store ||
+      req.query?.storeName ||
+      req.query?.shop;
+
+    const orderNumber =
+      req.body?.orderNumber ||
+      req.body?.orderName ||
+      req.body?.name ||
+      req.query?.orderNumber ||
+      req.query?.orderName ||
+      req.query?.name;
+
+    const statusValue = req.body?.status;
+    const namespace = req.body?.namespace || 'custom';
+    const metafieldKey = req.body?.metafieldKey || 'fulfillment_status';
+    const apiVersion = process.env.SHOPIFY_API_VERSION || '2025-10';
+
+    // Map incoming status to the status we want to store/display
+    const rawStatus = String(statusValue).trim();
+    const rawStatusLower = rawStatus.toLowerCase();
+    let effectiveStatus = rawStatus;
+
+    // Custom mappings:
+    // - "in progress"  -> "In progress"
+    // - "shipped"      -> "Fulfilled"
+    if (rawStatusLower === 'in progress' || rawStatusLower === 'in_progress') {
+      effectiveStatus = 'In progress';
+    } else if (rawStatusLower === 'shipped') {
+      effectiveStatus = 'Fulfilled';
+    }
+
+    if (!accessToken || !storeName || !orderNumber || !statusValue) {
+      return res.status(400).json({
+        success: false,
+        message: 'Missing required parameters: accessToken, storeName, orderNumber, status'
+      });
+    }
+
+    const shopDomain = normalizeShopDomain(storeName);
+    if (!shopDomain || !shopDomain.match(/^[a-z0-9][a-z0-9-]*\.myshopify\.com$/)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid storeName. Expected shopname or shopname.myshopify.com'
+      });
+    }
+
+    // Fetch order by name/number to get the GID
+    const order = await fetchOrderByName({
+      shopDomain,
+      accessToken,
+      apiVersion,
+      orderName: orderNumber
+    });
+
+    if (!order || !order.id) {
+      return res.status(404).json({
+        success: false,
+        message: 'Order not found'
+      });
+    }
+
+    const result = await updateOrderMetafield({
+      shopDomain,
+      accessToken,
+      apiVersion,
+      orderId: order.id,
+      referenceNumber: String(effectiveStatus),
+      namespace,
+      key: metafieldKey
+    });
+    
+    // Optionally trigger a real Shopify fulfillment so that the native
+    // fulfillment status in the Shopify admin UI/order list is updated.
+    let fulfillmentResult = null;
+    const statusStr = rawStatusLower;
+    const shouldFulfill =
+      statusStr === 'shipped' ||
+      statusStr === 'fulfilled' ||
+      statusStr === 'complete' ||
+      statusStr === 'completed';
+
+    if (shouldFulfill) {
+      try {
+        fulfillmentResult = await processSingleOrderFulfillment({
+          orderData: {
+            orderName: order.name || orderNumber
+          },
+          shopDomain,
+          accessToken,
+          apiVersion
+        });
+      } catch (fulfillErr) {
+        // If there are no remaining items to fulfill, treat as non-fatal
+        const msg = fulfillErr?.message || '';
+        if (!msg.includes('No items available to fulfill')) {
+          throw fulfillErr;
+        }
+      }
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: 'Order fulfillment status updated successfully',
+      orderId: result.orderId,
+      status: String(effectiveStatus),
+      metafield: result.metafield,
+      fulfillment: fulfillmentResult
+    });
+  } catch (err) {
+    const status = err.status || 500;
+    return res.status(status).json({
+      success: false,
+      message: 'Failed to update order fulfillment status',
+      error: err.message || 'Unknown error'
+    });
+  }
+};
+
+module.exports = { getShopifyOrders, getShopifyOrderByName, fulfillShopifyOrder, updateOrderReferenceNumbers, updateOrderFulfillmentStatus };

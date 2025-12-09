@@ -10,7 +10,7 @@ const { listShippingOptions,listShippingOptionsV2,listShippingOptionsV3 } = requ
 const { getUserPaymentToken,getCompanyInfo } = require('./payment-token');
 const {updateUserInformation}=require('./userInformation')
 const { handleShopifyAuth, handleShopifyCallback, handleShopifyInstall } = require('./shopify-auth');
-const { getShopifyOrders, getShopifyOrderByName, fulfillShopifyOrder, updateOrderReferenceNumbers } = require('./shopify-orders');
+const { getShopifyOrders, getShopifyOrderByName, fulfillShopifyOrder, updateOrderReferenceNumbers, updateOrderFulfillmentStatus } = require('./shopify-orders');
 const healthCheck = require('./health-check');
 const app = Router();
 
@@ -74,6 +74,7 @@ app.post('/shopify/orders', getShopifyOrders);
 app.post('/shopify/order-by-name', getShopifyOrderByName);
 app.post('/shopify/fulfill-order', fulfillShopifyOrder);
 app.post('/shopify/update-order-reference-numbers', updateOrderReferenceNumbers);
+app.post('/shopify/update-fulfillment-status', updateOrderFulfillmentStatus);
 
 
 
