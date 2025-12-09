@@ -113,15 +113,9 @@ exports.listVirtualInventoryV2 = async (req, res) => {
     try {
         const reqBody = JSON.parse(JSON.stringify(req.body));
         const getInformation = await finerworksService.LIST_VIRTUAL_INVENTORY(reqBody);
+        console.log("getInformation===>>",getInformation);
         if (getInformation && getInformation.status && getInformation.status.success) {
-            res.status(200).json({
-                statusCode: 200,
-                status: true,
-                data: getInformation,
-                page_number: getInformation?.page_number,
-                per_page: getInformation?.per_page,
-                count: getInformation?.count
-            });
+            res.status(200).json(getInformation);
         } else {
             res.status(400).json({
                 statusCode: 400,
