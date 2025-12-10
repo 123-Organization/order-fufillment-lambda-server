@@ -237,7 +237,7 @@ const ordersSchema = Joi.object({
               otherwise: Joi.optional().allow("")
             })
             .optional(),
-          zip_postal_code: Joi.number().required(),
+          zip_postal_code: Joi.string().required(),
           country_code: Joi.string().length(2).required(),
           phone: Joi.alternatives().try(Joi.string(), Joi.number()).optional().allow(""),
           email: Joi.string().email().optional(),
