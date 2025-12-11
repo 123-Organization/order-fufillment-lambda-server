@@ -2086,6 +2086,62 @@ const buildMetafieldSetMutation = (orderId, namespace, key, value) => {
   `;
 };
 
+// Build GraphQL mutation for adding a tag to an order
+const buildOrderTagsAddMutation = (orderId, tag) => {
+  const escapeGraphQLString = (str) => {
+    return String(str)
+      .replace(/\\/g, '\\\\')
+      .replace(/"/g, '\\"')
+      .replace(/\n/g, '\\n')
+      .replace(/\r/g, '\\r')
+      .replace(/\t/g, '\\t');
+  };
+
+  const escapedTag = escapeGraphQLString(tag);
+
+  return `
+    mutation {
+      tagsAdd(id: "${orderId}", tags: ["${escapedTag}"]) {
+        node {
+          id
+        }
+        userErrors {
+          field
+          message
+        }
+      }
+    }
+  `;
+};
+
+// Build GraphQL mutation for removing tags from an order
+const buildOrderTagsRemoveMutation = (orderId, tags) => {
+  const escapeGraphQLString = (str) => {
+    return String(str)
+      .replace(/\\/g, '\\\\')
+      .replace(/"/g, '\\"')
+      .replace(/\n/g, '\\n')
+      .replace(/\r/g, '\\r')
+      .replace(/\t/g, '\\t');
+  };
+
+  const escapedTags = tags.map(t => `"${escapeGraphQLString(t)}"`).join(', ');
+
+  return `
+    mutation {
+      tagsRemove(id: "${orderId}", tags: [${escapedTags}]) {
+        node {
+          id
+        }
+        userErrors {
+          field
+          message
+        }
+      }
+    }
+  `;
+};
+
 // Helper function to update a single order's metafield
 const updateOrderMetafield = async ({ shopDomain, accessToken, apiVersion, orderId, referenceNumber, namespace = 'custom', key = 'reference_number' }) => {
   const endpoint = `https://${shopDomain}/admin/api/${apiVersion}/graphql.json`;
@@ -2128,6 +2184,78 @@ const updateOrderMetafield = async ({ shopDomain, accessToken, apiVersion, order
   } catch (err) {
     const status = err?.response?.status || err.status || 500;
     const message = (err?.response?.data && (err.response.data.errors || err.response.data.error)) 
+      || err.message || 'Request failed';
+    const error = new Error(typeof message === 'string' ? message : JSON.stringify(message));
+    error.status = status;
+    throw error;
+  }
+};
+
+// Helper function to replace a single "status" tag on an order
+// It first removes old status tags, then adds the new tag.
+const updateOrderTags = async ({ shopDomain, accessToken, apiVersion, orderId, tag, removeTags = [] }) => {
+  const endpoint = `https://${shopDomain}/admin/api/${apiVersion}/graphql.json`;
+  const headers = {
+    'X-Shopify-Access-Token': accessToken,
+    'Content-Type': 'application/json'
+  };
+
+  const normalizedOrderId = normalizeOrderId(orderId);
+
+  try {
+    // 1) Remove old status tags if any
+    if (removeTags && removeTags.length > 0) {
+      const mutationRemove = buildOrderTagsRemoveMutation(normalizedOrderId, removeTags);
+      const respRemove = await axios.post(endpoint, { query: mutationRemove, variables: {} }, { headers });
+
+      if (respRemove.data.errors) {
+        const message = Array.isArray(respRemove.data.errors)
+          ? respRemove.data.errors.map(e => e.message).join('; ')
+          : 'Unknown GraphQL error';
+        const error = new Error(message);
+        error.status = 502;
+        throw error;
+      }
+
+      const removeData = respRemove.data.data?.tagsRemove;
+      if (removeData?.userErrors && removeData.userErrors.length > 0) {
+        const errorMessages = removeData.userErrors.map(e => `${e.field}: ${e.message}`).join('; ');
+        const error = new Error(errorMessages);
+        error.status = 400;
+        throw error;
+      }
+    }
+
+    // 2) Add the new tag
+    const mutationAdd = buildOrderTagsAddMutation(normalizedOrderId, tag);
+    const respAdd = await axios.post(endpoint, { query: mutationAdd, variables: {} }, { headers });
+
+    if (respAdd.data.errors) {
+      const message = Array.isArray(respAdd.data.errors)
+        ? respAdd.data.errors.map(e => e.message).join('; ')
+        : 'Unknown GraphQL error';
+      const error = new Error(message);
+      error.status = 502;
+      throw error;
+    }
+
+    const tagsData = respAdd.data.data?.tagsAdd;
+    if (tagsData?.userErrors && tagsData.userErrors.length > 0) {
+      const errorMessages = tagsData.userErrors.map(e => `${e.field}: ${e.message}`).join('; ');
+      const error = new Error(errorMessages);
+      error.status = 400;
+      throw error;
+    }
+
+    return {
+      success: true,
+      orderId: normalizedOrderId,
+      tag,
+      removed: removeTags
+    };
+  } catch (err) {
+    const status = err?.response?.status || err.status || 500;
+    const message = (err?.response?.data && (err.response.data.errors || err.response.data.error))
       || err.message || 'Request failed';
     const error = new Error(typeof message === 'string' ? message : JSON.stringify(message));
     error.status = status;
@@ -2332,7 +2460,7 @@ const updateOrderFulfillmentStatus = async (req, res) => {
     const rawStatusLower = rawStatus.toLowerCase();
     let effectiveStatus = rawStatus;
 
-    // Custom mappings:
+    // Custom mappings for metafield:
     // - "in progress"  -> "In progress"
     // - "shipped"      -> "Fulfilled"
     if (rawStatusLower === 'in progress' || rawStatusLower === 'in_progress') {
@@ -2381,6 +2509,34 @@ const updateOrderFulfillmentStatus = async (req, res) => {
       key: metafieldKey
     });
     
+    // Update Shopify order tags so they show in the orders listing dashboard.
+    // Tag value rules:
+    // - "in progress" -> "In progress"
+    // - "shipped"     -> "shipped"
+    // - everything else -> same as effectiveStatus
+    let tagValue = effectiveStatus;
+    if (rawStatusLower === 'shipped') {
+      tagValue = 'shipped';
+    }
+
+    const statusTagsToRemove = [
+      'In progress',
+      'in progress',
+      'In Progress',
+      'shipped',
+      'Fulfilled',
+      'fulfilled'
+    ].filter(t => t.toLowerCase() !== String(tagValue).toLowerCase());
+
+    const tagUpdateResult = await updateOrderTags({
+      shopDomain,
+      accessToken,
+      apiVersion,
+      orderId: order.id,
+      tag: String(tagValue),
+      removeTags: statusTagsToRemove
+    });
+    
     // Optionally trigger a real Shopify fulfillment so that the native
     // fulfillment status in the Shopify admin UI/order list is updated.
     let fulfillmentResult = null;
@@ -2416,6 +2572,7 @@ const updateOrderFulfillmentStatus = async (req, res) => {
       orderId: result.orderId,
       status: String(effectiveStatus),
       metafield: result.metafield,
+      tag: tagUpdateResult,
       fulfillment: fulfillmentResult
     });
   } catch (err) {
