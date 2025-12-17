@@ -1556,6 +1556,7 @@ const buildOrderByNameQuery = (orderName) => {
 `;
 };
 const fetchOrderByName = async ({ shopDomain, accessToken, apiVersion, orderName }) => {
+  console.log("orderName====>>>>",orderName);
   const endpoint = `https://${shopDomain}/admin/api/${apiVersion}/graphql.json`;
   const headers = {
     'X-Shopify-Access-Token': accessToken,
@@ -1565,6 +1566,7 @@ const fetchOrderByName = async ({ shopDomain, accessToken, apiVersion, orderName
   let resp;
   try {
     resp = await axios.post(endpoint, { query, variables: {} }, { headers });
+    console.log("resp==========",resp.data);
     var shippingOptions = await finerworksService.SHIPPING_OPTIONS_LIST();
     console.log("shippingOptions=====>>>>",shippingOptions);
     
@@ -2255,7 +2257,7 @@ const updateOrderTags = async ({ shopDomain, accessToken, apiVersion, orderId, t
     };
   } catch (err) {
     const status = err?.response?.status || err.status || 500;
-    const message = (err?.response?.data && (err.response.data.errors || err.response.data.error))
+    const message = (err?.response?.data && (err.response.data.errors || err.response.data.error)) 
       || err.message || 'Request failed';
     const error = new Error(typeof message === 'string' ? message : JSON.stringify(message));
     error.status = status;
@@ -2450,7 +2452,24 @@ const updateOrderFulfillmentStatus = async (req, res) => {
       req.query?.orderName ||
       req.query?.name;
 
-    const statusValue = req.body?.status;
+    // Allow status and access token via query params as well (for webhook-style usage)
+    if (!accessToken) {
+      accessToken = req.query?.access_token || req.query?.token;
+    }
+    const selectOrderId = {
+      "order_ids": [
+        orderNumber
+      ],
+      "account_key": req.query?.account_key
+    }
+    console.log("selectOrderId=================>>>>>>>>>>>", selectOrderId);
+    const orderStatusData = await finerworksService.GET_ORDER_STATUS(
+      selectOrderId
+    );
+    console.log("orderStatusData=================>>>>>>>>>>>", orderStatusData);
+    
+    const statusValue = req.body?.status || req.query?.status || orderStatusData.orders[0].order_status_label;
+    console.log("statusValue========",statusValue);
     const namespace = req.body?.namespace || 'custom';
     const metafieldKey = req.body?.metafieldKey || 'fulfillment_status';
     const apiVersion = process.env.SHOPIFY_API_VERSION || '2025-10';
@@ -2489,8 +2508,10 @@ const updateOrderFulfillmentStatus = async (req, res) => {
       shopDomain,
       accessToken,
       apiVersion,
-      orderName: orderNumber
+      orderName: orderStatusData.orders[0].order_po.replace(/\D/g, '')
+      // orderName: '1015'
     });
+    console.log("order=======>>>>",order);
 
     if (!order || !order.id) {
       return res.status(404).json({
