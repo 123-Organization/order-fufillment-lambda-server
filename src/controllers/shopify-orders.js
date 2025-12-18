@@ -16,6 +16,394 @@ const normalizeShopDomain = (shopInput) => {
   return shopDomain;
 };
 
+// Reusable GraphQL mutation for creating a Shopify product
+// NOTE: media is provided as a separate argument, NOT inside ProductInput.
+const PRODUCT_CREATE_MUTATION = `
+  mutation productCreate($input: ProductInput!, $media: [CreateMediaInput!]) {
+    productCreate(input: $input, media: $media) {
+      product {
+        id
+        title
+        handle
+        status
+        media(first: 5) {
+          nodes {
+            ... on MediaImage {
+              id
+              image {
+                url
+                altText
+              }
+            }
+          }
+        }
+        variants(first: 1) {
+          nodes {
+            id
+            inventoryItem {
+              id
+            }
+          }
+        }
+      }
+      userErrors {
+        field
+        message
+      }
+    }
+  }
+`;
+
+// Map incoming inventory product to Shopify ProductInput
+const mapInventoryProductToShopifyInput = (product) => {
+  const labels = Array.isArray(product?.labels) ? product.labels : [];
+
+  const findLabelValue = (key) => {
+    const entry = labels.find(l => String(l.key).toLowerCase() === String(key).toLowerCase());
+    return entry ? entry.value : null;
+  };
+
+  const title = product?.name || findLabelValue('title') || product?.sku || product?.product_code || 'Untitled Product';
+  const descriptionHtml = product?.description_long || product?.description_short || '';
+  const productType = findLabelValue('type') || null;
+
+  const tags = labels.map(l => `${l.key}: ${l.value}`);
+
+  // NOTE:
+  // New Shopify Product APIs (2024-04+) no longer allow variants/images/media
+  // on ProductInput. We create a basic product here, then attach media and
+  // inventory separately.
+  const input = {
+    title,
+    descriptionHtml,
+    status: 'ACTIVE',
+    tags: tags.length ? tags : undefined,
+    productType: productType || undefined
+  };
+
+  // Remove undefined fields to keep the payload clean
+  Object.keys(input).forEach((key) => {
+    if (input[key] === undefined || input[key] === null) {
+      delete input[key];
+    }
+  });
+
+  return input;
+};
+
+// Low-level helper to call Shopify productCreate
+const createShopifyProduct = async ({ shopDomain, accessToken, apiVersion, product }) => {
+  const endpoint = `https://${shopDomain}/admin/api/${apiVersion}/graphql.json`;
+  const headers = {
+    'X-Shopify-Access-Token': accessToken,
+    'Content-Type': 'application/json'
+  };
+
+  const input = mapInventoryProductToShopifyInput(product);
+
+  // Build media array from product image URLs (if any)
+  const media = [];
+  if (product?.image_url_1) {
+    media.push({
+      alt: product?.name || product?.sku || null,
+      mediaContentType: 'IMAGE',
+      originalSource: product.image_url_1
+    });
+  }
+
+  let resp;
+  try {
+    resp = await axios.post(
+      endpoint,
+      {
+        query: PRODUCT_CREATE_MUTATION,
+        variables: {
+          input,
+          // If no media, pass null so GraphQL can accept optional variable
+          media: media.length ? media : null
+        }
+      },
+      { headers }
+    );
+  } catch (err) {
+    const status = err?.response?.status || 500;
+    const message =
+      (err?.response?.data && (err.response.data.errors || err.response.data.error)) ||
+      err.message ||
+      'Request failed';
+    const error = new Error(typeof message === 'string' ? message : JSON.stringify(message));
+    error.status = status;
+    throw error;
+  }
+
+  if (resp.data.errors) {
+    const message = Array.isArray(resp.data.errors)
+      ? resp.data.errors.map(e => e.message).join('; ')
+      : 'Unknown GraphQL error';
+    const error = new Error(message);
+    error.status = 502;
+    throw error;
+  }
+
+  const createPayload = resp.data?.data?.productCreate;
+  if (!createPayload) {
+    const error = new Error('Invalid Shopify response for productCreate');
+    error.status = 502;
+    throw error;
+  }
+
+  if (Array.isArray(createPayload.userErrors) && createPayload.userErrors.length > 0) {
+    const message = createPayload.userErrors
+      .map(e => `${e.field ? e.field.join('.') : 'error'}: ${e.message}`)
+      .join('; ');
+    const error = new Error(message);
+    error.status = 400;
+    throw error;
+  }
+
+  return createPayload.product;
+};
+
+// (Image media is now attached via the productCreate media argument; no separate mutation needed here.)
+
+// Query to get a primary location for inventory updates
+const LOCATIONS_QUERY = `
+{
+  locations(first: 1) {
+    edges {
+      node {
+        id
+        name
+      }
+    }
+  }
+}
+`;
+
+const fetchPrimaryLocation = async ({ shopDomain, accessToken, apiVersion }) => {
+  const endpoint = `https://${shopDomain}/admin/api/${apiVersion}/graphql.json`;
+  const headers = {
+    'X-Shopify-Access-Token': accessToken,
+    'Content-Type': 'application/json'
+  };
+
+  try {
+    const resp = await axios.post(
+      endpoint,
+      {
+        query: LOCATIONS_QUERY,
+        variables: {}
+      },
+      { headers }
+    );
+
+    if (resp.data.errors) {
+      const message = Array.isArray(resp.data.errors)
+        ? resp.data.errors.map(e => e.message).join('; ')
+        : 'Unknown GraphQL error';
+      const error = new Error(message);
+      error.status = 502;
+      throw error;
+    }
+
+    const edges = resp.data?.data?.locations?.edges || [];
+    if (!edges.length) {
+      return null;
+    }
+
+    return edges[0].node.id;
+  } catch (err) {
+    const status = err?.response?.status || 500;
+    const message =
+      (err?.response?.data && (err.response.data.errors || err.response.data.error)) ||
+      err.message ||
+      'Request failed';
+    const error = new Error(typeof message === 'string' ? message : JSON.stringify(message));
+    error.status = status;
+    throw error;
+  }
+};
+
+// Mutation to set inventory quantity using the newer InventorySetQuantities API
+const INVENTORY_SET_QUANTITIES_MUTATION = `
+  mutation inventorySetQuantities($input: InventorySetQuantitiesInput!) {
+    inventorySetQuantities(input: $input) {
+      inventoryAdjustmentGroup {
+        id
+      }
+      userErrors {
+        field
+        message
+      }
+    }
+  }
+`;
+
+const setInventoryQuantity = async ({ shopDomain, accessToken, apiVersion, inventoryItemId, locationId, quantity }) => {
+  const endpoint = `https://${shopDomain}/admin/api/${apiVersion}/graphql.json`;
+  const headers = {
+    'X-Shopify-Access-Token': accessToken,
+    'Content-Type': 'application/json'
+  };
+
+  const variables = {
+    input: {
+      locationId,
+      inventoryItemAdjustments: [
+        {
+          inventoryItemId,
+          availableQuantity: quantity
+        }
+      ]
+    }
+  };
+
+  try {
+    const resp = await axios.post(
+      endpoint,
+      {
+        query: INVENTORY_SET_QUANTITIES_MUTATION,
+        variables
+      },
+      { headers }
+    );
+
+    if (resp.data.errors) {
+      const message = Array.isArray(resp.data.errors)
+        ? resp.data.errors.map(e => e.message).join('; ')
+        : 'Unknown GraphQL error';
+      const error = new Error(message);
+      error.status = 502;
+      throw error;
+    }
+
+    const adjustPayload = resp.data?.data?.inventorySetQuantities;
+    if (!adjustPayload) {
+      const error = new Error('Invalid Shopify response for inventorySetQuantities');
+      error.status = 502;
+      throw error;
+    }
+
+    if (Array.isArray(adjustPayload.userErrors) && adjustPayload.userErrors.length > 0) {
+      const message = adjustPayload.userErrors
+        .map(e => `${e.field ? e.field.join('.') : 'error'}: ${e.message}`)
+        .join('; ');
+      const error = new Error(message);
+      error.status = 400;
+      throw error;
+    }
+
+    return adjustPayload.inventoryAdjustmentGroup;
+  } catch (err) {
+    const status = err?.response?.status || 500;
+    const message =
+      (err?.response?.data && (err.response.data.errors || err.response.data.error)) ||
+      err.message ||
+      'Request failed';
+    const error = new Error(typeof message === 'string' ? message : JSON.stringify(message));
+    error.status = status;
+    throw error;
+  }
+};
+
+// Mutation to create variants in bulk for a product (used here to set SKU/price)
+// NOTE: With the new Product APIs, we replace the standalone default variant
+// created by productCreate using strategy: REMOVE_STANDALONE_VARIANT.
+const PRODUCT_VARIANTS_BULK_CREATE_MUTATION = `
+  mutation productVariantsBulkCreate($productId: ID!, $variants: [ProductVariantsBulkInput!]!, $strategy: ProductVariantsBulkCreateStrategy!) {
+    productVariantsBulkCreate(productId: $productId, variants: $variants, strategy: $strategy) {
+      productVariants {
+        id
+        sku
+        price
+        inventoryItem {
+          id
+        }
+      }
+      userErrors {
+        field
+        message
+      }
+    }
+  }
+`;
+
+const createOrReplaceVariantFromPayload = async ({ shopDomain, accessToken, apiVersion, productId, sku, price }) => {
+  if (!productId) return null;
+
+  const endpoint = `https://${shopDomain}/admin/api/${apiVersion}/graphql.json`;
+  const headers = {
+    'X-Shopify-Access-Token': accessToken,
+    'Content-Type': 'application/json'
+  };
+
+  const variantInput = {};
+  if (price !== undefined && price !== null) {
+    variantInput.price = String(price);
+  }
+  if (sku) {
+    variantInput.inventoryItem = {
+      sku: String(sku)
+    };
+  }
+
+  // Nothing to create
+  if (!variantInput.price && !variantInput.inventoryItem) return null;
+
+  const variables = {
+    productId,
+    strategy: 'REMOVE_STANDALONE_VARIANT',
+    variants: [variantInput]
+  };
+
+  try {
+    const resp = await axios.post(
+      endpoint,
+      {
+        query: PRODUCT_VARIANTS_BULK_CREATE_MUTATION,
+        variables
+      },
+      { headers }
+    );
+
+    if (resp.data.errors) {
+      const message = Array.isArray(resp.data.errors)
+        ? resp.data.errors.map(e => e.message).join('; ')
+        : 'Unknown GraphQL error';
+      const error = new Error(message);
+      error.status = 502;
+      throw error;
+    }
+
+    const payload = resp.data?.data?.productVariantsBulkCreate;
+    if (!payload) {
+      const error = new Error('Invalid Shopify response for productVariantsBulkCreate');
+      error.status = 502;
+      throw error;
+    }
+
+    if (Array.isArray(payload.userErrors) && payload.userErrors.length > 0) {
+      const message = payload.userErrors
+        .map(e => `${e.field ? e.field.join('.') : 'error'}: ${e.message}`)
+        .join('; ');
+      const error = new Error(message);
+      error.status = 400;
+      throw error;
+    }
+
+    return payload.productVariants || [];
+  } catch (err) {
+    const status = err?.response?.status || 500;
+    const message =
+      (err?.response?.data && (err.response.data.errors || err.response.data.error)) ||
+      err.message ||
+      'Request failed';
+    const error = new Error(typeof message === 'string' ? message : JSON.stringify(message));
+    error.status = status;
+    throw error;
+  }
+};
+
 const normalizeOrderId = (orderId) => {
   if (!orderId) return null;
   // If it's already a GID, return as-is
@@ -2606,4 +2994,181 @@ const updateOrderFulfillmentStatus = async (req, res) => {
   }
 };
 
-module.exports = { getShopifyOrders, getShopifyOrderByName, fulfillShopifyOrder, updateOrderReferenceNumbers, updateOrderFulfillmentStatus };
+// Endpoint to create/sync products in Shopify using GraphQL Admin API.
+// Expects payload:
+// {
+//   "account_key": "...",          // currently unused here
+//   "productsList": [ { ... } ],   // array of products (see example in request)
+//   "storeName": "shop.myshopify.com",
+//   "access_token": "shpat_..."
+// }
+const syncShopifyProducts = async (req, res) => {
+  try {
+    let accessToken = req.body?.access_token || req.headers['x-shopify-access-token'];
+    const authHeader = req.headers?.authorization || req.headers?.Authorization;
+
+    if (!accessToken && authHeader && authHeader.startsWith('Bearer ')) {
+      accessToken = authHeader.slice(7).trim();
+    }
+
+    const storeName =
+      req.body?.storeName ||
+      req.body?.shop ||
+      req.body?.store ||
+      req.query?.storeName ||
+      req.query?.shop;
+
+    const products = Array.isArray(req.body?.productsList) ? req.body.productsList : [];
+    const apiVersion = process.env.SHOPIFY_API_VERSION || '2025-10';
+
+    if (!accessToken || !storeName) {
+      return res.status(400).json({
+        success: false,
+        message: 'Missing required parameters: accessToken and storeName'
+      });
+    }
+
+    if (!products.length) {
+      return res.status(400).json({
+        success: false,
+        message: 'productsList must be a non-empty array'
+      });
+    }
+
+    const shopDomain = normalizeShopDomain(storeName);
+    if (!shopDomain || !shopDomain.match(/^[a-z0-9][a-z0-9-]*\.myshopify\.com$/)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid storeName. Expected shopname or shopname.myshopify.com'
+      });
+    }
+
+    // Fetch primary location once for all inventory updates
+    let primaryLocationId = null;
+    try {
+      primaryLocationId = await fetchPrimaryLocation({ shopDomain, accessToken, apiVersion });
+    } catch (locErr) {
+      return res.status(locErr.status || 500).json({
+        success: false,
+        message: 'Failed to fetch Shopify locations for inventory',
+        error: locErr.message || 'Unknown error'
+      });
+    }
+
+    if (!primaryLocationId) {
+      return res.status(400).json({
+        success: false,
+        message: 'No Shopify locations found; cannot set inventory quantity'
+      });
+    }
+
+    const results = [];
+    let hasErrors = false;
+
+    for (let i = 0; i < products.length; i++) {
+      const product = products[i];
+      try {
+        const created = await createShopifyProduct({
+          shopDomain,
+          accessToken,
+          apiVersion,
+          product
+        });
+
+        const resultEntry = {
+          success: true,
+          index: i,
+          sku: product?.sku || null,
+          product_guid: product?.product_guid || null,
+          shopifyProduct: created
+        };
+
+        // Set default inventory quantity to 10 on the first variant (default variant)
+        // First: create/replace a real variant with SKU and price from payload
+        const variantPrice =
+          product?.price_details?.product_price ??
+          product?.per_item_price ??
+          product?.asking_price ??
+          product?.total_price ??
+          null;
+
+        let createdVariant = null;
+        try {
+          const variantsCreated = await createOrReplaceVariantFromPayload({
+            shopDomain,
+            accessToken,
+            apiVersion,
+            productId: created.id,
+            sku: product?.sku,
+            price: variantPrice
+          });
+          if (Array.isArray(variantsCreated) && variantsCreated.length > 0) {
+            createdVariant = variantsCreated[0];
+            resultEntry.createdVariant = createdVariant;
+          }
+        } catch (variantErr) {
+          hasErrors = true;
+          resultEntry.variantUpdateError = variantErr.message || 'Unknown variant update error';
+        }
+
+        const inventoryItemId = createdVariant?.inventoryItem?.id;
+
+        if (inventoryItemId && primaryLocationId) {
+          try {
+            const adjustResult = await setInventoryQuantity({
+              shopDomain,
+              accessToken,
+              apiVersion,
+              inventoryItemId,
+              locationId: primaryLocationId,
+              quantity: 10
+            });
+            resultEntry.inventoryAdjustmentGroup = adjustResult;
+          } catch (invErr) {
+            hasErrors = true;
+            resultEntry.inventoryError = invErr.message || 'Unknown inventory error';
+          }
+        }
+
+        results.push(resultEntry);
+      } catch (err) {
+        hasErrors = true;
+        results.push({
+          success: false,
+          index: i,
+          sku: product?.sku || null,
+          product_guid: product?.product_guid || null,
+          error: err.message || 'Unknown error'
+        });
+      }
+    }
+
+    const statusCode = hasErrors
+      ? (results.some(r => r.success) ? 207 : 400)
+      : 200;
+
+    return res.status(statusCode).json({
+      success: !hasErrors,
+      total: products.length,
+      succeeded: results.filter(r => r.success).length,
+      failed: results.filter(r => !r.success).length,
+      results
+    });
+  } catch (err) {
+    const status = err.status || 500;
+    return res.status(status).json({
+      success: false,
+      message: 'Failed to sync Shopify products',
+      error: err.message || 'Unknown error'
+    });
+  }
+};
+
+module.exports = {
+  getShopifyOrders,
+  getShopifyOrderByName,
+  fulfillShopifyOrder,
+  updateOrderReferenceNumbers,
+  updateOrderFulfillmentStatus,
+  syncShopifyProducts
+};
