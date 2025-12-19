@@ -166,10 +166,10 @@ const createShopifyProduct = async ({ shopDomain, accessToken, apiVersion, produ
 
 // (Image media is now attached via the productCreate media argument; no separate mutation needed here.)
 
-// Query to get a primary location for inventory updates
+// Query to get available locations (we'll choose a sensible default in code)
 const LOCATIONS_QUERY = `
 {
-  locations(first: 1) {
+  locations(first: 20) {
     edges {
       node {
         id
@@ -206,12 +206,250 @@ const fetchPrimaryLocation = async ({ shopDomain, accessToken, apiVersion }) => 
       throw error;
     }
 
-    const edges = resp.data?.data?.locations?.edges || [];
+    const data = resp.data?.data || {};
+    const edges = data.locations?.edges || [];
     if (!edges.length) {
       return null;
     }
 
-    return edges[0].node.id;
+    // Prefer a location whose name includes "shop location" (case-insensitive)
+    const shopLocationEdge = edges.find(
+      (e) => e?.node?.name && e.node.name.toLowerCase().includes('shop location')
+    );
+
+    const chosen = shopLocationEdge || edges[0];
+    return chosen.node.id;
+  } catch (err) {
+    const status = err?.response?.status || 500;
+    const message =
+      (err?.response?.data && (err.response.data.errors || err.response.data.error)) ||
+      err.message ||
+      'Request failed';
+    const error = new Error(typeof message === 'string' ? message : JSON.stringify(message));
+    error.status = status;
+    throw error;
+  }
+};
+
+// Query and mutation helpers to publish products to a sales channel (e.g., Online Store)
+// NOTE: Keep this query minimal to stay compatible with older API versions.
+const PUBLICATIONS_QUERY = `
+{
+  publications(first: 20) {
+    edges {
+      node {
+        id
+        name
+      }
+    }
+  }
+}
+`;
+
+const PUBLISHABLE_PUBLISH_MUTATION = `
+  mutation publishProduct($id: ID!, $input: [PublicationInput!]!) {
+    publishablePublish(id: $id, input: $input) {
+      publishable {
+        ... on Product {
+          id
+        }
+      }
+      userErrors {
+        field
+        message
+      }
+    }
+  }
+`;
+
+const fetchPrimaryPublication = async ({ shopDomain, accessToken, apiVersion }) => {
+  const endpoint = `https://${shopDomain}/admin/api/${apiVersion}/graphql.json`;
+  const headers = {
+    'X-Shopify-Access-Token': accessToken,
+    'Content-Type': 'application/json'
+  };
+
+  try {
+    const resp = await axios.post(
+      endpoint,
+      {
+        query: PUBLICATIONS_QUERY,
+        variables: {}
+      },
+      { headers }
+    );
+
+    if (resp.data.errors) {
+      const message = Array.isArray(resp.data.errors)
+        ? resp.data.errors.map(e => e.message).join('; ')
+        : 'Unknown GraphQL error';
+      const error = new Error(message);
+      error.status = 502;
+      throw error;
+    }
+
+    const edges = resp.data?.data?.publications?.edges || [];
+    if (!edges.length) return null;
+
+    // Prefer a publication whose name mentions "online store" (case-insensitive), otherwise first
+    const onlineStorePub = edges.find(
+      e =>
+        e?.node?.name &&
+        typeof e.node.name === 'string' &&
+        e.node.name.toLowerCase().includes('online store')
+    );
+
+    const chosen = onlineStorePub || edges[0];
+    return chosen.node.id;
+  } catch (err) {
+    const status = err?.response?.status || 500;
+    const message =
+      (err?.response?.data && (err.response.data.errors || err.response.data.error)) ||
+      err.message ||
+      'Request failed';
+    const error = new Error(typeof message === 'string' ? message : JSON.stringify(message));
+    error.status = status;
+    throw error;
+  }
+};
+
+const publishProductToPrimaryChannel = async ({ shopDomain, accessToken, apiVersion, productId }) => {
+  if (!productId) return null;
+
+  const endpoint = `https://${shopDomain}/admin/api/${apiVersion}/graphql.json`;
+  const headers = {
+    'X-Shopify-Access-Token': accessToken,
+    'Content-Type': 'application/json'
+  };
+
+  const publicationId = await fetchPrimaryPublication({ shopDomain, accessToken, apiVersion });
+  if (!publicationId) {
+    const error = new Error('No active publications found to publish product');
+    error.status = 400;
+    throw error;
+  }
+
+  const variables = {
+    id: productId,
+    input: [
+      {
+        publicationId
+        // publishDate: null // publish immediately
+      }
+    ]
+  };
+
+  try {
+    const resp = await axios.post(
+      endpoint,
+      {
+        query: PUBLISHABLE_PUBLISH_MUTATION,
+        variables
+      },
+      { headers }
+    );
+
+    if (resp.data.errors) {
+      const message = Array.isArray(resp.data.errors)
+        ? resp.data.errors.map(e => e.message).join('; ')
+        : 'Unknown GraphQL error';
+      const error = new Error(message);
+      error.status = 502;
+      throw error;
+    }
+
+    const payload = resp.data?.data?.publishablePublish;
+    if (!payload) {
+      const error = new Error('Invalid Shopify response for publishablePublish');
+      error.status = 502;
+      throw error;
+    }
+
+    if (Array.isArray(payload.userErrors) && payload.userErrors.length > 0) {
+      const message = payload.userErrors
+        .map(e => `${e.field ? e.field.join('.') : 'error'}: ${e.message}`)
+        .join('; ');
+      const error = new Error(message);
+      error.status = 400;
+      throw error;
+    }
+
+    return payload.publishable;
+  } catch (err) {
+    const status = err?.response?.status || 500;
+    const message =
+      (err?.response?.data && (err.response.data.errors || err.response.data.error)) ||
+      err.message ||
+      'Request failed';
+    const error = new Error(typeof message === 'string' ? message : JSON.stringify(message));
+    error.status = status;
+    throw error;
+  }
+};
+
+// Mutation to activate (stock) an inventory item at a location
+const INVENTORY_ACTIVATE_MUTATION = `
+  mutation inventoryActivate($inventoryItemId: ID!, $locationId: ID!) {
+    inventoryActivate(inventoryItemId: $inventoryItemId, locationId: $locationId) {
+      inventoryLevel {
+        id
+      }
+      userErrors {
+        field
+        message
+      }
+    }
+  }
+`;
+
+const ensureInventoryItemStockedAtLocation = async ({ shopDomain, accessToken, apiVersion, inventoryItemId, locationId }) => {
+  const endpoint = `https://${shopDomain}/admin/api/${apiVersion}/graphql.json`;
+  const headers = {
+    'X-Shopify-Access-Token': accessToken,
+    'Content-Type': 'application/json'
+  };
+
+  const variables = {
+    inventoryItemId,
+    locationId
+  };
+
+  try {
+    const resp = await axios.post(
+      endpoint,
+      {
+        query: INVENTORY_ACTIVATE_MUTATION,
+        variables
+      },
+      { headers }
+    );
+
+    if (resp.data.errors) {
+      const message = Array.isArray(resp.data.errors)
+        ? resp.data.errors.map(e => e.message).join('; ')
+        : 'Unknown GraphQL error';
+      const error = new Error(message);
+      error.status = 502;
+      throw error;
+    }
+
+    const payload = resp.data?.data?.inventoryActivate;
+    if (!payload) {
+      const error = new Error('Invalid Shopify response for inventoryActivate');
+      error.status = 502;
+      throw error;
+    }
+
+    if (Array.isArray(payload.userErrors) && payload.userErrors.length > 0) {
+      const message = payload.userErrors
+        .map(e => `${e.field ? e.field.join('.') : 'error'}: ${e.message}`)
+        .join('; ');
+      const error = new Error(message);
+      error.status = 400;
+      throw error;
+    }
+
+    return payload.inventoryLevel;
   } catch (err) {
     const status = err?.response?.status || 500;
     const message =
@@ -230,6 +468,14 @@ const INVENTORY_SET_QUANTITIES_MUTATION = `
     inventorySetQuantities(input: $input) {
       inventoryAdjustmentGroup {
         id
+        createdAt
+        changes {
+          quantityAfterChange
+          delta
+          item {
+            id
+          }
+        }
       }
       userErrors {
         field
@@ -248,11 +494,14 @@ const setInventoryQuantity = async ({ shopDomain, accessToken, apiVersion, inven
 
   const variables = {
     input: {
-      locationId,
-      inventoryItemAdjustments: [
+      name: 'available',
+      reason: 'correction',
+      ignoreCompareQuantity: true,
+      quantities: [
         {
           inventoryItemId,
-          availableQuantity: quantity
+          locationId,
+          quantity
         }
       ]
     }
@@ -3083,6 +3332,20 @@ const syncShopifyProducts = async (req, res) => {
           shopifyProduct: created
         };
 
+        // Ensure product is published to the primary sales channel (e.g., Online Store)
+        try {
+          const published = await publishProductToPrimaryChannel({
+            shopDomain,
+            accessToken,
+            apiVersion,
+            productId: created.id
+          });
+          resultEntry.published = published;
+        } catch (publishErr) {
+          hasErrors = true;
+          resultEntry.publishError = publishErr.message || 'Unknown publish error';
+        }
+
         // Set default inventory quantity to 10 on the first variant (default variant)
         // First: create/replace a real variant with SKU and price from payload
         const variantPrice =
@@ -3113,15 +3376,30 @@ const syncShopifyProducts = async (req, res) => {
 
         const inventoryItemId = createdVariant?.inventoryItem?.id;
 
+        // Use quantity_in_stock from payload when provided, otherwise default to 10
+        const quantityInStock = typeof product?.quantity_in_stock === 'number'
+          ? product.quantity_in_stock
+          : 10;
+
         if (inventoryItemId && primaryLocationId) {
           try {
+            // First ensure this inventory item is stocked at the primary location
+            await ensureInventoryItemStockedAtLocation({
+              shopDomain,
+              accessToken,
+              apiVersion,
+              inventoryItemId,
+              locationId: primaryLocationId
+            });
+
+            // Then set its available quantity
             const adjustResult = await setInventoryQuantity({
               shopDomain,
               accessToken,
               apiVersion,
               inventoryItemId,
               locationId: primaryLocationId,
-              quantity: 10
+              quantity: quantityInStock
             });
             resultEntry.inventoryAdjustmentGroup = adjustResult;
           } catch (invErr) {

@@ -454,6 +454,18 @@ Resources:
             RestApiId: !Ref MyApiGateway
             Method: POST
             Path: "/api/shopify/update-order-reference-numbers"  
+        exportProductToShopify:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Method: POST
+            Path: "/api/shopify/sync-products" 
+        webHookapiOrderUpdateStatus:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Method: POST
+            Path: "/api/shopify/update-fulfillment-status" 
         HealthCheck:
           Type: Api
           Properties:
