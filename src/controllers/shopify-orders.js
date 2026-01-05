@@ -3408,6 +3408,72 @@ const syncShopifyProducts = async (req, res) => {
           }
         }
 
+        // After successfully creating the product/variant and adjusting inventory,
+        // update the FinerWorks virtual inventory with the new Shopify IDs.
+        try {
+          const accountKey =
+            req.body?.account_key ||
+            req.body?.accountKey ||
+            req.body?.accountkey ||
+            null;
+
+          // Extract numeric IDs from Shopify GIDs when possible, fallback to the raw GID.
+          const shopifyProductGid = created?.id || null;
+          const shopifyProductNumericId = shopifyProductGid
+            ? shopifyProductGid.split('/').pop()
+            : null;
+
+          const shopifyVariantGid = createdVariant?.id || null;
+          const shopifyVariantNumericId = shopifyVariantGid
+            ? shopifyVariantGid.split('/').pop()
+            : null;
+
+          const finalPayload = {
+            virtual_inventory: [
+              {
+                sku: product?.sku,
+                asking_price:
+                  product?.asking_price ??
+                  product?.per_item_price ??
+                  product?.price_details?.product_price ??
+                  product?.total_price ??
+                  0,
+                name: product?.name || 'Untitled',
+                description:
+                  product?.description_long ||
+                  product?.description_short ||
+                  '',
+                quantity_in_stock:
+                  typeof product?.quantity_in_stock === 'number'
+                    ? product.quantity_in_stock
+                    : typeof product?.quantity === 'number'
+                    ? product.quantity
+                    : 0,
+                track_inventory: true,
+                third_party_integrations: {
+                  ...(product?.third_party_integrations || {}),
+                  // shopify_product_id:
+                  //   shopifyProductNumericId || shopifyProductGid || null,
+                  shopify_graphql_product_id:
+                    shopifyVariantNumericId || shopifyVariantGid || null
+                }
+              }
+            ],
+            account_key: accountKey
+          };
+          console.log("finalPayload==============",finalPayload);
+
+          const virtualInventoryUpdate =
+            await finerworksService.UPDATE_VIRTUAL_INVENTORY(finalPayload);
+
+          resultEntry.virtualInventoryUpdate = virtualInventoryUpdate;
+          resultEntry.virtualInventoryPayload = finalPayload;
+        } catch (fwErr) {
+          hasErrors = true;
+          resultEntry.virtualInventoryUpdateError =
+            fwErr.message || 'Unknown virtual inventory update error';
+        }
+
         results.push(resultEntry);
       } catch (err) {
         hasErrors = true;
