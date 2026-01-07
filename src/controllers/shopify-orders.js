@@ -724,7 +724,7 @@ const normalizeOrderId = (orderId) => {
 
 //         }
 //          shippingAddress {
-         
+
 //           city
 //           province
 //           country
@@ -1450,17 +1450,17 @@ const getShopifyOrders = async (req, res) => {
 
     orders.forEach(order => {
       order.shippingLines.edges.forEach(edge => {
-        if(edge.node.title === 'Standard') {
+        if (edge.node.title === 'Standard') {
           shippingOptions.shipping_options.forEach(option => {
-            if(option.shipping_method === 'Standard - Parcel') {
-              edge.node.code=option.id;
+            if (option.shipping_method === 'Standard - Parcel') {
+              edge.node.code = option.id;
             }
           });
         }
-        if(edge.node.title === 'Economy') {
+        if (edge.node.title === 'Economy') {
           shippingOptions.shipping_options.forEach(option => {
-            if(option.shipping_method === 'Economy') {
-              edge.node.code=option.id;
+            if (option.shipping_method === 'Economy') {
+              edge.node.code = option.id;
             }
           });
         }
@@ -1672,7 +1672,7 @@ const getShopifyOrders = async (req, res) => {
 //         currencyCode
 //         displayFinancialStatus
 //         displayFulfillmentStatus
-        
+
 //         # Customer Details
 //         customer { 
 //           id
@@ -1716,7 +1716,7 @@ const getShopifyOrders = async (req, res) => {
 //             name
 //           }
 //         }
-        
+
 //         # Shipping Address Details
 //         shippingAddress {
 //           name
@@ -1736,7 +1736,7 @@ const getShopifyOrders = async (req, res) => {
 //           zip
 //           phone
 //         }
-        
+
 //         # Billing Address
 //         billingAddress {
 //           name
@@ -1754,7 +1754,7 @@ const getShopifyOrders = async (req, res) => {
 //           zip
 //           phone
 //         }
-        
+
 //         fulfillments {
 //           id
 //           status
@@ -1767,7 +1767,7 @@ const getShopifyOrders = async (req, res) => {
 //           }
 //           estimatedDeliveryAt
 //         }
-        
+
 //         shippingLines(first: 10) {
 //           edges {
 //             node {
@@ -1793,7 +1793,7 @@ const getShopifyOrders = async (req, res) => {
 //             }
 //           }
 //         }
-        
+
 //         lineItems(first: 100) {
 //           edges {
 //             node {
@@ -2193,7 +2193,7 @@ const buildOrderByNameQuery = (orderName) => {
 `;
 };
 const fetchOrderByName = async ({ shopDomain, accessToken, apiVersion, orderName }) => {
-  console.log("orderName====>>>>",orderName);
+  console.log("orderName====>>>>", orderName);
   const endpoint = `https://${shopDomain}/admin/api/${apiVersion}/graphql.json`;
   const headers = {
     'X-Shopify-Access-Token': accessToken,
@@ -2203,10 +2203,10 @@ const fetchOrderByName = async ({ shopDomain, accessToken, apiVersion, orderName
   let resp;
   try {
     resp = await axios.post(endpoint, { query, variables: {} }, { headers });
-    console.log("resp==========",resp.data);
+    console.log("resp==========", resp.data);
     var shippingOptions = await finerworksService.SHIPPING_OPTIONS_LIST();
-    console.log("shippingOptions=====>>>>",shippingOptions);
-    
+    console.log("shippingOptions=====>>>>", shippingOptions);
+
   } catch (err) {
     const status = err?.response?.status || 500;
     const message = (err?.response?.data && (err.response.data.errors || err.response.data.error)) || err.message || 'Request failed';
@@ -2222,24 +2222,24 @@ const fetchOrderByName = async ({ shopDomain, accessToken, apiVersion, orderName
   }
   const edges = resp?.data?.data?.orders?.edges || [];
   const node = edges.length > 0 ? edges[0].node : null;
-  console.log("node=====",node.shippingLines);
+  console.log("node=====", node.shippingLines);
   node.shippingLines.edges.forEach(edge => {
-    console.log("edge=====",edge.node.title);
-    if(edge.node.title === 'Standard') {
+    console.log("edge=====", edge.node.title);
+    if (edge.node.title === 'Standard') {
       shippingOptions.shipping_options.forEach(option => {
-        if(option.shipping_method === 'Standard - Parcel') {
-          edge.node.code=option.id;
+        if (option.shipping_method === 'Standard - Parcel') {
+          edge.node.code = option.id;
         }
       });
-    }else if(edge.node.title === 'Economy') {
+    } else if (edge.node.title === 'Economy') {
       shippingOptions.shipping_options.forEach(option => {
-        if(option.shipping_method === 'Economy') {
-          edge.node.code=option.id;
+        if (option.shipping_method === 'Economy') {
+          edge.node.code = option.id;
         }
       });
     }
   });
-  
+
   return node;
 };
 
@@ -2277,9 +2277,9 @@ const buildFulfillmentMutation = (fulfillmentOrderId, lineItems, trackingInfo) =
   // Build line items for fulfillment
   const fulfillmentLineItems = lineItems && lineItems.length > 0
     ? lineItems.map(item => ({
-        id: item.lineItemId,
-        quantity: item.quantity || null
-      }))
+      id: item.lineItemId,
+      quantity: item.quantity || null
+    }))
     : null;
 
   // Build tracking info if provided
@@ -2293,12 +2293,12 @@ const buildFulfillmentMutation = (fulfillmentOrderId, lineItems, trackingInfo) =
   let lineItemsInput;
   if (fulfillmentLineItems && fulfillmentLineItems.length > 0) {
     const lineItemsStr = fulfillmentLineItems.map(item => {
-      const quantityStr = item.quantity !== null && item.quantity !== undefined 
-        ? item.quantity.toString() 
+      const quantityStr = item.quantity !== null && item.quantity !== undefined
+        ? item.quantity.toString()
         : 'null';
       return `{ id: "${item.id}", quantity: ${quantityStr} }`;
     }).join(', ');
-    
+
     lineItemsInput = `lineItemsByFulfillmentOrder: [{
         fulfillmentOrderId: "${fulfillmentOrderId}",
         fulfillmentOrderLineItems: [${lineItemsStr}]
@@ -2315,7 +2315,7 @@ const buildFulfillmentMutation = (fulfillmentOrderId, lineItems, trackingInfo) =
     if (trackingInput.number) trackingParts.push(`number: "${trackingInput.number}"`);
     if (trackingInput.url) trackingParts.push(`url: "${trackingInput.url}"`);
     if (trackingInput.company) trackingParts.push(`company: "${trackingInput.company}"`);
-    
+
     if (trackingParts.length > 0) {
       trackingInputStr = `, trackingInfo: { ${trackingParts.join(', ')} }`;
     }
@@ -2389,23 +2389,23 @@ const fetchFulfillmentOrders = async ({ shopDomain, accessToken, apiVersion, ord
     'Content-Type': 'application/json'
   };
   const query = getFulfillmentOrdersQuery(orderId);
-  
+
   try {
     const resp = await axios.post(endpoint, { query, variables: {} }, { headers });
-    
+
     if (resp.data.errors) {
-      const message = Array.isArray(resp.data.errors) 
-        ? resp.data.errors.map(e => e.message).join('; ') 
+      const message = Array.isArray(resp.data.errors)
+        ? resp.data.errors.map(e => e.message).join('; ')
         : 'Unknown GraphQL error';
       const error = new Error(message);
       error.status = 502;
       throw error;
     }
-    
+
     return resp.data.data?.order;
   } catch (err) {
     const status = err?.response?.status || err.status || 500;
-    const message = (err?.response?.data && (err.response.data.errors || err.response.data.error)) 
+    const message = (err?.response?.data && (err.response.data.errors || err.response.data.error))
       || err.message || 'Request failed';
     const error = new Error(typeof message === 'string' ? message : JSON.stringify(message));
     error.status = status;
@@ -2419,34 +2419,34 @@ const createFulfillment = async ({ shopDomain, accessToken, apiVersion, fulfillm
     'X-Shopify-Access-Token': accessToken,
     'Content-Type': 'application/json'
   };
-  
+
   const mutation = buildFulfillmentMutation(fulfillmentOrderId, lineItems, trackingInfo);
-  
+
   try {
     const resp = await axios.post(endpoint, { query: mutation, variables: {} }, { headers });
-    
+
     if (resp.data.errors) {
-      const message = Array.isArray(resp.data.errors) 
-        ? resp.data.errors.map(e => e.message).join('; ') 
+      const message = Array.isArray(resp.data.errors)
+        ? resp.data.errors.map(e => e.message).join('; ')
         : 'Unknown GraphQL error';
       const error = new Error(message);
       error.status = 502;
       throw error;
     }
-    
+
     const fulfillmentData = resp.data.data?.fulfillmentCreateV2;
-    
+
     if (fulfillmentData?.userErrors && fulfillmentData.userErrors.length > 0) {
       const errorMessages = fulfillmentData.userErrors.map(e => `${e.field}: ${e.message}`).join('; ');
       const error = new Error(errorMessages);
       error.status = 400;
       throw error;
     }
-    
+
     return fulfillmentData?.fulfillment;
   } catch (err) {
     const status = err?.response?.status || err.status || 500;
-    const message = (err?.response?.data && (err.response.data.errors || err.response.data.error)) 
+    const message = (err?.response?.data && (err.response.data.errors || err.response.data.error))
       || err.message || 'Request failed';
     const error = new Error(typeof message === 'string' ? message : JSON.stringify(message));
     error.status = status;
@@ -2466,7 +2466,7 @@ const processSingleOrderFulfillment = async ({ orderData, shopDomain, accessToke
   }
 
   let shopifyOrderId = orderId;
-  
+
   // If orderName is provided instead of orderId, fetch the order first
   if (orderName && !orderId) {
     const order = await fetchOrderByName({ shopDomain, accessToken, apiVersion, orderName });
@@ -2480,11 +2480,11 @@ const processSingleOrderFulfillment = async ({ orderData, shopDomain, accessToke
   shopifyOrderId = normalizeOrderId(shopifyOrderId);
 
   // Get fulfillment orders for the order
-  const orderFulfillmentData = await fetchFulfillmentOrders({ 
-    shopDomain, 
-    accessToken, 
-    apiVersion, 
-    orderId: shopifyOrderId 
+  const orderFulfillmentData = await fetchFulfillmentOrders({
+    shopDomain,
+    accessToken,
+    apiVersion,
+    orderId: shopifyOrderId
   });
 
   if (!orderFulfillmentData || !orderFulfillmentData.fulfillmentOrders || orderFulfillmentData.fulfillmentOrders.edges.length === 0) {
@@ -2502,10 +2502,10 @@ const processSingleOrderFulfillment = async ({ orderData, shopDomain, accessToke
     fulfillmentLineItems = lineItems.map(item => {
       // Find matching fulfillment order line item
       const fulfillmentLineItem = fulfillmentOrder.lineItems.edges.find(
-        edge => edge.node.lineItem.id === item.lineItemId || 
-                edge.node.lineItem.sku === item.sku
+        edge => edge.node.lineItem.id === item.lineItemId ||
+          edge.node.lineItem.sku === item.sku
       );
-      
+
       if (!fulfillmentLineItem) {
         throw new Error(`Line item not found: ${item.lineItemId || item.sku}`);
       }
@@ -2523,7 +2523,7 @@ const processSingleOrderFulfillment = async ({ orderData, shopDomain, accessToke
         lineItemId: edge.node.id,
         quantity: edge.node.remainingQuantity // Use full remaining quantity
       }));
-    
+
     // Check if there are any items to fulfill
     if (fulfillmentLineItems.length === 0) {
       throw new Error('No items available to fulfill. All items may already be fulfilled.');
@@ -2555,21 +2555,21 @@ const fulfillShopifyOrder = async (req, res) => {
   try {
     let accessToken = req.body?.access_token || req.headers['x-shopify-access-token'];
     const authHeader = req.headers?.authorization || req.headers?.Authorization;
-    
+
     if (!accessToken && authHeader && authHeader.startsWith('Bearer ')) {
       accessToken = authHeader.slice(7).trim();
     }
-    
+
     // Detect if request body is an array or single object
     const isArrayRequest = Array.isArray(req.body);
     const ordersToProcess = isArrayRequest ? req.body : [req.body];
-    
+
     const apiVersion = process.env.SHOPIFY_API_VERSION || '2025-10';
 
     // For single order requests, validate required parameters upfront
     if (!isArrayRequest) {
       const storeName = req.body?.storeName || req.body?.shop || req.body?.store || req.query?.storeName || req.query?.shop;
-      
+
       if (!accessToken || !storeName) {
         return res.status(400).json({
           success: false,
@@ -2592,12 +2592,12 @@ const fulfillShopifyOrder = async (req, res) => {
 
     for (let i = 0; i < ordersToProcess.length; i++) {
       const orderData = ordersToProcess[i];
-      
+
       // For array requests, each order can have its own storeName and accessToken
       // If not provided, use the common ones from headers/query
       const orderAccessToken = orderData?.access_token || accessToken;
       const orderStoreName = orderData?.storeName || orderData?.shop || orderData?.store || req.query?.storeName || req.query?.shop;
-      
+
       // Validate required parameters for this order
       if (!orderAccessToken) {
         results.push({
@@ -2608,7 +2608,7 @@ const fulfillShopifyOrder = async (req, res) => {
         hasErrors = true;
         continue;
       }
-      
+
       if (!orderStoreName) {
         results.push({
           success: false,
@@ -2618,9 +2618,9 @@ const fulfillShopifyOrder = async (req, res) => {
         hasErrors = true;
         continue;
       }
-      
+
       const orderShopDomain = normalizeShopDomain(orderStoreName);
-      
+
       if (!orderShopDomain || !orderShopDomain.match(/^[a-z0-9][a-z0-9-]*\.myshopify\.com$/)) {
         results.push({
           success: false,
@@ -2658,8 +2658,8 @@ const fulfillShopifyOrder = async (req, res) => {
       const statusCode = hasErrors ? (results.some(r => r.success) ? 207 : 400) : 200; // 207 Multi-Status if mixed results
       return res.status(statusCode).json({
         success: !hasErrors,
-        message: hasErrors 
-          ? 'Some orders failed to fulfill' 
+        message: hasErrors
+          ? 'Some orders failed to fulfill'
           : 'All orders fulfilled successfully',
         results,
         total: ordersToProcess.length,
@@ -2700,7 +2700,7 @@ const buildMetafieldSetMutation = (orderId, namespace, key, value) => {
       .replace(/\r/g, '\\r')
       .replace(/\t/g, '\\t');
   };
-  
+
   return `
     mutation {
       metafieldsSet(metafields: [{
@@ -2788,33 +2788,33 @@ const updateOrderMetafield = async ({ shopDomain, accessToken, apiVersion, order
     'X-Shopify-Access-Token': accessToken,
     'Content-Type': 'application/json'
   };
-  
+
   // Normalize order ID to GID format
   const normalizedOrderId = normalizeOrderId(orderId);
-  
+
   const mutation = buildMetafieldSetMutation(normalizedOrderId, namespace, key, referenceNumber);
-  
+
   try {
     const resp = await axios.post(endpoint, { query: mutation, variables: {} }, { headers });
-    
+
     if (resp.data.errors) {
-      const message = Array.isArray(resp.data.errors) 
-        ? resp.data.errors.map(e => e.message).join('; ') 
+      const message = Array.isArray(resp.data.errors)
+        ? resp.data.errors.map(e => e.message).join('; ')
         : 'Unknown GraphQL error';
       const error = new Error(message);
       error.status = 502;
       throw error;
     }
-    
+
     const metafieldData = resp.data.data?.metafieldsSet;
-    
+
     if (metafieldData?.userErrors && metafieldData.userErrors.length > 0) {
       const errorMessages = metafieldData.userErrors.map(e => `${e.field}: ${e.message}`).join('; ');
       const error = new Error(errorMessages);
       error.status = 400;
       throw error;
     }
-    
+
     return {
       success: true,
       orderId: normalizedOrderId,
@@ -2822,7 +2822,7 @@ const updateOrderMetafield = async ({ shopDomain, accessToken, apiVersion, order
     };
   } catch (err) {
     const status = err?.response?.status || err.status || 500;
-    const message = (err?.response?.data && (err.response.data.errors || err.response.data.error)) 
+    const message = (err?.response?.data && (err.response.data.errors || err.response.data.error))
       || err.message || 'Request failed';
     const error = new Error(typeof message === 'string' ? message : JSON.stringify(message));
     error.status = status;
@@ -2894,7 +2894,7 @@ const updateOrderTags = async ({ shopDomain, accessToken, apiVersion, orderId, t
     };
   } catch (err) {
     const status = err?.response?.status || err.status || 500;
-    const message = (err?.response?.data && (err.response.data.errors || err.response.data.error)) 
+    const message = (err?.response?.data && (err.response.data.errors || err.response.data.error))
       || err.message || 'Request failed';
     const error = new Error(typeof message === 'string' ? message : JSON.stringify(message));
     error.status = status;
@@ -2907,11 +2907,11 @@ const updateOrderReferenceNumbers = async (req, res) => {
   try {
     let accessToken = req.body?.access_token || req.headers['x-shopify-access-token'];
     const authHeader = req.headers?.authorization || req.headers?.Authorization;
-    
+
     if (!accessToken && authHeader && authHeader.startsWith('Bearer ')) {
       accessToken = authHeader.slice(7).trim();
     }
-    
+
     // Validate request body is an array
     if (!Array.isArray(req.body.orders)) {
       return res.status(400).json({
@@ -2919,27 +2919,27 @@ const updateOrderReferenceNumbers = async (req, res) => {
         message: 'Request body must contain an "orders" array'
       });
     }
-    
+
     const orders = req.body.orders;
     const storeName = req.body?.storeName || req.body?.shop || req.body?.store || req.query?.storeName || req.query?.shop;
     const namespace = req.body?.namespace || 'custom';
     const metafieldKey = req.body?.metafieldKey || 'reference_number';
     const apiVersion = process.env.SHOPIFY_API_VERSION || '2025-10';
-    
+
     if (!accessToken || !storeName) {
       return res.status(400).json({
         success: false,
         message: 'Missing required parameters: accessToken and storeName'
       });
     }
-    
+
     if (orders.length === 0) {
       return res.status(400).json({
         success: false,
         message: 'Orders array cannot be empty'
       });
     }
-    
+
     const shopDomain = normalizeShopDomain(storeName);
     if (!shopDomain || !shopDomain.match(/^[a-z0-9][a-z0-9-]*\.myshopify\.com$/)) {
       return res.status(400).json({
@@ -2947,17 +2947,17 @@ const updateOrderReferenceNumbers = async (req, res) => {
         message: 'Invalid storeName. Expected shopname or shopname.myshopify.com'
       });
     }
-    
+
     // Process all orders
     const results = [];
     let hasErrors = false;
-    
+
     for (let i = 0; i < orders.length; i++) {
       const order = orders[i];
       let orderId = order?.orderId || order?.order_id || order?.id;
       const orderName = order?.orderName || order?.order_name || order?.name;
       const referenceNumber = order?.referenceNumber || order?.reference_number || order?.reference;
-      
+
       // Validate required fields for each order
       if (!orderId && !orderName) {
         results.push({
@@ -2969,7 +2969,7 @@ const updateOrderReferenceNumbers = async (req, res) => {
         hasErrors = true;
         continue;
       }
-      
+
       if (!referenceNumber) {
         results.push({
           success: false,
@@ -2980,12 +2980,12 @@ const updateOrderReferenceNumbers = async (req, res) => {
         hasErrors = true;
         continue;
       }
-      
+
       // Allow per-order access token and store name override
       const orderAccessToken = order?.access_token || accessToken;
       const orderStoreName = order?.storeName || order?.shop || order?.store || storeName;
       const orderShopDomain = normalizeShopDomain(orderStoreName);
-      
+
       if (!orderShopDomain || !orderShopDomain.match(/^[a-z0-9][a-z0-9-]*\.myshopify\.com$/)) {
         results.push({
           success: false,
@@ -2996,22 +2996,22 @@ const updateOrderReferenceNumbers = async (req, res) => {
         hasErrors = true;
         continue;
       }
-      
+
       try {
         // If orderName is provided but not orderId, fetch the order first
         if (orderName && !orderId) {
-          const fetchedOrder = await fetchOrderByName({ 
-            shopDomain: orderShopDomain, 
-            accessToken: orderAccessToken, 
-            apiVersion, 
-            orderName 
+          const fetchedOrder = await fetchOrderByName({
+            shopDomain: orderShopDomain,
+            accessToken: orderAccessToken,
+            apiVersion,
+            orderName
           });
           if (!fetchedOrder) {
             throw new Error('Order not found');
           }
           orderId = fetchedOrder.id;
         }
-        
+
         const result = await updateOrderMetafield({
           shopDomain: orderShopDomain,
           accessToken: orderAccessToken,
@@ -3021,7 +3021,7 @@ const updateOrderReferenceNumbers = async (req, res) => {
           namespace: order?.namespace || namespace,
           key: order?.metafieldKey || order?.metafield_key || metafieldKey
         });
-        
+
         results.push({
           ...result,
           orderIndex: i,
@@ -3039,13 +3039,13 @@ const updateOrderReferenceNumbers = async (req, res) => {
         });
       }
     }
-    
+
     // Return results
     const statusCode = hasErrors ? (results.some(r => r.success) ? 207 : 400) : 200; // 207 Multi-Status if mixed results
     return res.status(statusCode).json({
       success: !hasErrors,
-      message: hasErrors 
-        ? 'Some orders failed to update' 
+      message: hasErrors
+        ? 'Some orders failed to update'
         : 'All orders updated successfully',
       results,
       total: orders.length,
@@ -3104,9 +3104,9 @@ const updateOrderFulfillmentStatus = async (req, res) => {
       selectOrderId
     );
     console.log("orderStatusData=================>>>>>>>>>>>", orderStatusData);
-    
+
     const statusValue = req.body?.status || req.query?.status || orderStatusData.orders[0].order_status_label;
-    console.log("statusValue========",statusValue);
+    console.log("statusValue========", statusValue);
     const namespace = req.body?.namespace || 'custom';
     const metafieldKey = req.body?.metafieldKey || 'fulfillment_status';
     const apiVersion = process.env.SHOPIFY_API_VERSION || '2025-10';
@@ -3148,7 +3148,7 @@ const updateOrderFulfillmentStatus = async (req, res) => {
       orderName: orderStatusData.orders[0].order_po.replace(/\D/g, '')
       // orderName: '1015'
     });
-    console.log("order=======>>>>",order);
+    console.log("order=======>>>>", order);
 
     if (!order || !order.id) {
       return res.status(404).json({
@@ -3166,7 +3166,7 @@ const updateOrderFulfillmentStatus = async (req, res) => {
       namespace,
       key: metafieldKey
     });
-    
+
     // Update Shopify order tags so they show in the orders listing dashboard.
     // Tag value rules:
     // - "in progress" -> "In progress"
@@ -3194,7 +3194,7 @@ const updateOrderFulfillmentStatus = async (req, res) => {
       tag: String(tagValue),
       removeTags: statusTagsToRemove
     });
-    
+
     // Optionally trigger a real Shopify fulfillment so that the native
     // fulfillment status in the Shopify admin UI/order list is updated.
     let fulfillmentResult = null;
@@ -3447,8 +3447,8 @@ const syncShopifyProducts = async (req, res) => {
                   typeof product?.quantity_in_stock === 'number'
                     ? product.quantity_in_stock
                     : typeof product?.quantity === 'number'
-                    ? product.quantity
-                    : 0,
+                      ? product.quantity
+                      : 0,
                 track_inventory: true,
                 third_party_integrations: {
                   ...(product?.third_party_integrations || {}),
@@ -3461,7 +3461,7 @@ const syncShopifyProducts = async (req, res) => {
             ],
             account_key: accountKey
           };
-          console.log("finalPayload==============",finalPayload);
+          console.log("finalPayload==============", finalPayload);
 
           const virtualInventoryUpdate =
             await finerworksService.UPDATE_VIRTUAL_INVENTORY(finalPayload);
@@ -3508,11 +3508,423 @@ const syncShopifyProducts = async (req, res) => {
   }
 };
 
+/**
+ * Create a Shopify Carrier Service for real-time shipping rates.
+ *
+ * Expects payload:
+ * {
+ *   "storeName": "shop-name.myshopify.com",   // or "shop-name"
+ *   "access_token": "shpat_...",
+ *   "carrier_service": {
+ *     "name": "My Custom Carrier",
+ *     "callback_url": "https://yourapp.com/shopify/carrier-rates",
+ *     "service_discovery": true,
+ *     "active": true,
+ *     "format": "json" // optional, defaults to json
+ *   }
+ * }
+ */
+const createShopifyCarrierService = async (req, res) => {
+  try {
+    let accessToken = req.body?.access_token || req.headers['x-shopify-access-token'];
+    const authHeader = req.headers?.authorization || req.headers?.Authorization;
+
+    if (!accessToken && authHeader && authHeader.startsWith('Bearer ')) {
+      accessToken = authHeader.slice(7).trim();
+    }
+
+    const storeName =
+      req.body?.storeName ||
+      req.body?.shop ||
+      req.body?.store ||
+      req.query?.storeName ||
+      req.query?.shop;
+
+    const carrierService =
+      req.body?.carrier_service ||
+      req.body?.carrierService ||
+      null;
+
+    if (!accessToken || !storeName || !carrierService) {
+      return res.status(400).json({
+        success: false,
+        message: 'Missing required parameters: accessToken, storeName, carrier_service'
+      });
+    }
+
+    const shopDomain = normalizeShopDomain(storeName);
+    if (!shopDomain || !shopDomain.match(/^[a-z0-9][a-z0-9-]*\.myshopify\.com$/)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid storeName. Expected shopname or shopname.myshopify.com'
+      });
+    }
+
+    // Per Shopify REST Admin API 2024-01:
+    // POST https://{shop_domain}/admin/api/2024-01/carrier_services.json
+    const endpoint = `https://${shopDomain}/admin/api/2024-01/carrier_services.json`;
+    const headers = {
+      'X-Shopify-Access-Token': accessToken,
+      'Content-Type': 'application/json',
+      Accept: 'application/json'
+    };
+
+    // We wrap whatever client sends in the required top-level key.
+    const payload = {
+      carrier_service: carrierService
+    };
+
+    const resp = await axios.post(endpoint, payload, { headers });
+
+    return res.status(200).json({
+      success: true,
+      carrier_service: resp.data?.carrier_service || null,
+      shopDomain,
+      // Echo the exact payload we sent to Shopify so callers can inspect it.
+      requestPayload: payload,
+      raw: resp.data
+    });
+  } catch (err) {
+    const status = err?.response?.status || err.status || 500;
+    const message =
+      (err?.response?.data && (err.response.data.errors || err.response.data.error)) ||
+      err.message ||
+      'Request failed';
+    return res.status(status).json({
+      success: false,
+      message: 'Failed to create Shopify carrier service',
+      error: typeof message === 'string' ? message : JSON.stringify(message)
+    });
+  }
+};
+
+/**
+ * List all Shopify carrier services for a store.
+ *
+ * Accepts:
+ * - storeName / shop / store (body or query)
+ * - access_token (body, header `x-shopify-access-token`, or Bearer)
+ */
+const listShopifyCarrierServices = async (req, res) => {
+  try {
+    let accessToken = req.body?.access_token || req.query?.access_token || req.headers['x-shopify-access-token'];
+    const authHeader = req.headers?.authorization || req.headers?.Authorization;
+
+    if (!accessToken && authHeader && authHeader.startsWith('Bearer ')) {
+      accessToken = authHeader.slice(7).trim();
+    }
+
+    const storeName =
+      req.body?.storeName ||
+      req.body?.shop ||
+      req.body?.store ||
+      req.query?.storeName ||
+      req.query?.shop;
+
+    if (!accessToken || !storeName) {
+      return res.status(400).json({
+        success: false,
+        message: 'Missing required parameters: accessToken, storeName'
+      });
+    }
+
+    const shopDomain = normalizeShopDomain(storeName);
+    if (!shopDomain || !shopDomain.match(/^[a-z0-9][a-z0-9-]*\.myshopify\.com$/)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid storeName. Expected shopname or shopname.myshopify.com'
+      });
+    }
+
+    const endpoint = `https://${shopDomain}/admin/api/2024-01/carrier_services.json`;
+    const headers = {
+      'X-Shopify-Access-Token': accessToken,
+      'Content-Type': 'application/json',
+      Accept: 'application/json'
+    };
+
+    const resp = await axios.get(endpoint, { headers });
+
+    return res.status(200).json({
+      success: true,
+      shopDomain,
+      carrier_services: resp.data?.carrier_services || [],
+      raw: resp.data
+    });
+  } catch (err) {
+    const status = err?.response?.status || err.status || 500;
+    const message =
+      (err?.response?.data && (err.response.data.errors || err.response.data.error)) ||
+      err.message ||
+      'Request failed';
+    return res.status(status).json({
+      success: false,
+      message: 'Failed to list Shopify carrier services',
+      error: typeof message === 'string' ? message : JSON.stringify(message)
+    });
+  }
+};
+
+/**
+ * Delete a Shopify carrier service by ID.
+ *
+ * Accepts:
+ * - storeName / shop / store (body or query)
+ * - access_token (body, header `x-shopify-access-token`, or Bearer)
+ * - carrier_service_id / id (body or query)
+ */
+const deleteShopifyCarrierService = async (req, res) => {
+  try {
+    let accessToken = req.body?.access_token || req.headers['x-shopify-access-token'];
+    const authHeader = req.headers?.authorization || req.headers?.Authorization;
+
+    if (!accessToken && authHeader && authHeader.startsWith('Bearer ')) {
+      accessToken = authHeader.slice(7).trim();
+    }
+
+    const storeName =
+      req.body?.storeName ||
+      req.body?.shop ||
+      req.body?.store ||
+      req.query?.storeName ||
+      req.query?.shop;
+
+    const carrierServiceId =
+      req.body?.carrier_service_id ||
+      req.body?.id ||
+      req.query?.carrier_service_id ||
+      req.query?.id;
+
+    if (!accessToken || !storeName || !carrierServiceId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Missing required parameters: accessToken, storeName, carrier_service_id'
+      });
+    }
+
+    const shopDomain = normalizeShopDomain(storeName);
+    if (!shopDomain || !shopDomain.match(/^[a-z0-9][a-z0-9-]*\.myshopify\.com$/)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid storeName. Expected shopname or shopname.myshopify.com'
+      });
+    }
+
+    const endpoint = `https://${shopDomain}/admin/api/2024-01/carrier_services/${carrierServiceId}.json`;
+    const headers = {
+      'X-Shopify-Access-Token': accessToken,
+      'Content-Type': 'application/json',
+      Accept: 'application/json'
+    };
+
+    await axios.delete(endpoint, { headers });
+
+    return res.status(200).json({
+      success: true,
+      shopDomain,
+      carrier_service_id: carrierServiceId,
+      message: 'Carrier service deleted successfully'
+    });
+  } catch (err) {
+    const status = err?.response?.status || err.status || 500;
+    const message =
+      (err?.response?.data && (err.response.data.errors || err.response.data.error)) ||
+      err.message ||
+      'Request failed';
+    return res.status(status).json({
+      success: false,
+      message: 'Failed to delete Shopify carrier service',
+      error: typeof message === 'string' ? message : JSON.stringify(message)
+    });
+  }
+};
+
+/**
+ * Shopify Carrier Service callback endpoint.
+ *
+ * This is the callback URL Shopify calls to retrieve live shipping rates.
+ * It converts the Shopify request into a FinerWorks SHIPPING_OPTIONS_MULTIPLE
+ * request and returns rates in Shopify's expected format.
+ *
+ * Expected incoming Shopify payload (simplified):
+ * {
+ *   "rate": {
+ *     "origin": { ... },
+ *     "destination": { ... },
+ *     "items": [ ... ],
+ *     "currency": "USD",
+ *     "locale": "en"
+ *   }
+ * }
+ *
+ * Additionally, we support:
+ * - account_key in query or body so we can call FinerWorks.
+ */
+const shopifyCarrierServiceCallback = async (req, res) => {
+  try {
+    const rate = req.body?.rate;
+
+    if (!rate) {
+      return res.status(400).json({
+        error: 'Missing required rate object in request body'
+      });
+    }
+
+    // const accountKey = req.query?.account_key || req.body?.account_key || null;
+    // if (!accountKey) {
+    //   return res.status(400).json({
+    //     error: 'Missing required parameter: account_key'
+    //   });
+    // }
+
+    const currency = rate.currency || 'USD';
+
+    // Build FinerWorks SHIPPING_OPTIONS_MULTIPLE payload in the expected structure
+    const orderPo =
+      rate.id ||
+      rate.reference ||
+      `PO_${Date.now()}`;
+
+    const dest = rate.destination || {};
+
+    // Derive first/last name from destination name if possible
+    let firstName = null;
+    let lastName = null;
+    if (typeof dest.name === 'string' && dest.name.trim().length > 0) {
+      const parts = dest.name.trim().split(/\s+/);
+      firstName = parts[0];
+      lastName = parts.slice(1).join(' ') || null;
+    }
+
+    const recipient = {
+      first_name: firstName,
+      last_name: lastName,
+      company_name: dest.company || dest.company_name || null,
+      address_1: dest.address1 || dest.address_1 || null,
+      address_2: dest.address2 || dest.address_2 || null,
+      address_3: dest.address3 || dest.address_3 || null,
+      city: dest.city || null,
+      state_code: (dest.province_code || dest.province || '').toString().slice(0, 2).toUpperCase() || null,
+      province: '',
+      zip_postal_code: (dest.zip || dest.postal_code || '').toString() || null,
+      country_code: (dest.country_code || dest.country || '').toString().toLowerCase() || null,
+      phone: dest.phone || null,
+      email: dest.email || null,
+      address_order_po: orderPo
+    };
+
+    const items = Array.isArray(rate.items) ? rate.items : [];
+    const orderItems = items.map((item) => {
+      const title = item.name || item.title || null;
+      const sku = item.sku || item.variant_id || null;
+      return {
+        // product_order_po: orderPo,
+        product_qty: item.quantity || 1,
+        product_sku: sku,
+        product_image: {
+          product_url_file: "https://via.placeholder.com/150",
+          product_url_thumbnail: "https://via.placeholder.com/150"
+        },
+        product_title: title,
+        template: null,
+        product_guid: "1c9f4263-035a-437e-9975-ba81b18f5d94",
+        custom_data_1: null,
+        custom_data_2: null,
+        custom_data_3: null
+      };
+    });
+
+    const orderPayload = {
+      order_po: orderPo,
+      order_key: null,
+      recipient,
+      order_items: orderItems,
+      // Default shipping code; adjust if you need a different FinerWorks method
+      shipping_code: 'SD',
+      ship_by_date: null,
+      customs_tax_info: null,
+      gift_message: null,
+      test_mode: false,
+      webhook_order_status_url: null,
+      document_url: null,
+      acct_number_ups: null,
+      acct_number_fedex: null,
+      custom_data_1: null,
+      custom_data_2: null,
+      custom_data_3: null,
+      source: null
+    };
+
+    const fwPayload = {
+      orders: [orderPayload],
+      account_key: "04129d94-10b5-4d85-b584-584d936c8e73"
+    };
+    // console.log("fwPayload======>>>>>", fwPayload);
+    // return res.status(200).json( fwPayload );
+
+    const fwResponse = await finerworksService.SHIPPING_OPTIONS_MULTIPLE(
+      fwPayload
+    );
+
+    const firstOrder =
+      fwResponse?.orders && Array.isArray(fwResponse.orders)
+        ? fwResponse.orders[0]
+        : null;
+
+    // FinerWorks returns shipping options under `options` for each order.
+    const shippingOptions = firstOrder?.options || [];
+
+    const rates = Array.isArray(shippingOptions)
+      ? shippingOptions.map((opt) => {
+          const methodName = opt.shipping_method || opt.name || 'Shipping';
+          const code =
+            opt.shipping_code ||
+            opt.shipping_class_code ||
+            opt.id ||
+            methodName.toLowerCase().replace(/\s+/g, '_');
+
+          // `rate` is the shipping charge in major currency units (e.g., dollars)
+          const price = opt.rate || 0;
+          // const totalPriceMinor = Math.round(Number(price));
+                    const totalPriceMinor = price
+
+
+          const description =
+            opt.transit_time && opt.carrier
+              ? `${opt.shipping_method} - ${opt.carrier} (${opt.transit_time})`
+              : opt.shipping_method || methodName;
+
+          return {
+            service_name: methodName,
+            service_code: String(code),
+            total_price: String(
+              Number.isFinite(totalPriceMinor) ? totalPriceMinor : 0
+            ),
+            currency,
+            description
+          };
+        })
+      : [];
+
+    // Final response to Shopify / frontend
+    return res.status(200).json({ rates });
+  } catch (err) {
+    console.error('Error in Shopify carrier service callback:', err);
+    return res.status(500).json({
+      error: 'Internal Server Error'
+    });
+  }
+};
+
 module.exports = {
   getShopifyOrders,
   getShopifyOrderByName,
   fulfillShopifyOrder,
   updateOrderReferenceNumbers,
   updateOrderFulfillmentStatus,
-  syncShopifyProducts
+  syncShopifyProducts,
+  createShopifyCarrierService,
+  listShopifyCarrierServices,
+  deleteShopifyCarrierService,
+  shopifyCarrierServiceCallback
 };

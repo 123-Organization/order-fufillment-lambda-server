@@ -54,7 +54,7 @@ Resources:
         - MyLambdaExecutionRole
         - Arn
       Runtime: nodejs18.x
-      CodeUri: s3://order-fullfilment-app-lambda-server/dac1bf0fd992dcd722425bd4284b7062
+      CodeUri: s3://order-fullfilment-app-lambda-server/4c51b7fbad712e2b5ab22e45104ecb09
       MemorySize: 3008
       Timeout: 900
       Environment:
@@ -395,7 +395,7 @@ Resources:
         - MyLambdaExecutionRole
         - Arn
       Runtime: nodejs18.x
-      CodeUri: s3://order-fullfilment-app-lambda-server/dac1bf0fd992dcd722425bd4284b7062
+      CodeUri: s3://order-fullfilment-app-lambda-server/4c51b7fbad712e2b5ab22e45104ecb09
       MemorySize: 3008
       Timeout: 900
       Environment:
@@ -479,6 +479,27 @@ Resources:
               Ref: MyApiGateway
             Method: POST
             Path: /api/shopify/update-fulfillment-status
+        ShopifyCarrierServiceAdd:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: POST
+            Path: /api/shopify/carrier-service
+        ShopifyCarrierServiceList:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: GET
+            Path: /api/shopify/carrier-services
+        ShopifyCarrierServiceDelete:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: DELETE
+            Path: /api/shopify/carrier-service
         HealthCheck:
           Type: Api
           Properties:

@@ -466,6 +466,30 @@ Resources:
             RestApiId: !Ref MyApiGateway
             Method: POST
             Path: "/api/shopify/update-fulfillment-status" 
+        ShopifyCarrierServiceAdd:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Method: POST
+            Path: "/api/shopify/carrier-service"
+        ShopifyCarrierServiceList:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Method: GET
+            Path: "/api/shopify/carrier-services"
+        ShopifyCarrierServiceDelete:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Method: DELETE
+            Path: "/api/shopify/carrier-service"
+        # ShopifyCarrierServiceCallbackApi:
+        #   Type: Api
+        #   Properties:
+        #     RestApiId: !Ref MyApiGateway
+        #     Method: POST
+        #     Path: "/api/shopify/carrier-service/callback"
         HealthCheck:
           Type: Api
           Properties:

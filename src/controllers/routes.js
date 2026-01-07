@@ -10,7 +10,7 @@ const { listShippingOptions,listShippingOptionsV2,listShippingOptionsV3 } = requ
 const { getUserPaymentToken,getCompanyInfo } = require('./payment-token');
 const {updateUserInformation}=require('./userInformation')
 const { handleShopifyAuth, handleShopifyCallback, handleShopifyInstall } = require('./shopify-auth');
-const { getShopifyOrders, getShopifyOrderByName, fulfillShopifyOrder, updateOrderReferenceNumbers, updateOrderFulfillmentStatus, syncShopifyProducts } = require('./shopify-orders');
+const { getShopifyOrders, getShopifyOrderByName, fulfillShopifyOrder, updateOrderReferenceNumbers, updateOrderFulfillmentStatus, syncShopifyProducts, createShopifyCarrierService, listShopifyCarrierServices, deleteShopifyCarrierService, shopifyCarrierServiceCallback } = require('./shopify-orders');
 const healthCheck = require('./health-check');
 const app = Router();
 
@@ -76,6 +76,11 @@ app.post('/shopify/fulfill-order', fulfillShopifyOrder);
 app.post('/shopify/update-order-reference-numbers', updateOrderReferenceNumbers);
 app.post('/shopify/update-fulfillment-status', updateOrderFulfillmentStatus);
 app.post('/shopify/sync-products', syncShopifyProducts);
+app.post('/shopify/carrier-service', createShopifyCarrierService);
+app.get('/shopify/carrier-services', listShopifyCarrierServices);
+app.delete('/shopify/carrier-service', deleteShopifyCarrierService);
+app.post('/shopify/carrier-service/callback', shopifyCarrierServiceCallback);
+
 
 
 
