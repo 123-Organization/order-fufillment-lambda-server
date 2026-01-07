@@ -30,7 +30,7 @@ const recipientSchema = Joi.object({
       otherwise: Joi.optional().allow("")
     })
     .optional(),
-  zip_postal_code: Joi.number().required().allow("").label("ZIP/Postal Code"),
+  zip_postal_code: Joi.string().required().allow("").label("ZIP/Postal Code"),
   phone: Joi.string().allow("").label("Phone Number"),
   email: Joi.string().allow("").optional().label("email"),
   address_order_po: Joi.string().allow("").optional().label("Address order po"),
@@ -237,7 +237,7 @@ const ordersSchema = Joi.object({
               otherwise: Joi.optional().allow("")
             })
             .optional(),
-          zip_postal_code: Joi.number().required(),
+          zip_postal_code: Joi.string().required(),
           country_code: Joi.string().length(2).required(),
           phone: Joi.alternatives().try(Joi.string(), Joi.number()).optional().allow(""),
           email: Joi.string().email().optional(),

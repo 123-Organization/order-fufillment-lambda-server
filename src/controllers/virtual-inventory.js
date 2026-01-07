@@ -16,10 +16,10 @@ const listVirtualInventorySchema = Joi.object({
     sort_direction: Joi.string().valid('ASC', 'DESC').default('DESC'),
     created_date_from: Joi.date().allow(null),
     created_date_to: Joi.date().allow(null),
-    account_key:Joi.string().allow('').allow(null)
+    account_key: Joi.string().allow('').allow(null)
 });
 // Middleware for validation
-exports.validateListVirtualInventory = async(req, res, next) => {
+exports.validateListVirtualInventory = async (req, res, next) => {
     const { error, value } = listVirtualInventorySchema.validate(req.body);
     if (error) {
         return res.status(400).json({
@@ -114,14 +114,17 @@ exports.listVirtualInventoryV2 = async (req, res) => {
         const reqBody = JSON.parse(JSON.stringify(req.body));
         const getInformation = await finerworksService.LIST_VIRTUAL_INVENTORY(reqBody);
         if (getInformation && getInformation.status && getInformation.status.success) {
-            res.status(200).json({
-                statusCode: 200,
-                status: true,
-                data: getInformation,
-                page_number: getInformation?.page_number,
-                per_page: getInformation?.per_page,
-                count: getInformation?.count
-            });
+            // res.status(200).json({
+            //     statusCode: 200,
+            //     status: true,
+            //     data: getInformation,
+            //     page_number: getInformation?.page_number,
+            //     per_page: getInformation?.per_page,
+            //     count: getInformation?.count
+            // });
+            res.status(200).json(getInformation);
+
+
         } else {
             res.status(400).json({
                 statusCode: 400,
@@ -152,7 +155,7 @@ const UpdateVirtualInventorySchema = Joi.object({
             description: Joi.string().allow("").optional(),
             quantity_in_stock: Joi.number().integer().min(0).required(),
             track_inventory: Joi.boolean().required(),
-            updated:Joi.string().optional(),
+            updated: Joi.string().optional(),
             third_party_integrations: Joi.object({
                 etsy_product_id: Joi.any().allow(null).optional(),
                 shopify_product_id: Joi.any().allow(null).optional(),
@@ -167,10 +170,10 @@ const UpdateVirtualInventorySchema = Joi.object({
             }).required()
         })
     ).required(),
-    account_key:Joi.string().optional()
+    account_key: Joi.string().optional()
 });
 // Middleware for validation
-exports.validateUpdateVirtualInventory = async(req, res, next) => {
+exports.validateUpdateVirtualInventory = async (req, res, next) => {
     const { error, value } = UpdateVirtualInventorySchema.validate(req.body);
     if (error) {
         return res.status(400).json({
