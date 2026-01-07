@@ -507,13 +507,13 @@ exports.updateOrderByValidProductSkuCode = async (req, res) => {
       searchListVirtualInventoryParams.product_code_filter = [productCode];
     }
     if (account_key) {
-      searchListVirtualInventoryParams.account_key = [account_key];
+      searchListVirtualInventoryParams.account_key = account_key;
     }
     log(
       "Request come to search product from virtual inventory for the payload",
       JSON.stringify(searchListVirtualInventoryParams)
     );
-    console.log("okkkkkkkkkkkkkkkkkkkkkkkkkk")
+    console.log("okkkkkkkkkkkkkkkkkkkkkkkkkk",searchListVirtualInventoryParams)
     if (skuCode || fromTheInventory) {
       getProductDetails = await finerworksService.LIST_VIRTUAL_INVENTORY(
         searchListVirtualInventoryParams
@@ -601,6 +601,7 @@ exports.updateOrderByValidProductSkuCode = async (req, res) => {
         }],
         account_key: reqBody.account_key
       };
+      console.log("payload====>>>>",payload);
 
       log("Product details from API", JSON.stringify(getProductDetails));
       getProductDetails = await finerworksService.GET_PRODUCTS_DETAILS(payload);
@@ -638,6 +639,7 @@ exports.updateOrderByValidProductSkuCode = async (req, res) => {
         console.log(previousOrder, "previousOrder");
         const updatedOrder = updateOrderItemsV2(previousOrder, orderData, toReplace);
         console.log("updatedOrder======>>>>>>", updatedOrder);
+        
         const urlEncodedData = urlEncodeJSON(updatedOrder);
         const updatePayload = {
           tablename: process.env.FINER_fwAPI_FULFILLMENTS_TABLE,
