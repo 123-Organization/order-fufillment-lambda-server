@@ -12,6 +12,12 @@ const {updateUserInformation}=require('./userInformation')
 const { handleShopifyAuth, handleShopifyCallback, handleShopifyInstall } = require('./shopify-auth');
 const { getShopifyOrders, getShopifyOrderByName, fulfillShopifyOrder, updateOrderReferenceNumbers } = require('./shopify-orders');
 const app = Router();
+
+// Simple health check endpoint
+app.get('/health', (req, res) => {
+  res.status(200).json({ status: 'ok' });
+});
+
 app.put('/update-company-information',updateCompanyInformation);
 app.get('/get-info', getCompanyInformation);
 app.get('/get-user-details', getCompanyInformation);
