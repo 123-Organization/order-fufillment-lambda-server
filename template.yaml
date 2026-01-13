@@ -43,10 +43,10 @@ Resources:
                   - s3:*
                 Resource: "*"
   
-  OrderFullFillmentServerLessDevServer:
+  OrderFullFillmentServerLessDevServerAgain:
     Type: AWS::Serverless::Function
     Properties:
-      FunctionName: OrderFullFillmentServerLessDevServer
+      FunctionName: OrderFullFillmentServerLessDevServerV2Againdev
       Handler: lambda.handler
       Role: !GetAtt MyLambdaExecutionRole.Arn
       Runtime: nodejs18.x
@@ -233,6 +233,26 @@ Resources:
               Ref: MyApiGateway
             Method: POST
             Path: /api/add-token-to-user
+  OrderFullFillmentServerLessDevServerV2Again:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: OrderFullFillmentServerLessDevServerV3Againdev
+      Handler: lambda.handler
+      Role: !GetAtt MyLambdaExecutionRole.Arn
+      Runtime: nodejs18.x
+      CodeUri: .
+      MemorySize: 3008
+      Timeout: 900
+      Environment:
+        Variables:
+          DEBUG: app*
+      Events:
+        # MainEntryRoute:
+        #   Type: Api 
+        #   Properties:
+        #     RestApiId: !Ref ProdApiGateway
+        #     Path: /
+        #     Method: GET
         ExportToWoocommerce:
           Type: Api
           Properties:
@@ -380,26 +400,6 @@ Resources:
         #       Ref: MyApiGateway
         #     Method: POST
         #     Path: /api/send-order-details
-  OrderFullFillmentServerLessDevServerV2:
-    Type: AWS::Serverless::Function
-    Properties:
-      FunctionName: OrderFullFillmentServerLessDevServerV2
-      Handler: lambda.handler
-      Role: !GetAtt MyLambdaExecutionRole.Arn
-      Runtime: nodejs18.x
-      CodeUri: .
-      MemorySize: 3008
-      Timeout: 900
-      Environment:
-        Variables:
-          DEBUG: app*
-      Events:
-        # MainEntryRoute:
-        #   Type: Api 
-        #   Properties:
-        #     RestApiId: !Ref ProdApiGateway
-        #     Path: /
-        #     Method: GET
         SendOrderInformation:
           Type: Api
           Properties:
@@ -484,24 +484,24 @@ Resources:
             RestApiId: !Ref MyApiGateway
             Method: DELETE
             Path: "/api/shopify/carrier-service"
-        # ShopifyCarrierServiceCallbackApi:
-        #   Type: Api
-        #   Properties:
-        #     RestApiId: !Ref MyApiGateway
-        #     Method: POST
-        #     Path: "/api/shopify/carrier-service/callback"
-        HealthCheck:
+        ShopifyCarrierServiceCallbackApi:
           Type: Api
           Properties:
             RestApiId: !Ref MyApiGateway
-            Method: GET
-            Path: /api/health-check
-        HealthCheckSchedule:
-          Type: Schedule
-          Properties:
-            Schedule: rate(1 hour)      
+            Method: POST
+            Path: "/api/shopify/carrier-service/callback"
+        # HealthCheck:
+        #   Type: Api
+        #   Properties:
+        #     RestApiId: !Ref MyApiGateway
+        #     Method: GET
+        #     Path: /api/health-check
+        # HealthCheckSchedule:
+        #   Type: Schedule
+        #   Properties:
+        #     Schedule: rate(1 hour)      
   OrderFullFillmentServerLessDevServerLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
-      LogGroupName: !Sub /aws/lambda/${OrderFullFillmentServerLessDevServer}
+      LogGroupName: !Sub /aws/lambda/${OrderFullFillmentServerLessDevServerAgain}
       RetentionInDays: '30'

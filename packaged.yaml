@@ -44,17 +44,17 @@ Resources:
             Resource: '*'
     Metadata:
       SamResourceId: MyLambdaExecutionRole
-  OrderFullFillmentServerLessDevServer:
+  OrderFullFillmentServerLessDevServerAgain:
     Type: AWS::Serverless::Function
     Properties:
-      FunctionName: OrderFullFillmentServerLessDevServer
+      FunctionName: OrderFullFillmentServerLessDevServerV2Againdev
       Handler: lambda.handler
       Role:
         Fn::GetAtt:
         - MyLambdaExecutionRole
         - Arn
       Runtime: nodejs18.x
-      CodeUri: s3://order-fullfilment-app-lambda-server/4c51b7fbad712e2b5ab22e45104ecb09
+      CodeUri: s3://order-fullfilment-app-lambda-server/508cd6b549a13f1f1a046e70593f325d
       MemorySize: 3008
       Timeout: 900
       Environment:
@@ -243,6 +243,25 @@ Resources:
               Ref: MyApiGateway
             Method: POST
             Path: /api/add-token-to-user
+    Metadata:
+      SamResourceId: OrderFullFillmentServerLessDevServerAgain
+  OrderFullFillmentServerLessDevServerV2Again:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: OrderFullFillmentServerLessDevServerV3Againdev
+      Handler: lambda.handler
+      Role:
+        Fn::GetAtt:
+        - MyLambdaExecutionRole
+        - Arn
+      Runtime: nodejs18.x
+      CodeUri: s3://order-fullfilment-app-lambda-server/508cd6b549a13f1f1a046e70593f325d
+      MemorySize: 3008
+      Timeout: 900
+      Environment:
+        Variables:
+          DEBUG: app*
+      Events:
         ExportToWoocommerce:
           Type: Api
           Properties:
@@ -383,25 +402,6 @@ Resources:
               Ref: MyApiGateway
             Method: POST
             Path: /api/check-domain
-    Metadata:
-      SamResourceId: OrderFullFillmentServerLessDevServer
-  OrderFullFillmentServerLessDevServerV2:
-    Type: AWS::Serverless::Function
-    Properties:
-      FunctionName: OrderFullFillmentServerLessDevServerV2
-      Handler: lambda.handler
-      Role:
-        Fn::GetAtt:
-        - MyLambdaExecutionRole
-        - Arn
-      Runtime: nodejs18.x
-      CodeUri: s3://order-fullfilment-app-lambda-server/4c51b7fbad712e2b5ab22e45104ecb09
-      MemorySize: 3008
-      Timeout: 900
-      Environment:
-        Variables:
-          DEBUG: app*
-      Events:
         SendOrderInformation:
           Type: Api
           Properties:
@@ -500,24 +500,20 @@ Resources:
               Ref: MyApiGateway
             Method: DELETE
             Path: /api/shopify/carrier-service
-        HealthCheck:
+        ShopifyCarrierServiceCallbackApi:
           Type: Api
           Properties:
             RestApiId:
               Ref: MyApiGateway
-            Method: GET
-            Path: /api/health-check
-        HealthCheckSchedule:
-          Type: Schedule
-          Properties:
-            Schedule: rate(1 hour)
+            Method: POST
+            Path: /api/shopify/carrier-service/callback
     Metadata:
-      SamResourceId: OrderFullFillmentServerLessDevServerV2
+      SamResourceId: OrderFullFillmentServerLessDevServerV2Again
   OrderFullFillmentServerLessDevServerLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
       LogGroupName:
-        Fn::Sub: /aws/lambda/${OrderFullFillmentServerLessDevServer}
+        Fn::Sub: /aws/lambda/${OrderFullFillmentServerLessDevServerAgain}
       RetentionInDays: '30'
     Metadata:
       SamResourceId: OrderFullFillmentServerLessDevServerLogGroup
