@@ -46,7 +46,7 @@ Resources:
   OrderFullFillmentServerLessProdServer:
     Type: AWS::Serverless::Function
     Properties:
-      FunctionName: OrderFullFillmentServerLessProdServer
+      FunctionName: OrderFulfillmentServerlessProdAgain
       Handler: lambda.handler
       Role: !GetAtt ProdLambdaExecutionRole.Arn
       Runtime: nodejs18.x
@@ -376,7 +376,7 @@ Resources:
   OrderFullFillmentServerLessProdServerV2:
     Type: AWS::Serverless::Function
     Properties:
-      FunctionName: OrderFullFillmentServerLessProdServerV2
+      FunctionName: OrderFulfillmentServerlessProdV2Again
       Handler: lambda.handler
       Role: !GetAtt ProdLambdaExecutionRole.Arn
       Runtime: nodejs18.x

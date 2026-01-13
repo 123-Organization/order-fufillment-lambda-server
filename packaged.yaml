@@ -47,14 +47,14 @@ Resources:
   OrderFullFillmentServerLessProdServer:
     Type: AWS::Serverless::Function
     Properties:
-      FunctionName: OrderFullFillmentServerLessProdServer
+      FunctionName: OrderFulfillmentServerlessProdAgain
       Handler: lambda.handler
       Role:
         Fn::GetAtt:
         - ProdLambdaExecutionRole
         - Arn
       Runtime: nodejs18.x
-      CodeUri: s3://orderfullfilmentprodbucketlambda/b4fb598c83d3266183f41fda9813db46
+      CodeUri: s3://orderfullfilmentprodbucketlambda/1f1f57742596b9a7b6f2de6877eab506
       MemorySize: 3008
       Timeout: 900
       Environment:
@@ -388,14 +388,14 @@ Resources:
   OrderFullFillmentServerLessProdServerV2:
     Type: AWS::Serverless::Function
     Properties:
-      FunctionName: OrderFullFillmentServerLessProdServerV2
+      FunctionName: OrderFulfillmentServerlessProdV2Again
       Handler: lambda.handler
       Role:
         Fn::GetAtt:
         - ProdLambdaExecutionRole
         - Arn
       Runtime: nodejs18.x
-      CodeUri: s3://orderfullfilmentprodbucketlambda/b4fb598c83d3266183f41fda9813db46
+      CodeUri: s3://orderfullfilmentprodbucketlambda/1f1f57742596b9a7b6f2de6877eab506
       MemorySize: 3008
       Timeout: 900
       Environment:
