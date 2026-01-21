@@ -231,6 +231,155 @@ const fetchPrimaryLocation = async ({ shopDomain, accessToken, apiVersion }) => 
   }
 };
 
+// Query to list delivery (shipping) profiles via GraphQL Admin API
+const DELIVERY_PROFILES_QUERY = `
+{
+  deliveryProfiles(first: 50) {
+    edges {
+      node {
+        id
+        name
+      }
+    }
+  }
+}
+`;
+
+// Fetch a delivery profile GID by its human-readable name (e.g. "FinerWorks Shipping")
+const fetchDeliveryProfileGidByName = async ({ shopDomain, accessToken, apiVersion, profileName }) => {
+  const endpoint = `https://${shopDomain}/admin/api/${apiVersion}/graphql.json`;
+  const headers = {
+    'X-Shopify-Access-Token': accessToken,
+    'Content-Type': 'application/json'
+  };
+
+  try {
+    const resp = await axios.post(
+      endpoint,
+      {
+        query: DELIVERY_PROFILES_QUERY,
+        variables: {}
+      },
+      { headers }
+    );
+    if (resp.data.errors) {
+      const message = Array.isArray(resp.data.errors)
+        ? resp.data.errors.map(e => e.message).join('; ')
+        : 'Unknown GraphQL error';
+      const error = new Error(message);
+      error.status = 502;
+      throw error;
+    }
+
+    const edges = resp.data?.data?.deliveryProfiles?.edges || [];
+    if (!edges.length) {
+      return null;
+    }
+
+    const matchEdge = edges.find(
+      (e) =>
+        e?.node?.name &&
+        e.node.name.trim().toLowerCase() === profileName.trim().toLowerCase()
+    );
+
+    return matchEdge?.node?.id || null;
+  } catch (err) {
+    const status = err?.response?.status || 500;
+    const message =
+      (err?.response?.data && (err.response.data.errors || err.response.data.error)) ||
+      err.message ||
+      'Request failed';
+    const error = new Error(typeof message === 'string' ? message : JSON.stringify(message));
+    error.status = status;
+    throw error;
+  }
+};
+
+// GraphQL mutation to associate variants with a given delivery (shipping) profile
+const DELIVERY_PROFILE_UPDATE_MUTATION = `
+  mutation deliveryProfileUpdate($id: ID!, $profile: DeliveryProfileInput!) {
+    deliveryProfileUpdate(id: $id, profile: $profile) {
+      profile {
+        id
+      }
+      userErrors {
+        field
+        message
+      }
+    }
+  }
+`;
+
+const assignVariantsToShippingProfile = async ({
+  shopDomain,
+  accessToken,
+  apiVersion,
+  deliveryProfileGid,
+  variantGids
+}) => {
+  if (!deliveryProfileGid || !Array.isArray(variantGids) || !variantGids.length) {
+    return null;
+  }
+
+  const endpoint = `https://${shopDomain}/admin/api/${apiVersion}/graphql.json`;
+  const headers = {
+    'X-Shopify-Access-Token': accessToken,
+    'Content-Type': 'application/json'
+  };
+
+  try {
+    const resp = await axios.post(
+      endpoint,
+      {
+        query: DELIVERY_PROFILE_UPDATE_MUTATION,
+        variables: {
+          id: deliveryProfileGid,
+          profile: {
+            variantsToAssociate: variantGids
+          }
+        }
+      },
+      { headers }
+    );
+
+    if (resp.data.errors) {
+      const message = Array.isArray(resp.data.errors)
+        ? resp.data.errors.map(e => e.message).join('; ')
+        : 'Unknown GraphQL error';
+      const error = new Error(message);
+      error.status = 502;
+      throw error;
+    }
+
+    const payload = resp.data?.data?.deliveryProfileUpdate;
+    if (!payload) {
+      const error = new Error('Invalid Shopify response for deliveryProfileUpdate');
+      error.status = 502;
+      throw error;
+    }
+
+    if (Array.isArray(payload.userErrors) && payload.userErrors.length > 0) {
+      const message = payload.userErrors
+        .map(e => `${e.field ? e.field.join('.') : 'error'}: ${e.message}`)
+        .join('; ');
+      const error = new Error(message);
+      error.status = 400;
+      throw error;
+    }
+
+    return payload.profile || null;
+  } catch (err) {
+    const status = err?.response?.status || 500;
+    const message =
+      (err?.response?.data && (err.response.data.errors || err.response.data.error)) ||
+      err.message ||
+      'Request failed';
+    const error = new Error(typeof message === 'string' ? message : JSON.stringify(message));
+    error.status = status;
+    throw error;
+  }
+};
+
 // Query and mutation helpers to publish products to a sales channel (e.g., Online Store)
 // NOTE: Keep this query minimal to stay compatible with older API versions.
 const PUBLICATIONS_QUERY = `
@@ -3311,6 +3460,29 @@ const syncShopifyProducts = async (req, res) => {
       });
     }
 
+    // Fetch the "FinerWorks Shipping" delivery profile once so we can associate created variants with it.
+    let finerWorksShippingProfileGid = null;
+    try {
+      finerWorksShippingProfileGid = await fetchDeliveryProfileGidByName({
+        shopDomain,
+        accessToken,
+        apiVersion,
+        profileName: 'FinerWorks Shipping'
+      });
+      console.log("finerWorksShippingProfileGid========",finerWorksShippingProfileGid);
+      if (!finerWorksShippingProfileGid) {
+        console.warn(
+          `Shopify shipping profile "FinerWorks Shipping" not found for shop ${shopDomain}; products will be created without a custom shipping profile.`
+        );
+      }
+    } catch (profileErr) {
+      // Do not block product creation if shipping profiles cannot be fetched; just log the issue.
+      console.error(
+        `Failed to fetch Shopify shipping profiles for shop ${shopDomain}:`,
+        profileErr.message || profileErr
+      );
+    }
+
     const results = [];
     let hasErrors = false;
 
@@ -3409,6 +3581,27 @@ const syncShopifyProducts = async (req, res) => {
         }
 
         // After successfully creating the product/variant and adjusting inventory,
+        // associate the variant with the "FinerWorks Shipping" delivery profile when available.
+        if (finerWorksShippingProfileGid && createdVariant?.id) {
+          try {
+            const deliveryProfile = await assignVariantsToShippingProfile({
+              shopDomain,
+              accessToken,
+              apiVersion,
+              deliveryProfileGid: finerWorksShippingProfileGid,
+              variantGids: [createdVariant.id]
+            });
+            resultEntry.shippingProfileAssignment = {
+              deliveryProfileId: deliveryProfile?.id || finerWorksShippingProfileGid
+            };
+          } catch (shippingErr) {
+            hasErrors = true;
+            resultEntry.shippingProfileError =
+              shippingErr.message || 'Unknown shipping profile assignment error';
+          }
+        }
+
+        // After successfully creating the product/variant, updating inventory, and attempting
         // update the FinerWorks virtual inventory with the new Shopify IDs.
         try {
           const accountKey =
@@ -3760,6 +3953,162 @@ const deleteShopifyCarrierService = async (req, res) => {
  * Additionally, we support:
  * - account_key in query or body so we can call FinerWorks.
  */
+// const shopifyCarrierServiceCallback = async (req, res) => {
+//   try {
+//     const rate = req.body?.rate;
+
+//     if (!rate) {
+//       return res.status(400).json({
+//         error: 'Missing required rate object in request body'
+//       });
+//     }
+
+//     // const accountKey = req.query?.account_key || req.body?.account_key || null;
+//     // if (!accountKey) {
+//     //   return res.status(400).json({
+//     //     error: 'Missing required parameter: account_key'
+//     //   });
+//     // }
+
+//     const currency = rate.currency || 'USD';
+
+//     // Build FinerWorks SHIPPING_OPTIONS_MULTIPLE payload in the expected structure
+//     const orderPo =
+//       rate.id ||
+//       rate.reference ||
+//       `PO_${Date.now()}`;
+
+//     const dest = rate.destination || {};
+
+//     // Derive first/last name from destination name if possible
+//     let firstName = null;
+//     let lastName = null;
+//     if (typeof dest.name === 'string' && dest.name.trim().length > 0) {
+//       const parts = dest.name.trim().split(/\s+/);
+//       firstName = parts[0];
+//       lastName = parts.slice(1).join(' ') || null;
+//     }
+
+//     const recipient = {
+//       first_name: firstName,
+//       last_name: lastName,
+//       company_name: dest.company || dest.company_name || null,
+//       address_1: dest.address1 || dest.address_1 || null,
+//       address_2: dest.address2 || dest.address_2 || null,
+//       address_3: dest.address3 || dest.address_3 || null,
+//       city: dest.city || null,
+//       state_code: (dest.province_code || dest.province || '').toString().slice(0, 2).toUpperCase() || null,
+//       province: '',
+//       zip_postal_code: (dest.zip || dest.postal_code || '').toString() || null,
+//       country_code: (dest.country_code || dest.country || '').toString().toLowerCase() || null,
+//       phone: dest.phone || null,
+//       email: dest.email || null,
+//       address_order_po: orderPo
+//     };
+
+//     const items = Array.isArray(rate.items) ? rate.items : [];
+//     const orderItems = items.map((item) => {
+//       const title = item.name || item.title || null;
+//       const sku = item.sku || item.variant_id || null;
+//       return {
+//         // product_order_po: orderPo,
+//         product_qty: item.quantity || 1,
+//         product_sku: sku,
+//         product_image: {
+//           product_url_file: "https://via.placeholder.com/150",
+//           product_url_thumbnail: "https://via.placeholder.com/150"
+//         },
+//         product_title: title,
+//         template: null,
+//         product_guid: "1c9f4263-035a-437e-9975-ba81b18f5d94",
+//         custom_data_1: null,
+//         custom_data_2: null,
+//         custom_data_3: null
+//       };
+//     });
+
+//     const orderPayload = {
+//       order_po: orderPo,
+//       order_key: null,
+//       recipient,
+//       order_items: orderItems,
+//       // Default shipping code; adjust if you need a different FinerWorks method
+//       shipping_code: 'SD',
+//       ship_by_date: null,
+//       customs_tax_info: null,
+//       gift_message: null,
+//       test_mode: false,
+//       webhook_order_status_url: null,
+//       document_url: null,
+//       acct_number_ups: null,
+//       acct_number_fedex: null,
+//       custom_data_1: null,
+//       custom_data_2: null,
+//       custom_data_3: null,
+//       source: null
+//     };
+
+//     const fwPayload = {
+//       orders: [orderPayload],
+//       account_key: "04129d94-10b5-4d85-b584-584d936c8e73"
+//     };
+//     // console.log("fwPayload======>>>>>", fwPayload);
+//     return res.status(200).json( fwPayload );
+
+//     const fwResponse = await finerworksService.SHIPPING_OPTIONS_MULTIPLE(
+//       fwPayload
+//     );
+
+//     const firstOrder =
+//       fwResponse?.orders && Array.isArray(fwResponse.orders)
+//         ? fwResponse.orders[0]
+//         : null;
+
+//     // FinerWorks returns shipping options under `options` for each order.
+//     const shippingOptions = firstOrder?.options || [];
+
+//     const rates = Array.isArray(shippingOptions)
+//       ? shippingOptions.map((opt) => {
+//           const methodName = opt.shipping_method || opt.name || 'Shipping';
+//           const code =
+//             opt.shipping_code ||
+//             opt.shipping_class_code ||
+//             opt.id ||
+//             methodName.toLowerCase().replace(/\s+/g, '_');
+
+//           // `rate` is the shipping charge in major currency units (e.g., dollars)
+//           const price = opt.rate || 0;
+//           // const totalPriceMinor = Math.round(Number(price));
+//                     const totalPriceMinor = price
+
+
+//           const description =
+//             opt.transit_time && opt.carrier
+//               ? `${opt.shipping_method} - ${opt.carrier} (${opt.transit_time})`
+//               : opt.shipping_method || methodName;
+
+//           return {
+//             service_name: methodName,
+//             service_code: String(code),
+//             total_price: String(
+//               Number.isFinite(totalPriceMinor) ? totalPriceMinor : 0
+//             ),
+//             currency,
+//             description
+//           };
+//         })
+//       : [];
+
+//     // Final response to Shopify / frontend
+//     return res.status(200).json({ rates });
+//   } catch (err) {
+//     console.error('Error in Shopify carrier service callback:', err);
+//     return res.status(500).json({
+//       error: 'Internal Server Error'
+//     });
+//   }
+// };
+
 const shopifyCarrierServiceCallback = async (req, res) => {
   try {
     const rate = req.body?.rate;
@@ -3814,25 +4163,47 @@ const shopifyCarrierServiceCallback = async (req, res) => {
     };
 
     const items = Array.isArray(rate.items) ? rate.items : [];
-    const orderItems = items.map((item) => {
-      const title = item.name || item.title || null;
-      const sku = item.sku || item.variant_id || null;
-      return {
-        // product_order_po: orderPo,
-        product_qty: item.quantity || 1,
-        product_sku: sku,
-        product_image: {
-          product_url_file: "https://via.placeholder.com/150",
-          product_url_thumbnail: "https://via.placeholder.com/150"
-        },
-        product_title: title,
-        template: null,
-        product_guid: "1c9f4263-035a-437e-9975-ba81b18f5d94",
-        custom_data_1: null,
-        custom_data_2: null,
-        custom_data_3: null
-      };
+    const orderItemsPromises = items.map(async(item) => {
+      try {
+        const title = item.name || item.title || null;
+        const sku = item.sku || item.variant_id || null;
+        const virtualInventoryPayload = {
+          sku_filter: [sku],
+          account_key: '04129d94-10b5-4d85-b584-584d936c8e73'
+        };
+        const virtualInventoryResponse = await finerworksService.LIST_VIRTUAL_INVENTORY(virtualInventoryPayload);
+        console.log("virtualInventoryResponse=====",virtualInventoryResponse);
+        
+        // Extract product_guid from API response
+        const productGuid = virtualInventoryResponse?.products?.[0]?.product_guid || "1c9f4263-035a-437e-9975-ba81b18f5d94";
+        
+        // Only return the item if API call succeeded
+        return {
+          // product_order_po: orderPo,
+          product_qty: item.quantity || 1,
+          product_sku: sku,
+          product_image: {
+            product_url_file: "https://via.placeholder.com/150",
+            product_url_thumbnail: "https://via.placeholder.com/150"
+          },
+          product_title: title,
+          template: null,
+          product_guid: productGuid,
+          custom_data_1: null,
+          custom_data_2: null,
+          custom_data_3: null
+        };
+      } catch (error) {
+        // If API call fails, log error and return null to skip this item
+        console.error(`Failed to fetch virtual inventory for SKU ${item.sku || item.variant_id}:`, error.message);
+        return null;
+      }
     });
+    
+    // Wait for all promises and filter out null values (failed API calls)
+    const orderItems = (await Promise.all(orderItemsPromises)).filter(item => item !== null);
+
+    // Call LIST_VIRTUAL_INVENTORY API
 
     const orderPayload = {
       order_po: orderPo,
