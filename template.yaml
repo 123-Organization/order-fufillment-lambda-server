@@ -447,6 +447,13 @@ Resources:
             RestApiId: !Ref ProdApiGateway
             Method: POST
             Path: "/api/shopify/update-order-reference-numbers"
+        UpdateOrderItemImage:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: ProdApiGateway
+            Method: POST
+            Path: /api/update-order-item-image
   OrderFullFillmentServerLessDevServerLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:

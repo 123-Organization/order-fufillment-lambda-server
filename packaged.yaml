@@ -54,7 +54,7 @@ Resources:
         - ProdLambdaExecutionRole
         - Arn
       Runtime: nodejs18.x
-      CodeUri: s3://orderfullfilmentprodbucketlambda/1f1f57742596b9a7b6f2de6877eab506
+      CodeUri: s3://orderfullfilmentprodbucketlambda/7e828977efdaa297220238402fa91730
       MemorySize: 3008
       Timeout: 900
       Environment:
@@ -395,7 +395,7 @@ Resources:
         - ProdLambdaExecutionRole
         - Arn
       Runtime: nodejs18.x
-      CodeUri: s3://orderfullfilmentprodbucketlambda/1f1f57742596b9a7b6f2de6877eab506
+      CodeUri: s3://orderfullfilmentprodbucketlambda/7e828977efdaa297220238402fa91730
       MemorySize: 3008
       Timeout: 900
       Environment:
@@ -465,6 +465,13 @@ Resources:
               Ref: ProdApiGateway
             Method: POST
             Path: /api/shopify/update-order-reference-numbers
+        UpdateOrderItemImage:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: ProdApiGateway
+            Method: POST
+            Path: /api/update-order-item-image
     Metadata:
       SamResourceId: OrderFullFillmentServerLessProdServerV2
   OrderFullFillmentServerLessDevServerLogGroup:

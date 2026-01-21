@@ -673,6 +673,8 @@ exports.updateOrderByValidProductSkuCode = async (req, res) => {
   }
 };
 
+
+
 function generateGUID() {
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
     const r = Math.random() * 16 | 0, v = c === 'x' ? r : (r & 0x3 | 0x8);
@@ -2135,6 +2137,77 @@ exports.sendOrderDetails = async (req, res) => {
   }
 };
 
+exports.updateOrderItemImage = async (req, res) => {
+  try {
+    const reqBody = JSON.parse(JSON.stringify(req.body));
+    var getProductDetails
+
+    if (!reqBody.orderFullFillmentId) {
+      res.status(400).json({
+        statusCode: 400,
+        status: false,
+        message: "Orderfullfillment Id is required.",
+      });
+    }
+    if (!reqBody.product_sku) {
+      res.status(400).json({
+        statusCode: 400,
+        status: false,
+        message: "Sku code or Product Guid is required",
+      });
+    }
+
+    // Fetch first if order is exist
+    log(
+      "Request comes to get order details to update product details",
+      JSON.stringify(reqBody)
+    );
+    const selectPayload = {
+      query: `SELECT * FROM ${process.env.FINER_fwAPI_FULFILLMENTS_TABLE} WHERE  FulfillmentID=${reqBody.orderFullFillmentId} AND FulfillmentAccountID=${reqBody.accountId}`,
+    };
+    console.log("selectPayload=====>>>>>", selectPayload);
+    log("Select query to fetch the orders", JSON.stringify(selectPayload));
+    const selectData = await finerworksService.SELECT_QUERY_FINERWORKS(
+      selectPayload
+    );
+        console.log("selectData========>>>>>>>>", selectData.data[0]);
+
+    const CollectedorderDetails = selectData.data[0];
+    const previousOrder = urlDecodeJSON(CollectedorderDetails.FulfillmentData);
+    console.log("selectData========>>>>>>>>", previousOrder);
+    previousOrder.order_items.forEach(item => {
+      if (item.product_sku === reqBody.product_sku) {
+        item.product_image = reqBody.product_image;
+      }
+    });
+    console.log("previousOrder===============",previousOrder);
+
+    const urlEncodedData = urlEncodeJSON(previousOrder);
+    const updatePayload = {
+      tablename: process.env.FINER_fwAPI_FULFILLMENTS_TABLE,
+      fieldupdates: `FulfillmentData='${urlEncodedData}'`,
+      where: `FulfillmentID=${reqBody.orderFullFillmentId}`,
+    };
+    const updateQueryExecute =
+      await finerworksService.UPDATE_QUERY_FINERWORKS(updatePayload);
+
+    return res.status(200).json({
+      statusCode: 200,
+      status: true,
+      message: "Order item image updated successfully.",
+      data: previousOrder
+    });
+   
+
+  } catch (err) {
+    const errorMessage = err.response.data;
+    res.status(400).json({
+      statusCode: 400,
+      status: false,
+      message: errorMessage,
+    });
+  }
+};
 
 
 
