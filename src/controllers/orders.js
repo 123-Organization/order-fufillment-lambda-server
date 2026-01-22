@@ -272,7 +272,7 @@ exports.updateOrderByProductSkuCode = async (req, res) => {
     }
     const orderDetails = selectData.data[0];
     // If order exist then find the product details
-    const { skuCode, productCode, fromTheInventory, account_key } = reqBody;
+    const { skuCode, productCode, fromTheInventory, account_key, product_guid } = reqBody;
     const searchListVirtualInventoryParams = {};
     if (skuCode != "") {
       searchListVirtualInventoryParams.sku_filter = [skuCode];
@@ -400,7 +400,7 @@ exports.updateOrderByProductSkuCode = async (req, res) => {
           product_qty: products?.[0]?.quantity ?? null,
           product_sku: products?.[0]?.sku ? products?.[0]?.sku : products?.[0]?.product_code,
           product_title: products?.[0]?.name ?? null,
-          product_guid: generateGUID(),
+          product_guid: product_guid?product_guid:generateGUID(),
           template: null,
           custom_data_1: null,
           custom_data_2: null,
