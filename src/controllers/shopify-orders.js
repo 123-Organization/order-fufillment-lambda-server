@@ -3729,6 +3729,21 @@ const syncShopifyProducts = async (req, res) => {
           resultEntry.variantUpdateError = variantErr.message || 'Unknown variant update error';
         }
 
+        // Fallback: if no variants were (re)created via bulk mutation, but Shopify
+        // returned a default standalone variant from productCreate, use it for
+        // inventory and shipping profile association. This is especially important
+        // for products that don't have any grouped variants (unique items).
+        if (!createdVariants.length && created?.variants?.nodes && created.variants.nodes.length) {
+          const defaultVariant = created.variants.nodes[0];
+          if (defaultVariant) {
+            createdVariants.push(defaultVariant);
+            createdVariant = createdVariant || defaultVariant;
+            if (!resultEntry.createdVariant) {
+              resultEntry.createdVariant = defaultVariant;
+            }
+          }
+        }
+
         // Set inventory for each created variant, mapping back to its source product.
         if (createdVariants.length && primaryLocationId) {
           for (let vIndex = 0; vIndex < createdVariants.length; vIndex++) {
