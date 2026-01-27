@@ -1029,7 +1029,7 @@ exports.submitOrders = async (req, res) => {
 exports.submitOrdersV2 = async (req, res) => {
   try {
     const reqBody = JSON.parse(JSON.stringify(req.body));
-    if (!reqBody?.orders || !reqBody?.payment_token || !reqBody?.accountId || !reqBody?.account_key) {
+    if (!reqBody?.orders  || !reqBody?.accountId || !reqBody?.account_key) {
       res.status(400).json({
         statusCode: 400,
         status: false,
@@ -1064,7 +1064,7 @@ exports.submitOrdersV2 = async (req, res) => {
       const finalPayload = {
         orders: finalOrders,
         validate_only: false,
-        payment_token,
+        payment_token:payment_token?payment_token:'',
         account_key: account_key,
         accountId: accountId
       };

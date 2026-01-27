@@ -273,6 +273,23 @@ exports.DELETE_PENDING_ORDER = async (payload) => {
   return postData.data;
 };
 
+/**
+ * Retrieves the list of pending orders.
+ * @param {Object} payload - The payload containing the query details.
+ * @returns {Promise<Object>} - The response data from the API.
+ */
+exports.LIST_PENDING_ORDERS = async (payload) => {
+
+  console.log
+  const postData = await axios({
+    method: 'POST',
+    url: process.env.FINER_WORKS_URL + 'list_pending_orders',
+    headers: getHeaders(),
+    data: payload
+  });
+  return postData.data;
+};
+
 
 exports.SHIPPING_OPTIONS_LIST = async (type) => {
   try {
