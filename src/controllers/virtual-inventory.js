@@ -221,7 +221,8 @@ exports.updateVirtualInventory = async (req, res) => {
 
 // # region Delete Virtual Inventory
 const skusSchema = Joi.object({
-    skus: Joi.array().items(Joi.string().required()).required()
+    skus: Joi.array().items(Joi.string().required()).required(),
+    account_key: Joi.string().required()
 });
 // Middleware for validation
 exports.validateSkus = (req, res, next) => {
@@ -245,7 +246,50 @@ exports.validateSkus = (req, res, next) => {
 exports.deleteVirtualInventory = async (req, res) => {
     try {
         const reqBody = JSON.parse(JSON.stringify(req.body));
+        
+        // First, check if there are any pending orders for these SKUs
+        const pendingOrdersPayload = {
+            skus: reqBody.skus,
+            account_key: reqBody.account_key
+        };
+        
+        let pendingOrdersResponse;
+        let hasPendingOrders = false;
+        
+        try {
+            pendingOrdersResponse = await finerworksService.LIST_PENDING_ORDERS(pendingOrdersPayload);
+            console.log("pendingOrdersResponse=====", pendingOrdersResponse);
+            
+            // Check if there are any pending orders in the response
+            if (pendingOrdersResponse && 
+                ((pendingOrdersResponse.orders && Array.isArray(pendingOrdersResponse.orders) && pendingOrdersResponse.orders.length > 0) ||
+                 (pendingOrdersResponse.data && Array.isArray(pendingOrdersResponse.data) && pendingOrdersResponse.data.length > 0) ||
+                 (pendingOrdersResponse.status && pendingOrdersResponse.status.success && pendingOrdersResponse.orders && pendingOrdersResponse.orders.length > 0))) {
+                hasPendingOrders = true;
+            }
+        } catch (error) {
+            // If 404 error, it means no pending orders exist - treat as success and allow deletion
+            if (error.response && error.response.status === 404) {
+                console.log("404 received - no pending orders found, proceeding with deletion");
+                hasPendingOrders = false;
+            } else {
+                // For other errors, rethrow to be handled by outer catch
+                throw error;
+            }
+        }
+        
+        // If pending orders exist, block deletion
+        if (hasPendingOrders) {
+            return res.status(400).json({
+                statusCode: 400,
+                status: false,
+                message: "SKUs cannot be deleted because they have pending orders"
+            });
+        }
+        
+        // If no pending orders (including 404 case), proceed with deletion
         const getInformation = await finerworksService.DELETE_VIRTUAL_INVENTORY(reqBody);
+        console.log("getInformation====",getInformation);
         if (getInformation && getInformation.status && getInformation.status.success) {
             res.status(200).json({
                 statusCode: 200,

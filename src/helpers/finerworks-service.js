@@ -279,8 +279,7 @@ exports.DELETE_PENDING_ORDER = async (payload) => {
  * @returns {Promise<Object>} - The response data from the API.
  */
 exports.LIST_PENDING_ORDERS = async (payload) => {
-
-  console.log
+  console.log("payload===",payload);
   const postData = await axios({
     method: 'POST',
     url: process.env.FINER_WORKS_URL + 'list_pending_orders',
