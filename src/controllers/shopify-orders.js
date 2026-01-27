@@ -69,6 +69,13 @@ const mapInventoryProductToShopifyInput = (product) => {
 
   const tags = labels.map(l => `${l.key}: ${l.value}`);
 
+  // Optional: product options (for variants) can be precomputed and attached
+  // to the product object as `product.productOptions` by higher-level logic
+  // (for example, based on grouped variants sharing the same image_guid).
+  const productOptions = Array.isArray(product?.productOptions)
+    ? product.productOptions
+    : null;
+
   // NOTE:
   // New Shopify Product APIs (2024-04+) no longer allow variants/images/media
   // on ProductInput. We create a basic product here, then attach media and
@@ -78,7 +85,8 @@ const mapInventoryProductToShopifyInput = (product) => {
     descriptionHtml,
     status: 'ACTIVE',
     tags: tags.length ? tags : undefined,
-    productType: productType || undefined
+    productType: productType || undefined,
+    productOptions: productOptions || undefined
   };
 
   // Remove undefined fields to keep the payload clean
@@ -726,7 +734,7 @@ const PRODUCT_VARIANTS_BULK_CREATE_MUTATION = `
   }
 `;
 
-const createOrReplaceVariantFromPayload = async ({ shopDomain, accessToken, apiVersion, productId, sku, price }) => {
+const createOrReplaceVariantFromPayload = async ({ shopDomain, accessToken, apiVersion, productId, variants }) => {
   if (!productId) return null;
 
   const endpoint = `https://${shopDomain}/admin/api/${apiVersion}/graphql.json`;
@@ -735,23 +743,48 @@ const createOrReplaceVariantFromPayload = async ({ shopDomain, accessToken, apiV
     'Content-Type': 'application/json'
   };
 
-  const variantInput = {};
-  if (price !== undefined && price !== null) {
-    variantInput.price = String(price);
-  }
-  if (sku) {
-    variantInput.inventoryItem = {
-      sku: String(sku)
-    };
+  const variantInputs = [];
+  if (Array.isArray(variants)) {
+    for (const v of variants) {
+      if (!v) continue;
+      const { sku, price, optionValues } = v;
+      const variantInput = {};
+
+      if (price !== undefined && price !== null) {
+        variantInput.price = String(price);
+      }
+      if (sku) {
+        variantInput.inventoryItem = {
+          sku: String(sku)
+        };
+      }
+      if (Array.isArray(optionValues) && optionValues.length) {
+        variantInput.optionValues = optionValues.map((ov) => ({
+          optionName: ov.optionName,
+          name: ov.name
+        }));
+      }
+
+      // Skip empty entries
+      if (
+        !variantInput.price &&
+        !variantInput.inventoryItem &&
+        !variantInput.optionValues
+      ) {
+        continue;
+      }
+
+      variantInputs.push(variantInput);
+    }
   }
 
   // Nothing to create
-  if (!variantInput.price && !variantInput.inventoryItem) return null;
+  if (!variantInputs.length) return null;
 
   const variables = {
     productId,
     strategy: 'REMOVE_STANDALONE_VARIANT',
-    variants: [variantInput]
+    variants: variantInputs
   };
 
   try {
@@ -3392,6 +3425,31 @@ const updateOrderFulfillmentStatus = async (req, res) => {
   }
 };
 
+// Helper to build Shopify variant option values (e.g., Type, Media, Style) from
+// the FinerWorks payload labels. This is used so that multiple variants on the
+// same product are properly differentiated in Shopify.
+const buildVariantOptionValuesFromLabels = (product) => {
+  if (!product || !Array.isArray(product.labels)) return [];
+
+  const allowedKeys = new Set(['type', 'media', 'style']);
+  const optionValues = [];
+
+  for (const label of product.labels) {
+    if (!label || !label.key || !allowedKeys.has(label.key)) continue;
+    if (!label.value) continue;
+
+    const optionName =
+      label.key.charAt(0).toUpperCase() + label.key.slice(1);
+
+    optionValues.push({
+      optionName,
+      name: String(label.value)
+    });
+  }
+
+  return optionValues;
+};
+
 // Endpoint to create/sync products in Shopify using GraphQL Admin API.
 // Expects payload:
 // {
@@ -3416,7 +3474,7 @@ const syncShopifyProducts = async (req, res) => {
       req.query?.storeName ||
       req.query?.shop;
 
-    const products = Array.isArray(req.body?.productsList) ? req.body.productsList : [];
+    const rawProducts = Array.isArray(req.body?.productsList) ? req.body.productsList : [];
     const apiVersion = process.env.SHOPIFY_API_VERSION || '2025-10';
 
     if (!accessToken || !storeName) {
@@ -3426,7 +3484,7 @@ const syncShopifyProducts = async (req, res) => {
       });
     }
 
-    if (!products.length) {
+    if (!rawProducts.length) {
       return res.status(400).json({
         success: false,
         message: 'productsList must be a non-empty array'
@@ -3439,6 +3497,104 @@ const syncShopifyProducts = async (req, res) => {
         success: false,
         message: 'Invalid storeName. Expected shopname or shopname.myshopify.com'
       });
+    }
+
+    // Group products by image_guid to determine primary items and their variants.
+    // - If multiple items share the same image_guid, they are considered variants.
+    //   Among them, the one with primaryItem === true (when present) is the primary item,
+    //   and the remaining items are attached under it as variants.
+    // - If image_guid is unique or missing, the item is treated as an individual product.
+    const products = [];
+    const imageGuidMap = new Map();
+
+    for (const item of rawProducts) {
+      const guid = item && item.image_guid;
+      if (!guid) {
+        // No image_guid: treat as standalone product.
+        products.push(item);
+        continue;
+      }
+
+      if (!imageGuidMap.has(guid)) {
+        imageGuidMap.set(guid, []);
+      }
+      imageGuidMap.get(guid).push(item);
+    }
+
+    for (const items of imageGuidMap.values()) {
+      if (!Array.isArray(items) || !items.length) {
+        continue;
+      }
+
+      if (items.length === 1) {
+        // Only one product for this image_guid; treat as individual product.
+        products.push(items[0]);
+        continue;
+      }
+
+      // More than one product with the same image_guid -> variants.
+      // Choose the primary item when marked, otherwise default to the first.
+      let primary = items.find(p => p && p.primaryItem === true);
+      if (!primary) {
+        primary = items[0];
+      }
+
+      const variants = items.filter(p => p !== primary);
+      if (variants.length) {
+        primary.variants = variants;
+
+        // Build Shopify product options from all items in this group so that
+        // variants can be differentiated (e.g., by Type, Media, Style).
+        const allItems = [primary, ...variants];
+
+        const collectValues = (key) => {
+          const values = [];
+          for (const item of allItems) {
+            if (!item || !Array.isArray(item.labels)) continue;
+            for (const label of item.labels) {
+              if (!label || !label.key || !label.value) continue;
+              if (String(label.key).toLowerCase() !== String(key).toLowerCase()) {
+                continue;
+              }
+              const val = String(label.value);
+              if (!values.includes(val)) {
+                values.push(val);
+              }
+            }
+          }
+          return values;
+        };
+
+        const typeValues = collectValues('type');
+        const mediaValues = collectValues('media');
+        const styleValues = collectValues('style');
+
+        const productOptions = [];
+        if (typeValues.length) {
+          productOptions.push({
+            name: 'Type',
+            values: typeValues.map(v => ({ name: v }))
+          });
+        }
+        if (mediaValues.length) {
+          productOptions.push({
+            name: 'Media',
+            values: mediaValues.map(v => ({ name: v }))
+          });
+        }
+        if (styleValues.length) {
+          productOptions.push({
+            name: 'Style',
+            values: styleValues.map(v => ({ name: v }))
+          });
+        }
+
+        if (productOptions.length) {
+          primary.productOptions = productOptions;
+        }
+      }
+
+      products.push(primary);
     }
 
     // Fetch primary location once for all inventory updates
@@ -3518,86 +3674,153 @@ const syncShopifyProducts = async (req, res) => {
           resultEntry.publishError = publishErr.message || 'Unknown publish error';
         }
 
-        // Set default inventory quantity to 10 on the first variant (default variant)
-        // First: create/replace a real variant with SKU and price from payload
-        const variantPrice =
-          product?.price_details?.product_price ??
-          product?.per_item_price ??
-          product?.asking_price ??
-          product?.total_price ??
-          null;
+        // Build a list of source products for variants:
+        // - The primary (grouped) item.
+        // - Any additional variants attached via the `variants` array.
+        const variantSourceProducts = [
+          product,
+          ...(Array.isArray(product?.variants) ? product.variants : [])
+        ];
 
+        // Create/replace Shopify variants for each source product in a single bulk call.
+        // The first entry corresponds to the primary item; the rest are its variants.
+        const createdVariants = [];
         let createdVariant = null;
         try {
+          const variantPayloads = [];
+
+          for (const src of variantSourceProducts) {
+            if (!src) continue;
+
+            const variantPrice =
+              src?.price_details?.product_price ??
+              src?.per_item_price ??
+              src?.asking_price ??
+              src?.total_price ??
+              null;
+
+            const optionValues = buildVariantOptionValuesFromLabels(src);
+
+            variantPayloads.push({
+              sku: src?.sku,
+              price: variantPrice,
+              optionValues
+            });
+          }
+
           const variantsCreated = await createOrReplaceVariantFromPayload({
             shopDomain,
             accessToken,
             apiVersion,
             productId: created.id,
-            sku: product?.sku,
-            price: variantPrice
+            variants: variantPayloads
           });
+
           if (Array.isArray(variantsCreated) && variantsCreated.length > 0) {
-            createdVariant = variantsCreated[0];
+            createdVariants.push(...variantsCreated);
+            createdVariant = createdVariants[0];
             resultEntry.createdVariant = createdVariant;
+            if (createdVariants.length > 1) {
+              resultEntry.additionalVariants = createdVariants.slice(1);
+            }
           }
         } catch (variantErr) {
           hasErrors = true;
           resultEntry.variantUpdateError = variantErr.message || 'Unknown variant update error';
         }
 
-        const inventoryItemId = createdVariant?.inventoryItem?.id;
+        // Set inventory for each created variant, mapping back to its source product.
+        if (createdVariants.length && primaryLocationId) {
+          for (let vIndex = 0; vIndex < createdVariants.length; vIndex++) {
+            const variant = createdVariants[vIndex];
+            const src = variantSourceProducts[vIndex] || product;
+            const inventoryItemId = variant?.inventoryItem?.id;
 
-        // Use quantity_in_stock from payload when provided, otherwise default to 10
-        const quantityInStock = typeof product?.quantity_in_stock === 'number'
-          ? product.quantity_in_stock
-          : 10;
+            // Use quantity_in_stock (or quantity) from the matching source payload when provided,
+            // otherwise default to 10.
+            const quantityInStock = typeof src?.quantity_in_stock === 'number'
+              ? src.quantity_in_stock
+              : typeof src?.quantity === 'number'
+                ? src.quantity
+                : 10;
 
-        if (inventoryItemId && primaryLocationId) {
-          try {
-            // First ensure this inventory item is stocked at the primary location
-            await ensureInventoryItemStockedAtLocation({
-              shopDomain,
-              accessToken,
-              apiVersion,
-              inventoryItemId,
-              locationId: primaryLocationId
-            });
+            if (!inventoryItemId) continue;
 
-            // Then set its available quantity
-            const adjustResult = await setInventoryQuantity({
-              shopDomain,
-              accessToken,
-              apiVersion,
-              inventoryItemId,
-              locationId: primaryLocationId,
-              quantity: quantityInStock
-            });
-            resultEntry.inventoryAdjustmentGroup = adjustResult;
-          } catch (invErr) {
-            hasErrors = true;
-            resultEntry.inventoryError = invErr.message || 'Unknown inventory error';
+            try {
+              // First ensure this inventory item is stocked at the primary location
+              await ensureInventoryItemStockedAtLocation({
+                shopDomain,
+                accessToken,
+                apiVersion,
+                inventoryItemId,
+                locationId: primaryLocationId
+              });
+
+              // Then set its available quantity
+              const adjustResult = await setInventoryQuantity({
+                shopDomain,
+                accessToken,
+                apiVersion,
+                inventoryItemId,
+                locationId: primaryLocationId,
+                quantity: quantityInStock
+              });
+
+              if (vIndex === 0) {
+                resultEntry.inventoryAdjustmentGroup = adjustResult;
+              } else {
+                if (!resultEntry.additionalInventoryAdjustments) {
+                  resultEntry.additionalInventoryAdjustments = [];
+                }
+                resultEntry.additionalInventoryAdjustments.push({
+                  index: vIndex,
+                  sku: src?.sku || null,
+                  result: adjustResult
+                });
+              }
+            } catch (invErr) {
+              hasErrors = true;
+              if (vIndex === 0) {
+                resultEntry.inventoryError = invErr.message || 'Unknown inventory error';
+              } else {
+                if (!resultEntry.additionalInventoryErrors) {
+                  resultEntry.additionalInventoryErrors = [];
+                }
+                resultEntry.additionalInventoryErrors.push({
+                  index: vIndex,
+                  sku: src?.sku || null,
+                  error: invErr.message || 'Unknown inventory error'
+                });
+              }
+            }
           }
         }
 
-        // After successfully creating the product/variant and adjusting inventory,
-        // associate the variant with the "FinerWorks Shipping" delivery profile when available.
-        if (finerWorksShippingProfileGid && createdVariant?.id) {
-          try {
-            const deliveryProfile = await assignVariantsToShippingProfile({
-              shopDomain,
-              accessToken,
-              apiVersion,
-              deliveryProfileGid: finerWorksShippingProfileGid,
-              variantGids: [createdVariant.id]
-            });
-            resultEntry.shippingProfileAssignment = {
-              deliveryProfileId: deliveryProfile?.id || finerWorksShippingProfileGid
-            };
-          } catch (shippingErr) {
-            hasErrors = true;
-            resultEntry.shippingProfileError =
-              shippingErr.message || 'Unknown shipping profile assignment error';
+        // After successfully creating the product/variants and adjusting inventory,
+        // associate all created variants with the "FinerWorks Shipping" delivery profile when available.
+        if (finerWorksShippingProfileGid && createdVariants.length) {
+          const variantGids = createdVariants
+            .map(v => v && v.id)
+            .filter(Boolean);
+
+          if (variantGids.length) {
+            try {
+              const deliveryProfile = await assignVariantsToShippingProfile({
+                shopDomain,
+                accessToken,
+                apiVersion,
+                deliveryProfileGid: finerWorksShippingProfileGid,
+                variantGids
+              });
+              resultEntry.shippingProfileAssignment = {
+                deliveryProfileId: deliveryProfile?.id || finerWorksShippingProfileGid,
+                variantGids
+              };
+            } catch (shippingErr) {
+              hasErrors = true;
+              resultEntry.shippingProfileError =
+                shippingErr.message || 'Unknown shipping profile assignment error';
+            }
           }
         }
 
