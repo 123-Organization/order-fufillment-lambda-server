@@ -40,6 +40,7 @@ const PRODUCT_CREATE_MUTATION = `
         variants(first: 1) {
           nodes {
             id
+            sku
             inventoryItem {
               id
             }
@@ -3681,6 +3682,7 @@ const syncShopifyProducts = async (req, res) => {
           product,
           ...(Array.isArray(product?.variants) ? product.variants : [])
         ];
+        const hasGroupedVariants = Array.isArray(product?.variants) && product.variants.length > 0;
 
         // Create/replace Shopify variants for each source product in a single bulk call.
         // The first entry corresponds to the primary item; the rest are its variants.
@@ -3699,12 +3701,13 @@ const syncShopifyProducts = async (req, res) => {
               src?.total_price ??
               null;
 
-            const optionValues = buildVariantOptionValuesFromLabels(src);
-
             variantPayloads.push({
               sku: src?.sku,
               price: variantPrice,
-              optionValues
+              // Only include optionValues when we're actually creating a multi-variant product.
+              // For unique items, sending optionValues without defining product options causes:
+              // "Option does not exist" and prevents variant creation.
+              optionValues: hasGroupedVariants ? buildVariantOptionValuesFromLabels(src) : undefined
             });
           }
 
@@ -3849,55 +3852,94 @@ const syncShopifyProducts = async (req, res) => {
             null;
 
           // Extract numeric IDs from Shopify GIDs when possible, fallback to the raw GID.
-          const shopifyProductGid = created?.id || null;
-          const shopifyProductNumericId = shopifyProductGid
-            ? shopifyProductGid.split('/').pop()
-            : null;
+          // We update virtual inventory for EVERY sku (primary + variants, or standalone).
+          // IMPORTANT: Shopify may not return created variants in the same order we sent them,
+          // so we match created variants back to payload items by SKU (not by index).
+          const virtualInventoryItems = [];
 
-          const shopifyVariantGid = createdVariant?.id || null;
-          const shopifyVariantNumericId = shopifyVariantGid
-            ? shopifyVariantGid.split('/').pop()
-            : null;
+          const variantBySku = new Map();
+          for (const v of createdVariants) {
+            const sku = v?.sku ? String(v.sku) : null;
+            if (sku) {
+              variantBySku.set(sku, v);
+            }
+          }
+
+          for (const src of variantSourceProducts) {
+            if (!src) continue;
+            const srcSku = src?.sku ? String(src.sku) : null;
+            if (!srcSku) continue;
+
+            const matchedVariant = variantBySku.get(srcSku) || null;
+            const shopifyVariantGid = matchedVariant?.id || null;
+            const shopifyVariantNumericId = shopifyVariantGid
+              ? shopifyVariantGid.split('/').pop()
+              : null;
+
+            virtualInventoryItems.push({
+              sku: srcSku,
+              asking_price:
+                src?.asking_price ??
+                src?.per_item_price ??
+                src?.price_details?.product_price ??
+                src?.total_price ??
+                0,
+              name: src?.name || 'Untitled',
+              description:
+                src?.description_long ||
+                src?.description_short ||
+                '',
+              quantity_in_stock:
+                typeof src?.quantity_in_stock === 'number'
+                  ? src.quantity_in_stock
+                  : typeof src?.quantity === 'number'
+                    ? src.quantity
+                    : 0,
+              track_inventory: true,
+              third_party_integrations: {
+                ...(src?.third_party_integrations || {}),
+                shopify_graphql_product_id:
+                  shopifyVariantNumericId || shopifyVariantGid || null
+              }
+            });
+          }
 
           const finalPayload = {
-            virtual_inventory: [
-              {
-                sku: product?.sku,
-                asking_price:
-                  product?.asking_price ??
-                  product?.per_item_price ??
-                  product?.price_details?.product_price ??
-                  product?.total_price ??
-                  0,
-                name: product?.name || 'Untitled',
-                description:
-                  product?.description_long ||
-                  product?.description_short ||
-                  '',
-                quantity_in_stock:
-                  typeof product?.quantity_in_stock === 'number'
-                    ? product.quantity_in_stock
-                    : typeof product?.quantity === 'number'
-                      ? product.quantity
-                      : 0,
-                track_inventory: true,
-                third_party_integrations: {
-                  ...(product?.third_party_integrations || {}),
-                  // shopify_product_id:
-                  //   shopifyProductNumericId || shopifyProductGid || null,
-                  shopify_graphql_product_id:
-                    shopifyVariantNumericId || shopifyVariantGid || null
-                }
-              }
-            ],
+            virtual_inventory: virtualInventoryItems,
             account_key: accountKey
           };
           console.log("finalPayload==============", finalPayload);
 
-          const virtualInventoryUpdate =
-            await finerworksService.UPDATE_VIRTUAL_INVENTORY(finalPayload);
+          // NOTE: The upstream FinerWorks API can behave as if it only processes the first
+          // item in `virtual_inventory`. To ensure every SKU is updated, call the endpoint
+          // once per SKU using the same payload shape.
+          const virtualInventoryUpdates = [];
+          const virtualInventoryUpdateErrors = [];
 
-          resultEntry.virtualInventoryUpdate = virtualInventoryUpdate;
+          for (const item of virtualInventoryItems) {
+            try {
+              const onePayload = {
+                virtual_inventory: [item],
+                account_key: accountKey
+              };
+              const updateResult = await finerworksService.UPDATE_VIRTUAL_INVENTORY(onePayload);
+              virtualInventoryUpdates.push({
+                sku: item?.sku || null,
+                result: updateResult
+              });
+            } catch (singleErr) {
+              hasErrors = true;
+              virtualInventoryUpdateErrors.push({
+                sku: item?.sku || null,
+                error: singleErr.message || 'Unknown virtual inventory update error'
+              });
+            }
+          }
+
+          resultEntry.virtualInventoryUpdates = virtualInventoryUpdates;
+          if (virtualInventoryUpdateErrors.length) {
+            resultEntry.virtualInventoryUpdateErrors = virtualInventoryUpdateErrors;
+          }
           resultEntry.virtualInventoryPayload = finalPayload;
         } catch (fwErr) {
           hasErrors = true;
