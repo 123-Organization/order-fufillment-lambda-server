@@ -16,6 +16,40 @@ const normalizeShopDomain = (shopInput) => {
   return shopDomain;
 };
 
+const SHIPPING_FEES_URL =
+  process.env.SHIPPING_FEES_URL ||
+  'https://quebec-walnut-rover-recommend.trycloudflare.com/api/shipping-fees';
+
+const getShopShippingMarkupPercent = async (shopInput) => {
+  const shop = normalizeShopDomain(shopInput);
+  if (!shop) return null;
+
+  try {
+    const resp = await axios.get(SHIPPING_FEES_URL, {
+      params: { shop },
+      timeout: 8000
+    });
+
+    const data = resp?.data;
+    const percent =
+      data?.success === true &&
+      data?.hasMarkup === true &&
+      String(data?.markup?.type).toLowerCase() === 'percent'
+        ? Number(data?.markup?.value)
+        : null;
+
+    if (!Number.isFinite(percent) || percent <= 0) return null;
+    return percent;
+  } catch (err) {
+    // If the markup service is down, we still want to return base rates.
+    console.error(
+      'Failed to fetch shipping markup percent:',
+      err?.response?.data || err?.message || err
+    );
+    return null;
+  }
+};
+
 // Reusable GraphQL mutation for creating a Shopify product
 // NOTE: media is provided as a separate argument, NOT inside ProductInput.
 const PRODUCT_CREATE_MUTATION = `
@@ -4525,6 +4559,14 @@ const shopifyCarrierServiceCallback = async (req, res) => {
     // FinerWorks returns shipping options under `options` for each order.
     const shippingOptions = firstOrder?.options || [];
 
+    const shopFromReq =
+      req.query?.shop || req.headers['x-shopify-shop-domain'] || req.body?.shop;
+    const markupPercent = await getShopShippingMarkupPercent(shopFromReq);
+    const markupMultiplier =
+      Number.isFinite(markupPercent) && markupPercent > 0
+        ? 1 + markupPercent / 100
+        : 1;
+
     const rates = Array.isArray(shippingOptions)
       ? shippingOptions.map((opt) => {
           const methodName = opt.shipping_method || opt.name || 'Shipping';
@@ -4536,8 +4578,10 @@ const shopifyCarrierServiceCallback = async (req, res) => {
 
           // `rate` is the shipping charge in major currency units (e.g., dollars)
           const price = opt.rate || 0;
-          // const totalPriceMinor = Math.round(Number(price));
-                    const totalPriceMinor = price
+          const basePriceMinor = Number(price);
+          const totalPriceMinor = Number.isFinite(basePriceMinor)
+            ? basePriceMinor * markupMultiplier
+            : 0;
 
 
           const description =
