@@ -2377,7 +2377,13 @@ function urlDecodeJSON(data) {
 }
 function urlEncodeJSON(data) {
   const jsonString = JSON.stringify(data);
-  const encodedString = encodeURIComponent(jsonString);
+  // encodeURIComponent intentionally does NOT encode: ! ' ( ) *
+  // We must encode these too (especially `'`), because the result is embedded
+  // into SQL strings like FulfillmentData='...'
+  const encodedString = encodeURIComponent(jsonString).replace(
+    /[!'()*]/g,
+    (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`
+  );
   return encodedString;
 }
 
