@@ -3460,29 +3460,65 @@ const updateOrderFulfillmentStatus = async (req, res) => {
   }
 };
 
-// Helper to build Shopify variant option values (e.g., Type, Media, Style) from
-// the FinerWorks payload labels. This is used so that multiple variants on the
-// same product are properly differentiated in Shopify.
-const buildVariantOptionValuesFromLabels = (product) => {
-  if (!product || !Array.isArray(product.labels)) return [];
+// Helpers to build Shopify variant option values (e.g., Type, Media, Style).
+//
+// IMPORTANT:
+// - For a multi-variant Shopify product, every variant must provide a value for
+//   every defined product option, otherwise Shopify can reject the variant in
+//   productVariantsBulkCreate.
+// - Some FinerWorks items (e.g., Cards) may not have `media`/`style` labels, so
+//   we derive fallback values (e.g., from `name` or `product_size`), and use
+//   "N/A" where needed. We also ensure the product's `productOptions` include
+//   these derived values.
+const getLabelValue = (product, key) => {
+  if (!product || !Array.isArray(product.labels)) return null;
+  const entry = product.labels.find(
+    (l) => l && l.key && String(l.key).toLowerCase() === String(key).toLowerCase()
+  );
+  return entry && entry.value != null ? String(entry.value) : null;
+};
 
-  const allowedKeys = new Set(['type', 'media', 'style']);
-  const optionValues = [];
+const deriveOptionValue = (product, optionName) => {
+  const opt = String(optionName || '').toLowerCase();
 
-  for (const label of product.labels) {
-    if (!label || !label.key || !allowedKeys.has(label.key)) continue;
-    if (!label.value) continue;
-
-    const optionName =
-      label.key.charAt(0).toUpperCase() + label.key.slice(1);
-
-    optionValues.push({
-      optionName,
-      name: String(label.value)
-    });
+  if (opt === 'type') {
+    return getLabelValue(product, 'type') || 'Default';
   }
 
-  return optionValues;
+  if (opt === 'media') {
+    const media = getLabelValue(product, 'media');
+    if (media) return media;
+
+    // Cards payload often includes a `name` label instead of `media`.
+    const name = getLabelValue(product, 'name');
+    if (name) return name;
+
+    const w = product?.product_size?.width;
+    const h = product?.product_size?.height;
+    if (typeof w === 'number' && typeof h === 'number' && w > 0 && h > 0) {
+      return `${w} x ${h}`;
+    }
+
+    return 'N/A';
+  }
+
+  if (opt === 'style') {
+    return getLabelValue(product, 'style') || 'N/A';
+  }
+
+  // Unknown option name: keep Shopify happy with a value.
+  return 'N/A';
+};
+
+const buildVariantOptionValues = (product, optionNames) => {
+  const names = Array.isArray(optionNames) && optionNames.length
+    ? optionNames
+    : ['Type', 'Media', 'Style'];
+
+  return names.map((name) => ({
+    optionName: name,
+    name: deriveOptionValue(product, name)
+  }));
 };
 
 // Endpoint to create/sync products in Shopify using GraphQL Admin API.
@@ -3580,53 +3616,35 @@ const syncShopifyProducts = async (req, res) => {
 
         // Build Shopify product options from all items in this group so that
         // variants can be differentiated (e.g., by Type, Media, Style).
+        //
+        // We derive values (with fallbacks) to guarantee every variant can supply
+        // all required optionValues for the defined options.
         const allItems = [primary, ...variants];
+        const optionNames = ['Type', 'Media', 'Style'];
 
-        const collectValues = (key) => {
-          const values = [];
-          for (const item of allItems) {
-            if (!item || !Array.isArray(item.labels)) continue;
-            for (const label of item.labels) {
-              if (!label || !label.key || !label.value) continue;
-              if (String(label.key).toLowerCase() !== String(key).toLowerCase()) {
-                continue;
-              }
-              const val = String(label.value);
-              if (!values.includes(val)) {
-                values.push(val);
-              }
+        const uniqueValuesByOption = new Map();
+        for (const optName of optionNames) {
+          uniqueValuesByOption.set(optName, []);
+        }
+
+        for (const item of allItems) {
+          if (!item) continue;
+          for (const optName of optionNames) {
+            const val = deriveOptionValue(item, optName);
+            const list = uniqueValuesByOption.get(optName);
+            if (list && !list.includes(val)) {
+              list.push(val);
             }
           }
-          return values;
-        };
-
-        const typeValues = collectValues('type');
-        const mediaValues = collectValues('media');
-        const styleValues = collectValues('style');
-
-        const productOptions = [];
-        if (typeValues.length) {
-          productOptions.push({
-            name: 'Type',
-            values: typeValues.map(v => ({ name: v }))
-          });
-        }
-        if (mediaValues.length) {
-          productOptions.push({
-            name: 'Media',
-            values: mediaValues.map(v => ({ name: v }))
-          });
-        }
-        if (styleValues.length) {
-          productOptions.push({
-            name: 'Style',
-            values: styleValues.map(v => ({ name: v }))
-          });
         }
 
-        if (productOptions.length) {
-          primary.productOptions = productOptions;
-        }
+        const productOptions = optionNames.map((optName) => ({
+          name: optName,
+          values: (uniqueValuesByOption.get(optName) || []).map((v) => ({ name: v }))
+        }));
+
+        // Always attach productOptions for grouped variants (Shopify expects them).
+        primary.productOptions = productOptions;
       }
 
       products.push(primary);
@@ -3741,7 +3759,14 @@ const syncShopifyProducts = async (req, res) => {
               // Only include optionValues when we're actually creating a multi-variant product.
               // For unique items, sending optionValues without defining product options causes:
               // "Option does not exist" and prevents variant creation.
-              optionValues: hasGroupedVariants ? buildVariantOptionValuesFromLabels(src) : undefined
+              optionValues: hasGroupedVariants
+                ? buildVariantOptionValues(
+                    src,
+                    Array.isArray(product?.productOptions)
+                      ? product.productOptions.map((o) => o && o.name).filter(Boolean)
+                      : undefined
+                  )
+                : undefined
             });
           }
 
