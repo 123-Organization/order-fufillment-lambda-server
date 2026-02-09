@@ -18,7 +18,7 @@ const normalizeShopDomain = (shopInput) => {
 
 const SHIPPING_FEES_URL =
   process.env.SHIPPING_FEES_URL ||
-  'https://quebec-walnut-rover-recommend.trycloudflare.com/api/shipping-fees';
+  'https://shopify.finerworks.com/api/shipping-fees';
 
 const getShopShippingMarkupPercent = async (shopInput) => {
   const shop = normalizeShopDomain(shopInput);
@@ -4636,6 +4636,437 @@ const shopifyCarrierServiceCallback = async (req, res) => {
   }
 };
 
+// Register a Shopify webhook via REST Admin API.
+// Expects payload:
+// {
+//   "storeName": "shop.myshopify.com",
+//   "access_token": "shpat_...",
+//   "webhook": {
+//     "topic": "products/delete",
+//     "address": "https://yourdomain.com/webhooks/product-delete",
+//     "format": "json"
+//   }
+// }
+const registerShopifyWebhook = async (req, res) => {
+  try {
+    let accessToken = req.body?.access_token || req.headers['x-shopify-access-token'];
+    const authHeader = req.headers?.authorization || req.headers?.Authorization;
+
+    if (!accessToken && authHeader && authHeader.startsWith('Bearer ')) {
+      accessToken = authHeader.slice(7).trim();
+    }
+
+    const storeName =
+      req.body?.storeName ||
+      req.body?.shop ||
+      req.body?.store ||
+      req.query?.storeName ||
+      req.query?.shop;
+
+    const webhook = req.body?.webhook || null;
+    const apiVersion = process.env.SHOPIFY_API_VERSION || '2025-10';
+
+    if (!accessToken || !storeName) {
+      return res.status(400).json({
+        success: false,
+        message: 'Missing required parameters: access_token and storeName'
+      });
+    }
+
+    if (!webhook || typeof webhook !== 'object') {
+      return res.status(400).json({
+        success: false,
+        message: 'Missing required object: webhook'
+      });
+    }
+
+    const topic = webhook.topic ? String(webhook.topic) : null;
+    const address = webhook.address ? String(webhook.address) : null;
+    const format = webhook.format ? String(webhook.format) : 'json';
+
+    if (!topic || !address) {
+      return res.status(400).json({
+        success: false,
+        message: 'webhook.topic and webhook.address are required'
+      });
+    }
+
+    if (!address.toLowerCase().startsWith('https://')) {
+      return res.status(400).json({
+        success: false,
+        message: 'webhook.address must be an https URL'
+      });
+    }
+
+    const shopDomain = normalizeShopDomain(storeName);
+    if (!shopDomain || !shopDomain.match(/^[a-z0-9][a-z0-9-]*\.myshopify\.com$/)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid storeName. Expected shopname or shopname.myshopify.com'
+      });
+    }
+
+    const endpoint = `https://${shopDomain}/admin/api/${apiVersion}/webhooks.json`;
+    const headers = {
+      'X-Shopify-Access-Token': accessToken,
+      'Content-Type': 'application/json',
+      Accept: 'application/json'
+    };
+
+    const payload = {
+      webhook: {
+        topic,
+        address,
+        format
+      }
+    };
+
+    const resp = await axios.post(endpoint, payload, { headers });
+
+    return res.status(200).json({
+      success: true,
+      shopDomain,
+      webhook: resp.data?.webhook || null
+    });
+  } catch (err) {
+    const status = err?.response?.status || err.status || 500;
+    const data = err?.response?.data || null;
+    const message =
+      (data && (data.errors || data.error)) ||
+      err.message ||
+      'Request failed';
+
+    return res.status(status).json({
+      success: false,
+      message: 'Failed to register Shopify webhook',
+      error: typeof message === 'string' ? message : JSON.stringify(message),
+      details: data || undefined
+    });
+  }
+};
+
+// List Shopify webhooks via REST Admin API.
+// Expects:
+// - storeName/shop
+// - access_token (body/header/bearer)
+const listShopifyWebhooks = async (req, res) => {
+  try {
+    let accessToken = req.body?.access_token || req.headers['x-shopify-access-token'];
+    const authHeader = req.headers?.authorization || req.headers?.Authorization;
+
+    if (!accessToken && authHeader && authHeader.startsWith('Bearer ')) {
+      accessToken = authHeader.slice(7).trim();
+    }
+
+    const storeName =
+      req.body?.storeName ||
+      req.body?.shop ||
+      req.body?.store ||
+      req.query?.storeName ||
+      req.query?.shop;
+
+    const apiVersion = process.env.SHOPIFY_API_VERSION || '2025-10';
+
+    if (!accessToken || !storeName) {
+      return res.status(400).json({
+        success: false,
+        message: 'Missing required parameters: access_token and storeName'
+      });
+    }
+
+    const shopDomain = normalizeShopDomain(storeName);
+    if (!shopDomain || !shopDomain.match(/^[a-z0-9][a-z0-9-]*\.myshopify\.com$/)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid storeName. Expected shopname or shopname.myshopify.com'
+      });
+    }
+
+    const endpoint = `https://${shopDomain}/admin/api/${apiVersion}/webhooks.json`;
+    const headers = {
+      'X-Shopify-Access-Token': accessToken,
+      Accept: 'application/json'
+    };
+
+    const resp = await axios.get(endpoint, { headers });
+
+    return res.status(200).json({
+      success: true,
+      shopDomain,
+      webhooks: resp.data?.webhooks || []
+    });
+  } catch (err) {
+    const status = err?.response?.status || err.status || 500;
+    const data = err?.response?.data || null;
+    const message =
+      (data && (data.errors || data.error)) ||
+      err.message ||
+      'Request failed';
+
+    return res.status(status).json({
+      success: false,
+      message: 'Failed to list Shopify webhooks',
+      error: typeof message === 'string' ? message : JSON.stringify(message),
+      details: data || undefined
+    });
+  }
+};
+
+// Delete a Shopify webhook by id via REST Admin API.
+// Expects:
+// - storeName/shop
+// - access_token (body/header/bearer)
+// - webhook_id/id (body/query)
+const deleteShopifyWebhookById = async (req, res) => {
+  try {
+    let accessToken = req.body?.access_token || req.headers['x-shopify-access-token'];
+    const authHeader = req.headers?.authorization || req.headers?.Authorization;
+
+    if (!accessToken && authHeader && authHeader.startsWith('Bearer ')) {
+      accessToken = authHeader.slice(7).trim();
+    }
+
+    const storeName =
+      req.body?.storeName ||
+      req.body?.shop ||
+      req.body?.store ||
+      req.query?.storeName ||
+      req.query?.shop;
+
+    const webhookIdRaw =
+      req.body?.webhook_id ||
+      req.body?.webhookId ||
+      req.body?.id ||
+      req.query?.webhook_id ||
+      req.query?.webhookId ||
+      req.query?.id;
+
+    const apiVersion = process.env.SHOPIFY_API_VERSION || '2025-10';
+
+    if (!accessToken || !storeName) {
+      return res.status(400).json({
+        success: false,
+        message: 'Missing required parameters: access_token and storeName'
+      });
+    }
+
+    if (!webhookIdRaw) {
+      return res.status(400).json({
+        success: false,
+        message: 'Missing required parameter: webhook_id'
+      });
+    }
+
+    const webhookId = String(webhookIdRaw).trim();
+    if (!/^\d+$/.test(webhookId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'webhook_id must be a numeric id'
+      });
+    }
+
+    const shopDomain = normalizeShopDomain(storeName);
+    if (!shopDomain || !shopDomain.match(/^[a-z0-9][a-z0-9-]*\.myshopify\.com$/)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid storeName. Expected shopname or shopname.myshopify.com'
+      });
+    }
+
+    const endpoint = `https://${shopDomain}/admin/api/${apiVersion}/webhooks/${webhookId}.json`;
+    const headers = {
+      'X-Shopify-Access-Token': accessToken,
+      Accept: 'application/json'
+    };
+
+    await axios.delete(endpoint, { headers });
+
+    return res.status(200).json({
+      success: true,
+      shopDomain,
+      deleted_webhook_id: webhookId
+    });
+  } catch (err) {
+    const status = err?.response?.status || err.status || 500;
+    const data = err?.response?.data || null;
+    const message =
+      (data && (data.errors || data.error)) ||
+      err.message ||
+      'Request failed';
+
+    return res.status(status).json({
+      success: false,
+      message: 'Failed to delete Shopify webhook',
+      error: typeof message === 'string' ? message : JSON.stringify(message),
+      details: data || undefined
+    });
+  }
+};
+
+// Shopify "products/delete" webhook receiver.
+//
+// Shopify will POST a JSON payload that includes at least:
+// { "id": 123456789, ... }
+//
+// Requirements from request:
+// 1) accept the id
+// 2) fetch all details of that product with variants if present
+//
+// NOTE:
+// - In Shopify, once a product is deleted, fetching it from the Admin API can return null/404.
+// - When an access token is available (body/header/env), we try to fetch anyway.
+// - Otherwise we return the webhook payload as the best available "details".
+const PRODUCT_DETAILS_QUERY = `
+  query productDetails($id: ID!) {
+    product(id: $id) {
+      id
+      title
+      handle
+      status
+      vendor
+      productType
+      createdAt
+      updatedAt
+      variants(first: 100) {
+        nodes {
+          id
+          sku
+          title
+          price
+          availableForSale
+          sellableOnlineQuantity
+          inventoryQuantity
+          inventoryPolicy
+          selectedOptions {
+            name
+            value
+          }
+          inventoryItem {
+            id
+            tracked
+          }
+        }
+      }
+    }
+  }
+`;
+
+const fetchProductDetailsById = async ({ shopDomain, accessToken, apiVersion, productNumericId }) => {
+  if (!shopDomain || !accessToken || !productNumericId) return null;
+
+  const endpoint = `https://${shopDomain}/admin/api/${apiVersion}/graphql.json`;
+  const headers = {
+    'X-Shopify-Access-Token': accessToken,
+    'Content-Type': 'application/json'
+  };
+
+  const gid = `gid://shopify/Product/${productNumericId}`;
+  console.log("gid=====",gid);
+  const resp = await axios.post(
+    endpoint,
+    {
+      query: PRODUCT_DETAILS_QUERY,
+      variables: { id: gid }
+    },
+    { headers }
+  );
+  console.log("resp",resp)
+
+  if (resp.data.errors) {
+    const message = Array.isArray(resp.data.errors)
+      ? resp.data.errors.map(e => e.message).join('; ')
+      : 'Unknown GraphQL error';
+    const error = new Error(message);
+    error.status = 502;
+    throw error;
+  }
+
+  return resp.data?.data?.product || null;
+};
+
+const shopifyProductDeleteWebhook = async (req, res) => {
+  try {
+    const apiVersion = process.env.SHOPIFY_API_VERSION || '2025-10';
+
+    // Shopify webhook headers (shop domain is here)
+    const shopFromHeader =
+      req.headers['x-shopify-shop-domain'] ||
+      req.headers['X-Shopify-Shop-Domain'] ||
+      req.body?.storeName ||
+      req.body?.shop ||
+      req.query?.shop;
+
+    const shopDomain = normalizeShopDomain(String(shopFromHeader || '').trim());
+    console.log("shopDomain",shopDomain);
+
+    // Webhook payload product id (REST webhooks provide numeric id)
+    const idRaw = req.body?.id || req.body?.product_id || req.body?.productId || null;
+    const productId = idRaw != null ? String(idRaw).trim() : null;
+
+    if (!productId || !/^\d+$/.test(productId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Missing/invalid product id. Expected numeric `id` in webhook body.'
+      });
+    }
+
+    // Access token is NOT sent by Shopify webhooks.
+    // But we support it if your proxy/infra injects it, or you provide a fallback env var.
+    let accessToken =
+      req.body?.access_token ||
+      req.headers['x-shopify-access-token'] ||
+      process.env.SHOPIFY_ACCESS_TOKEN ||
+      null;
+    const authHeader = req.headers?.authorization || req.headers?.Authorization;
+    if (!accessToken && authHeader && authHeader.startsWith('Bearer ')) {
+      accessToken = authHeader.slice(7).trim();
+    }
+
+    let productDetails = null;
+    let fetchError = null;
+    if (shopDomain && accessToken) {
+      try {
+        productDetails = await fetchProductDetailsById({
+          shopDomain,
+          accessToken,
+          apiVersion,
+          productNumericId: productId
+        });
+      } catch (err) {
+        fetchError = {
+          message: err?.message || String(err),
+          status: err?.response?.status || err?.status || null,
+          data: err?.response?.data || null
+        };
+      }
+    }
+
+    return res.status(200).json({
+      success: true,
+      topic: req.headers['x-shopify-topic'] || null,
+      shopDomain: shopDomain || null,
+      id: Number(productId),
+      product: productDetails, // may be null if already deleted
+      webhook_payload: req.body || null,
+      accessTokenHint: accessToken
+        ? { prefix: String(accessToken).slice(0, 6), length: String(accessToken).length }
+        : null,
+      notes: productDetails
+        ? 'Product details fetched from Shopify Admin API.'
+        : accessToken
+          ? 'Product details could not be fetched (likely already deleted). Using webhook payload as fallback.'
+          : 'No Shopify access token available; using webhook payload as fallback.',
+      fetchError: fetchError || undefined
+    });
+  } catch (err) {
+    return res.status(500).json({
+      success: false,
+      message: 'Webhook handler failed',
+      error: err?.message || 'Unknown error'
+    });
+  }
+};
+
 module.exports = {
   getShopifyOrders,
   getShopifyOrderByName,
@@ -4646,5 +5077,9 @@ module.exports = {
   createShopifyCarrierService,
   listShopifyCarrierServices,
   deleteShopifyCarrierService,
-  shopifyCarrierServiceCallback
+  shopifyCarrierServiceCallback,
+  registerShopifyWebhook,
+  listShopifyWebhooks,
+  deleteShopifyWebhookById,
+  shopifyProductDeleteWebhook
 };
