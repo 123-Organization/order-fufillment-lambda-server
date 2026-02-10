@@ -19,7 +19,7 @@ const businessInfoSchema = Joi.object({
   province: Joi.string().optional().allow(null),
   zip_postal_code: Joi.string().required(),
   country_code: Joi.string().length(2).required(), // assuming country_code is a 2-character country code
-  phone: Joi.string().pattern(/^\d+$/).required(), // simple validation for numeric phone number
+  phone: Joi.string().required(), // simple validation for numeric phone number
   email: Joi.string().email().optional().allow(null), // allowing null or valid email
   address_order_po: Joi.string().optional().allow(null),
 });
