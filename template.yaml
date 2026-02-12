@@ -490,6 +490,18 @@ Resources:
             RestApiId: !Ref MyApiGateway
             Method: POST
             Path: "/api/shopify/carrier-service/callback"
+        ShopifyWebhookRegister:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Method: POST
+            Path: "/api/shopify/register-webhook"
+        CallbackApiForProductDelete:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Method: POST
+            Path: "/api/webhooks/product-delete"
         # HealthCheck:
         #   Type: Api
         #   Properties:

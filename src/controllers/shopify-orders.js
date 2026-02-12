@@ -3982,6 +3982,7 @@ const syncShopifyProducts = async (req, res) => {
                 account_key: accountKey
               };
               const updateResult = await finerworksService.UPDATE_VIRTUAL_INVENTORY(onePayload);
+              console.log("updateResult====",updateResult);
               virtualInventoryUpdates.push({
                 sku: item?.sku || null,
                 result: updateResult
@@ -4636,7 +4637,7 @@ const shopifyCarrierServiceCallback = async (req, res) => {
   }
 };
 
-// Register a Shopify webhook via REST Admin API.
+// Register a Shopify webhook via GraphQL Admin API.
 // Expects payload:
 // {
 //   "storeName": "shop.myshopify.com",
@@ -4647,6 +4648,39 @@ const shopifyCarrierServiceCallback = async (req, res) => {
 //     "format": "json"
 //   }
 // }
+const WEBHOOK_SUBSCRIPTION_CREATE_MUTATION = `
+  mutation webhookSubscriptionCreate($topic: WebhookSubscriptionTopic!, $webhookSubscription: WebhookSubscriptionInput!) {
+    webhookSubscriptionCreate(topic: $topic, webhookSubscription: $webhookSubscription) {
+      webhookSubscription {
+        id
+        topic
+        format
+        uri
+      }
+      userErrors {
+        field
+        message
+      }
+    }
+  }
+`;
+
+// Map REST-style topics (e.g. "products/delete") to GraphQL enum topics (e.g. "PRODUCTS_DELETE")
+const mapWebhookTopicToGraphql = (topic) => {
+  const t = String(topic || '').trim();
+  if (!t) return null;
+
+  const lower = t.toLowerCase();
+  if (lower === 'products/delete' || lower === 'products_delete' || lower === 'product/delete') {
+    return 'PRODUCTS_DELETE';
+  }
+
+  // If caller already passed an enum-like topic, accept it.
+  if (/^[A-Z0-9_]+$/.test(t)) return t;
+
+  return null;
+};
+
 const registerShopifyWebhook = async (req, res) => {
   try {
     let accessToken = req.body?.access_token || req.headers['x-shopify-access-token'];
@@ -4706,27 +4740,68 @@ const registerShopifyWebhook = async (req, res) => {
       });
     }
 
-    const endpoint = `https://${shopDomain}/admin/api/${apiVersion}/webhooks.json`;
+    const gqlTopic = mapWebhookTopicToGraphql(topic);
+    if (!gqlTopic) {
+      return res.status(400).json({
+        success: false,
+        message: 'Unsupported webhook.topic for GraphQL. Use "products/delete" or an enum like "PRODUCTS_DELETE".'
+      });
+    }
+
+    // GraphQL endpoint
+    const endpoint = `https://${shopDomain}/admin/api/${apiVersion}/graphql.json`;
     const headers = {
       'X-Shopify-Access-Token': accessToken,
       'Content-Type': 'application/json',
       Accept: 'application/json'
     };
 
-    const payload = {
-      webhook: {
-        topic,
-        address,
-        format
-      }
-    };
+    // GraphQL uses `uri` (not address) and enum format
+    const gqlFormat = String(format || '').toUpperCase() === 'JSON' ? 'JSON' : 'JSON';
 
-    const resp = await axios.post(endpoint, payload, { headers });
+    const resp = await axios.post(
+      endpoint,
+      {
+        query: WEBHOOK_SUBSCRIPTION_CREATE_MUTATION,
+        variables: {
+          topic: gqlTopic,
+          webhookSubscription: {
+            uri: address
+          }
+        }
+      },
+      { headers }
+    );
+
+    if (resp.data.errors) {
+      const message = Array.isArray(resp.data.errors)
+        ? resp.data.errors.map(e => e.message).join('; ')
+        : 'Unknown GraphQL error';
+      const error = new Error(message);
+      error.status = 502;
+      throw error;
+    }
+
+    const payload = resp.data?.data?.webhookSubscriptionCreate;
+    if (!payload) {
+      const error = new Error('Invalid Shopify response for webhookSubscriptionCreate');
+      error.status = 502;
+      throw error;
+    }
+
+    if (Array.isArray(payload.userErrors) && payload.userErrors.length > 0) {
+      const message = payload.userErrors
+        .map(e => `${e.field ? e.field.join('.') : 'error'}: ${e.message}`)
+        .join('; ');
+      const error = new Error(message);
+      error.status = 400;
+      throw error;
+    }
 
     return res.status(200).json({
       success: true,
       shopDomain,
-      webhook: resp.data?.webhook || null
+      webhookSubscription: payload.webhookSubscription || null
     });
   } catch (err) {
     const status = err?.response?.status || err.status || 500;
@@ -4787,7 +4862,7 @@ const listShopifyWebhooks = async (req, res) => {
       'X-Shopify-Access-Token': accessToken,
       Accept: 'application/json'
     };
-
+    console.log("came herererererer")
     const resp = await axios.get(endpoint, { headers });
 
     return res.status(200).json({
@@ -4961,7 +5036,6 @@ const fetchProductDetailsById = async ({ shopDomain, accessToken, apiVersion, pr
   };
 
   const gid = `gid://shopify/Product/${productNumericId}`;
-  console.log("gid=====",gid);
   const resp = await axios.post(
     endpoint,
     {
@@ -4970,7 +5044,6 @@ const fetchProductDetailsById = async ({ shopDomain, accessToken, apiVersion, pr
     },
     { headers }
   );
-  console.log("resp",resp)
 
   if (resp.data.errors) {
     const message = Array.isArray(resp.data.errors)
@@ -4984,20 +5057,116 @@ const fetchProductDetailsById = async ({ shopDomain, accessToken, apiVersion, pr
   return resp.data?.data?.product || null;
 };
 
+const ACCOUNT_INFO_URL =
+  process.env.SHOPIFY_ACCOUNT_INFO_URL ||
+  'https://shopify.finerworks.com/api/account-info';
+
+const fetchAccountInfoByShop = async (shopDomain) => {
+  if (!shopDomain) return null;
+
+  const resp = await axios.get(ACCOUNT_INFO_URL, {
+    params: { shop: shopDomain },
+    timeout: 10000
+  });
+
+  return resp?.data || null;
+};
+
+const extractSkusFromShopifyProductDetails = (productDetails) => {
+  const skus = new Set();
+  const nodes = productDetails?.variants?.nodes;
+  if (Array.isArray(nodes)) {
+    for (const v of nodes) {
+      const sku = v?.sku != null ? String(v.sku).trim() : '';
+      if (sku) skus.add(sku);
+    }
+  }
+  return Array.from(skus);
+};
+
+const clearShopifyGraphqlProductIdForSkus = async ({ accountKey, skus }) => {
+  const results = [];
+  const errors = [];
+
+  if (!accountKey || !Array.isArray(skus) || !skus.length) {
+    return { results, errors };
+  }
+
+  for (const sku of skus) {
+    try {
+      // Fetch current virtual inventory record so we don't overwrite anything unintentionally.
+      const listPayload = {
+        sku_filter: [sku],
+        account_key: accountKey
+      };
+      const listResp = await finerworksService.LIST_VIRTUAL_INVENTORY(listPayload);
+      const current = Array.isArray(listResp?.products) ? listResp.products[0] : null;
+
+      const item = current
+        ? {
+            sku: current.sku,
+            asking_price: current.asking_price ?? 0,
+            name: current.name ?? 'Untitled',
+            description: current.description ?? '',
+            quantity_in_stock: current.quantity_in_stock ?? 0,
+            track_inventory: current.track_inventory ?? true,
+            third_party_integrations: {
+              ...(current.third_party_integrations || {}),
+              shopify_graphql_product_id: null
+            }
+          }
+        : {
+            sku,
+            third_party_integrations: {
+              shopify_graphql_product_id: null
+            }
+          };
+
+      const updatePayload = {
+        virtual_inventory: [item],
+        account_key: accountKey
+      };
+      console.log("updatePayload",updatePayload);
+      const updateResp = await finerworksService.UPDATE_VIRTUAL_INVENTORY(updatePayload);
+
+      results.push({
+        sku,
+        updated: true,
+        result: updateResp
+      });
+    } catch (err) {
+      errors.push({
+        sku,
+        updated: false,
+        error: err?.message || 'Unknown error'
+      });
+    }
+  }
+
+  return { results, errors };
+};
+
 const shopifyProductDeleteWebhook = async (req, res) => {
   try {
     const apiVersion = process.env.SHOPIFY_API_VERSION || '2025-10';
+
 
     // Shopify webhook headers (shop domain is here)
     const shopFromHeader =
       req.headers['x-shopify-shop-domain'] ||
       req.headers['X-Shopify-Shop-Domain'] ||
+      req.headers['X-Shopify-Shop-domain'] ||
       req.body?.storeName ||
       req.body?.shop ||
       req.query?.shop;
 
     const shopDomain = normalizeShopDomain(String(shopFromHeader || '').trim());
-    console.log("shopDomain",shopDomain);
+    if (!shopDomain) {
+      return res.status(400).json({
+        success: false,
+        message: 'Missing X-Shopify-Shop-Domain header'
+      });
+    }
 
     // Webhook payload product id (REST webhooks provide numeric id)
     const idRaw = req.body?.id || req.body?.product_id || req.body?.productId || null;
@@ -5010,52 +5179,82 @@ const shopifyProductDeleteWebhook = async (req, res) => {
       });
     }
 
-    // Access token is NOT sent by Shopify webhooks.
-    // But we support it if your proxy/infra injects it, or you provide a fallback env var.
-    let accessToken =
-      req.body?.access_token ||
-      req.headers['x-shopify-access-token'] ||
-      process.env.SHOPIFY_ACCESS_TOKEN ||
-      null;
-    const authHeader = req.headers?.authorization || req.headers?.Authorization;
-    if (!accessToken && authHeader && authHeader.startsWith('Bearer ')) {
-      accessToken = authHeader.slice(7).trim();
+    // Shopify webhooks do NOT include an admin token. We look it up using our account-info service.
+    let accountInfo = null;
+    try {
+      accountInfo = await fetchAccountInfoByShop(shopDomain);
+    } catch (lookupErr) {
+      const status = lookupErr?.response?.status || 500;
+      return res.status(status).json({
+        success: false,
+        message: 'Failed to fetch account info for shop',
+        shopDomain,
+        error:
+          (lookupErr?.response?.data && (lookupErr.response.data.errors || lookupErr.response.data.error)) ||
+          lookupErr?.message ||
+          'Request failed'
+      });
+    }
+
+    const accessToken =
+      accountInfo?.success === true && accountInfo?.access_token
+        ? String(accountInfo.access_token)
+        : null;
+    const accountKey =
+      accountInfo?.success === true && accountInfo?.account_key
+        ? String(accountInfo.account_key)
+        : null;
+
+    if (!accessToken) {
+      return res.status(401).json({
+        success: false,
+        message: 'No access_token returned for shop from account-info service',
+        shopDomain,
+        accountInfo
+      });
     }
 
     let productDetails = null;
     let fetchError = null;
-    if (shopDomain && accessToken) {
-      try {
-        productDetails = await fetchProductDetailsById({
-          shopDomain,
-          accessToken,
-          apiVersion,
-          productNumericId: productId
-        });
-      } catch (err) {
-        fetchError = {
-          message: err?.message || String(err),
-          status: err?.response?.status || err?.status || null,
-          data: err?.response?.data || null
-        };
-      }
+    try {
+      productDetails = await fetchProductDetailsById({
+        shopDomain,
+        accessToken,
+        apiVersion,
+        productNumericId: productId
+      });
+    } catch (err) {
+      fetchError = {
+        message: err?.message || String(err),
+        status: err?.response?.status || err?.status || null,
+        data: err?.response?.data || null
+      };
     }
+
+    // After getting product details, clear Shopify linkage in FinerWorks virtual inventory
+    // by setting third_party_integrations.shopify_graphql_product_id = null for all SKUs.
+    const skus = productDetails ? extractSkusFromShopifyProductDetails(productDetails) : [];
+    const virtualInventoryClear =
+      skus.length && accountKey
+        ? await clearShopifyGraphqlProductIdForSkus({ accountKey, skus })
+        : { results: [], errors: [] };
 
     return res.status(200).json({
       success: true,
       topic: req.headers['x-shopify-topic'] || null,
       shopDomain: shopDomain || null,
+      account_key: accountKey,
       id: Number(productId),
       product: productDetails, // may be null if already deleted
+      skus,
+      virtualInventoryClear,
       webhook_payload: req.body || null,
       accessTokenHint: accessToken
         ? { prefix: String(accessToken).slice(0, 6), length: String(accessToken).length }
         : null,
       notes: productDetails
         ? 'Product details fetched from Shopify Admin API.'
-        : accessToken
-          ? 'Product details could not be fetched (likely already deleted). Using webhook payload as fallback.'
-          : 'No Shopify access token available; using webhook payload as fallback.',
+        : 'Product details could not be fetched (likely already deleted or token missing scopes). Using webhook payload as fallback.',
       fetchError: fetchError || undefined
     });
   } catch (err) {
