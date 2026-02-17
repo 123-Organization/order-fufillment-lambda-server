@@ -1,5 +1,7 @@
 const axios = require('axios');
 const finerworksService = require("../helpers/finerworks-service");
+const debug = require('debug');
+const log = debug('app:shopifyOrders');
 
 const normalizeShopDomain = (shopInput) => {
   if (!shopInput) return null;
@@ -868,6 +870,52 @@ const createOrReplaceVariantFromPayload = async ({ shopDomain, accessToken, apiV
     error.status = status;
     throw error;
   }
+};
+
+/**
+ * Returns a Set of SKUs that already exist in the Shopify store (as variant SKU).
+ * Used to avoid creating duplicate products for the same SKU.
+ * @param {{ shopDomain: string, accessToken: string, apiVersion: string, skuList: string[] }}
+ * @returns {Promise<Set<string>>}
+ */
+const fetchExistingSkusInShop = async ({ shopDomain, accessToken, apiVersion, skuList }) => {
+  const existing = new Set();
+  if (!shopDomain || !accessToken || !Array.isArray(skuList) || skuList.length === 0) {
+    return existing;
+  }
+  const endpoint = `https://${shopDomain}/admin/api/${apiVersion}/graphql.json`;
+  const headers = {
+    'X-Shopify-Access-Token': accessToken,
+    'Content-Type': 'application/json'
+  };
+  const query = `
+    query productVariantsBySku($query: String!) {
+      productVariants(first: 1, query: $query) {
+        edges {
+          node {
+            sku
+          }
+        }
+      }
+    }
+  `;
+  for (const sku of skuList) {
+    const s = sku != null ? String(sku).trim() : '';
+    if (!s) continue;
+    try {
+      const resp = await axios.post(endpoint, {
+        query,
+        variables: { query: `sku:${s.replace(/"/g, '\\"')}` }
+      }, { headers });
+      const edges = resp?.data?.data?.productVariants?.edges;
+      if (Array.isArray(edges) && edges.length > 0) {
+        existing.add(s);
+      }
+    } catch (_) {
+      // Per-SKU failure: do not add to existing; we may still try to create (API might error on duplicate).
+    }
+  }
+  return existing;
 };
 
 const normalizeOrderId = (orderId) => {
@@ -3692,11 +3740,58 @@ const syncShopifyProducts = async (req, res) => {
       );
     }
 
+    // Collect all SKUs we are about to sync (primary + variants per product).
+    const allSkusToSync = [];
+    for (const p of products) {
+      if (p?.sku != null) allSkusToSync.push(String(p.sku).trim());
+      if (Array.isArray(p?.variants)) {
+        for (const v of p.variants) {
+          if (v?.sku != null) allSkusToSync.push(String(v.sku).trim());
+        }
+      }
+    }
+    const uniqueSkusToSync = [...new Set(allSkusToSync.filter(Boolean))];
+
+    // Fetch which of these SKUs already exist in the Shopify store so we do not create duplicates.
+    let existingSkusInShop = new Set();
+    try {
+      existingSkusInShop = await fetchExistingSkusInShop({
+        shopDomain,
+        accessToken,
+        apiVersion,
+        skuList: uniqueSkusToSync
+      });
+    } catch (lookupErr) {
+      console.warn('Could not fetch existing SKUs from Shopify; will attempt sync and rely on API errors for duplicates:', lookupErr?.message);
+    }
+
     const results = [];
     let hasErrors = false;
 
     for (let i = 0; i < products.length; i++) {
       const product = products[i];
+      const variantSourceProducts = [
+        product,
+        ...(Array.isArray(product?.variants) ? product.variants : [])
+      ];
+      const productSkus = variantSourceProducts
+        .map((s) => (s?.sku != null ? String(s.sku).trim() : ''))
+        .filter(Boolean);
+
+      const alreadyInShop = productSkus.filter((sku) => existingSkusInShop.has(sku));
+      if (alreadyInShop.length > 0) {
+        results.push({
+          success: true,
+          skipped: true,
+          index: i,
+          sku: product?.sku || null,
+          product_guid: product?.product_guid || null,
+          reason: 'SKU(s) already exist in Shopify store; skipping create',
+          skusAlreadyInShop: alreadyInShop
+        });
+        continue;
+      }
+
       try {
         const created = await createShopifyProduct({
           shopDomain,
@@ -3712,6 +3807,11 @@ const syncShopifyProducts = async (req, res) => {
           product_guid: product?.product_guid || null,
           shopifyProduct: created
         };
+
+        // Mark these SKUs as existing so we do not create them again in the same request.
+        for (const sku of productSkus) {
+          existingSkusInShop.add(sku);
+        }
 
         // Ensure product is published to the primary sales channel (e.g., Online Store)
         try {
@@ -3910,6 +4010,12 @@ const syncShopifyProducts = async (req, res) => {
             req.body?.accountkey ||
             null;
 
+          // Use the MAIN Shopify product id for all items (primary + variants).
+          const shopifyProductGid = created?.id || null;
+          const shopifyProductNumericId = shopifyProductGid
+            ? String(shopifyProductGid).split('/').pop()
+            : null;
+
           // Extract numeric IDs from Shopify GIDs when possible, fallback to the raw GID.
           // We update virtual inventory for EVERY sku (primary + variants, or standalone).
           // IMPORTANT: Shopify may not return created variants in the same order we sent them,
@@ -3928,12 +4034,6 @@ const syncShopifyProducts = async (req, res) => {
             if (!src) continue;
             const srcSku = src?.sku ? String(src.sku) : null;
             if (!srcSku) continue;
-
-            const matchedVariant = variantBySku.get(srcSku) || null;
-            const shopifyVariantGid = matchedVariant?.id || null;
-            const shopifyVariantNumericId = shopifyVariantGid
-              ? shopifyVariantGid.split('/').pop()
-              : null;
 
             virtualInventoryItems.push({
               sku: srcSku,
@@ -3958,7 +4058,7 @@ const syncShopifyProducts = async (req, res) => {
               third_party_integrations: {
                 ...(src?.third_party_integrations || {}),
                 shopify_graphql_product_id:
-                  shopifyVariantNumericId || shopifyVariantGid || null
+                  shopifyProductNumericId || shopifyProductGid || null
               }
             });
           }
@@ -5027,15 +5127,18 @@ const PRODUCT_DETAILS_QUERY = `
 `;
 
 const fetchProductDetailsById = async ({ shopDomain, accessToken, apiVersion, productNumericId }) => {
+  log('fetchProductDetailsById hit shopDomain=%s accessToken=%s productNumericId=%s apiVersion=%s' , shopDomain, accessToken, productNumericId, apiVersion);
   if (!shopDomain || !accessToken || !productNumericId) return null;
 
   const endpoint = `https://${shopDomain}/admin/api/${apiVersion}/graphql.json`;
+  log('endpoint=%s', endpoint);
   const headers = {
     'X-Shopify-Access-Token': accessToken,
     'Content-Type': 'application/json'
   };
-
+log('headers=%s', JSON.stringify(headers));
   const gid = `gid://shopify/Product/${productNumericId}`;
+  log('gid=%s', gid);
   const resp = await axios.post(
     endpoint,
     {
@@ -5044,7 +5147,7 @@ const fetchProductDetailsById = async ({ shopDomain, accessToken, apiVersion, pr
     },
     { headers }
   );
-
+log('resp=%s', JSON.stringify(resp.data));
   if (resp.data.errors) {
     const message = Array.isArray(resp.data.errors)
       ? resp.data.errors.map(e => e.message).join('; ')
@@ -5099,6 +5202,7 @@ const clearShopifyGraphqlProductIdForSkus = async ({ accountKey, skus }) => {
         sku_filter: [sku],
         account_key: accountKey
       };
+      log('listPayload=%s', JSON.stringify(listPayload));
       const listResp = await finerworksService.LIST_VIRTUAL_INVENTORY(listPayload);
       const current = Array.isArray(listResp?.products) ? listResp.products[0] : null;
 
@@ -5149,7 +5253,7 @@ const clearShopifyGraphqlProductIdForSkus = async ({ accountKey, skus }) => {
 const shopifyProductDeleteWebhook = async (req, res) => {
   try {
     const apiVersion = process.env.SHOPIFY_API_VERSION || '2025-10';
-
+    log('shopifyProductDeleteWebhook hit');
 
     // Shopify webhook headers (shop domain is here)
     const shopFromHeader =
@@ -5161,6 +5265,7 @@ const shopifyProductDeleteWebhook = async (req, res) => {
       req.query?.shop;
 
     const shopDomain = normalizeShopDomain(String(shopFromHeader || '').trim());
+    log('shopDomain=%s', shopDomain);
     if (!shopDomain) {
       return res.status(400).json({
         success: false,
@@ -5171,6 +5276,7 @@ const shopifyProductDeleteWebhook = async (req, res) => {
     // Webhook payload product id (REST webhooks provide numeric id)
     const idRaw = req.body?.id || req.body?.product_id || req.body?.productId || null;
     const productId = idRaw != null ? String(idRaw).trim() : null;
+    log('productId=%s', productId);
 
     if (!productId || !/^\d+$/.test(productId)) {
       return res.status(400).json({
@@ -5182,9 +5288,12 @@ const shopifyProductDeleteWebhook = async (req, res) => {
     // Shopify webhooks do NOT include an admin token. We look it up using our account-info service.
     let accountInfo = null;
     try {
+      log('fetching account info');
       accountInfo = await fetchAccountInfoByShop(shopDomain);
+      log('account info fetched success=%s', accountInfo?.success);
     } catch (lookupErr) {
       const status = lookupErr?.response?.status || 500;
+      log('account info fetch failed status=%s message=%s', status, lookupErr?.message);
       return res.status(status).json({
         success: false,
         message: 'Failed to fetch account info for shop',
@@ -5205,39 +5314,50 @@ const shopifyProductDeleteWebhook = async (req, res) => {
         ? String(accountInfo.account_key)
         : null;
 
-    if (!accessToken) {
+    if (!accountKey) {
+      log('no account_key returned for shop');
       return res.status(401).json({
         success: false,
-        message: 'No access_token returned for shop from account-info service',
+        message: 'No account_key returned for shop from account-info service',
         shopDomain,
         accountInfo
       });
     }
+    log('account_key=%s', accountKey);
 
-    let productDetails = null;
-    let fetchError = null;
+    // List virtual inventory by Shopify product id (third_party_connections_filter).
+    let listResp = null;
     try {
-      productDetails = await fetchProductDetailsById({
-        shopDomain,
-        accessToken,
-        apiVersion,
-        productNumericId: productId
+      log('listing virtual inventory by third_party_connections_filter=%s', productId);
+      listResp = await finerworksService.LIST_VIRTUAL_INVENTORY({
+        third_party_connections_filter: String(productId),
+        account_key: accountKey
       });
-    } catch (err) {
-      fetchError = {
-        message: err?.message || String(err),
-        status: err?.response?.status || err?.status || null,
-        data: err?.response?.data || null
-      };
+    } catch (listErr) {
+      log('list virtual inventory failed message=%s', listErr?.message);
+      return res.status(listErr?.response?.status || 500).json({
+        success: false,
+        message: 'Failed to list virtual inventory by product id',
+        shopDomain,
+        id: Number(productId),
+        error: listErr?.message || 'Request failed'
+      });
     }
 
-    // After getting product details, clear Shopify linkage in FinerWorks virtual inventory
-    // by setting third_party_integrations.shopify_graphql_product_id = null for all SKUs.
-    const skus = productDetails ? extractSkusFromShopifyProductDetails(productDetails) : [];
+    const products = Array.isArray(listResp?.products) ? listResp.products : [];
+    const skus = products
+      .map((p) => (p && p.sku != null ? String(p.sku).trim() : ''))
+      .filter((s) => s.length > 0);
+    log('sku count=%s from list', skus.length);
+
     const virtualInventoryClear =
-      skus.length && accountKey
+      skus.length
         ? await clearShopifyGraphqlProductIdForSkus({ accountKey, skus })
         : { results: [], errors: [] };
+    log('virtual inventory cleared updated=%s errors=%s',
+      Array.isArray(virtualInventoryClear?.results) ? virtualInventoryClear.results.length : 0,
+      Array.isArray(virtualInventoryClear?.errors) ? virtualInventoryClear.errors.length : 0
+    );
 
     return res.status(200).json({
       success: true,
@@ -5245,17 +5365,9 @@ const shopifyProductDeleteWebhook = async (req, res) => {
       shopDomain: shopDomain || null,
       account_key: accountKey,
       id: Number(productId),
-      product: productDetails, // may be null if already deleted
       skus,
       virtualInventoryClear,
-      webhook_payload: req.body || null,
-      accessTokenHint: accessToken
-        ? { prefix: String(accessToken).slice(0, 6), length: String(accessToken).length }
-        : null,
-      notes: productDetails
-        ? 'Product details fetched from Shopify Admin API.'
-        : 'Product details could not be fetched (likely already deleted or token missing scopes). Using webhook payload as fallback.',
-      fetchError: fetchError || undefined
+      webhook_payload: req.body || null
     });
   } catch (err) {
     return res.status(500).json({

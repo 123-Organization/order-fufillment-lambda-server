@@ -229,8 +229,72 @@ const handleShopifyInstall = async (req, res) => {
     }
 };
 
+/**
+ * Shopify disconnection: fetches user info, finds Shopify in connections array,
+ * replaces that entire connection object with a disconnected placeholder, then calls UPDATE_INFO.
+ * Expects body: { account_key: string }
+ */
+const handleShopifyDisconnect = async (req, res) => {
+    try {
+        const account_key = req.body?.account_key;
+        if (!account_key) {
+            return res.status(400).json({
+                success: false,
+                message: 'Missing required parameter: account_key'
+            });
+        }
+
+        const getInformation = await finerworksService.GET_INFO({ account_key });
+        const connections = JSON.parse(JSON.stringify(getInformation?.user_account?.connections || []));
+
+        const shopifyIndex = connections.findIndex(conn => conn && conn.name === 'Shopify');
+        if (shopifyIndex === -1) {
+            return res.status(200).json({
+                success: true,
+                message: 'No Shopify connection found; nothing to disconnect',
+                connections
+            });
+        }
+
+        // Replace the entire Shopify connection object with a disconnected placeholder
+        const disconnectedShopify = {
+            name: 'Shopify',
+            id: null,
+            data: null
+        };
+
+        // const disconnectedShopify = {
+        //     name: 'Shopify',
+        //     id: "shpua_21b9a9a7ddd62df22cd585137b03d010",
+        //     data: "{\"shop\":\"finerworks-dev-3.myshopify.com\",\"access_token\":\"shpua_21b9a9a7ddd62df22cd585137b03d010\"}"
+        // };
+
+
+        connections[shopifyIndex] = disconnectedShopify;
+
+        await finerworksService.UPDATE_INFO({
+            account_key,
+            connections
+        });
+
+        return res.status(200).json({
+            success: true,
+            message: 'Shopify disconnected successfully',
+            connections
+        });
+    } catch (error) {
+        console.error('Shopify disconnect error:', error);
+        return res.status(500).json({
+            success: false,
+            message: 'Failed to disconnect Shopify',
+            error: error.message
+        });
+    }
+};
+
 module.exports = {
     handleShopifyAuth,
     handleShopifyCallback,
-    handleShopifyInstall
+    handleShopifyInstall,
+    handleShopifyDisconnect
 };

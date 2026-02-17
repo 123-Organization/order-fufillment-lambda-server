@@ -233,6 +233,12 @@ Resources:
               Ref: MyApiGateway
             Method: POST
             Path: /api/add-token-to-user
+        CallbackApiForProductDelete:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Method: POST
+            Path: "/api/webhooks/product-delete"
   OrderFullFillmentServerLessDevServerV2Again:
     Type: AWS::Serverless::Function
     Properties:
@@ -496,12 +502,12 @@ Resources:
             RestApiId: !Ref MyApiGateway
             Method: POST
             Path: "/api/shopify/register-webhook"
-        CallbackApiForProductDelete:
+        ShopifyDisconnection:
           Type: Api
           Properties:
             RestApiId: !Ref MyApiGateway
             Method: POST
-            Path: "/api/webhooks/product-delete"
+            Path: "/api/shopify/disconnect"
         # HealthCheck:
         #   Type: Api
         #   Properties:

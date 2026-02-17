@@ -9,7 +9,7 @@ const { viewOrderDetails, viewAllOrders, updateOrderByProductSkuCode, createNewO
 const { listShippingOptions,listShippingOptionsV2,listShippingOptionsV3 } = require('./shipping-options');
 const { getUserPaymentToken,getCompanyInfo } = require('./payment-token');
 const {updateUserInformation}=require('./userInformation')
-const { handleShopifyAuth, handleShopifyCallback, handleShopifyInstall } = require('./shopify-auth');
+const { handleShopifyAuth, handleShopifyCallback, handleShopifyInstall, handleShopifyDisconnect } = require('./shopify-auth');
 const { getShopifyOrders, getShopifyOrderByName, fulfillShopifyOrder, updateOrderReferenceNumbers, updateOrderFulfillmentStatus, syncShopifyProducts, createShopifyCarrierService, listShopifyCarrierServices, deleteShopifyCarrierService, shopifyCarrierServiceCallback, registerShopifyWebhook, listShopifyWebhooks, deleteShopifyWebhookById, shopifyProductDeleteWebhook } = require('./shopify-orders');
 const healthCheck = require('./health-check');
 const app = Router();
@@ -70,6 +70,7 @@ app.get('/shipping-options-list', listShippingOptionsV3);
 app.get('/shopify/auth', handleShopifyAuth);
 app.post('/shopify/callback', handleShopifyCallback);
 app.get('/shopify/', handleShopifyInstall);
+app.post('/shopify/disconnect', handleShopifyDisconnect);
 app.post('/shopify/orders', getShopifyOrders);
 app.post('/shopify/order-by-name', getShopifyOrderByName);
 app.post('/shopify/fulfill-order', fulfillShopifyOrder);
