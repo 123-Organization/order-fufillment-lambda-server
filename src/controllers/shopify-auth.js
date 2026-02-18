@@ -292,9 +292,87 @@ const handleShopifyDisconnect = async (req, res) => {
     }
 };
 
+/**
+ * Disconnect Shopify from OFA: first calls shopify.finerworks.com disconnect API;
+ * if it returns success, updates user connections so Shopify has id and data set to null.
+ * Expects body: { shop: string, secret: string, account_key: string }
+ */
+const disconnectShopifyFromOfa = async (req, res) => {
+    try {
+        const { shop, secret, account_key } = req.body || {};
+        if (!shop || !secret) {
+            return res.status(400).json({
+                success: false,
+                message: 'Missing required parameters: shop and secret'
+            });
+        }
+        if (!account_key) {
+            return res.status(400).json({
+                success: false,
+                message: 'Missing required parameter: account_key'
+            });
+        }
+
+        const disconnectResponse = await axios.post(
+            'https://shopify.finerworks.com/api/disconnect',
+            { shop, secret },
+            { headers: { 'Content-Type': 'application/json' } }
+        );
+
+        const success = disconnectResponse?.data?.success === true;
+        if (!success) {
+            return res.status(400).json({
+                success: false,
+                message: 'Disconnect API did not return success',
+                response: disconnectResponse?.data
+            });
+        }
+
+        const getInformation = await finerworksService.GET_INFO({ account_key });
+        const connections = JSON.parse(JSON.stringify(getInformation?.user_account?.connections || []));
+
+        const shopifyIndex = connections.findIndex(conn => conn && conn.name === 'Shopify');
+        if (shopifyIndex === -1) {
+            return res.status(200).json({
+                success: true,
+                message: 'Shopify disconnected on remote; no Shopify connection found locally',
+                connections
+            });
+        }
+
+        const disconnectedShopify = {
+            name: 'Shopify',
+            id: null,
+            data: null
+        };
+        connections[shopifyIndex] = disconnectedShopify;
+
+        await finerworksService.UPDATE_INFO({
+            account_key,
+            connections
+        });
+
+        return res.status(200).json({
+            success: true,
+            message: 'Shopify disconnected from OFA successfully',
+            connections
+        });
+    } catch (error) {
+        console.error('disconnectShopifyFromOfa error:', error);
+        const status = error?.response?.status || 500;
+        const message = error?.response?.data?.message || error?.message || 'Failed to disconnect Shopify from OFA';
+        return res.status(status).json({
+            success: false,
+            message,
+            error: error.message
+        });
+    }
+};
+
 module.exports = {
     handleShopifyAuth,
     handleShopifyCallback,
     handleShopifyInstall,
-    handleShopifyDisconnect
+    handleShopifyDisconnect,
+    disconnectShopifyFromOfa
 };
