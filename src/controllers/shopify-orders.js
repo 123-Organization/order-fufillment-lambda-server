@@ -18,6 +18,33 @@ const normalizeShopDomain = (shopInput) => {
   return shopDomain;
 };
 
+/** Match Shopify shipping line to a shipping option id. Sets code to option.id (never shipping_code).
+ *  Tries: (1) title vs shipping_method, (2) Shopify carrier code (edge.node.code) vs shipping_code. */
+const matchShippingOptionId = (title, options, carrierCodeFromShopify = null) => {
+  if (!Array.isArray(options) || !options.length) return null;
+  const opts = options;
+
+  const byTitle = (t) => {
+    if (!t) return null;
+    const exact = opts.find(o => o?.shipping_method === t);
+    if (exact) return exact.id;
+    const prefix = opts.find(o => String(o?.shipping_method || '').startsWith(t));
+    if (prefix) return prefix.id;
+    const contains = opts.find(o => String(o?.shipping_method || '').toLowerCase().includes(t.toLowerCase()));
+    return contains ? contains.id : null;
+  };
+
+  const idByTitle = byTitle(title != null ? String(title).trim() : '');
+  if (idByTitle != null) return idByTitle;
+
+  const code = carrierCodeFromShopify != null ? String(carrierCodeFromShopify).trim() : '';
+  if (code) {
+    const byCode = opts.find(o => String(o?.shipping_code || '').trim() === code);
+    if (byCode) return byCode.id;
+  }
+  return null;
+};
+
 const SHIPPING_FEES_URL =
   process.env.SHIPPING_FEES_URL ||
   'https://shopify.finerworks.com/api/shipping-fees';
@@ -123,7 +150,19 @@ const mapInventoryProductToShopifyInput = (product) => {
     status: 'ACTIVE',
     tags: tags.length ? tags : undefined,
     productType: productType || undefined,
-    productOptions: productOptions || undefined
+    productOptions: productOptions || undefined,
+    // Add product_guid as a custom metafield for every product when present
+    metafields:
+      product?.product_guid != null && String(product.product_guid).trim() !== ''
+        ? [
+            {
+              namespace: 'custom',
+              key: 'product_guid',
+              type: 'single_line_text_field',
+              value: String(product.product_guid).trim()
+            }
+          ]
+        : undefined
   };
 
   // Remove undefined fields to keep the payload clean
@@ -1143,7 +1182,7 @@ const buildOrdersQuery = (startDate, endDate, first = 10, after = null) => {
             marketingOptInLevel
           }
           note
-          metafields(first: 10) {
+          metafields(first: 5) {
             edges {
               node {
                 id
@@ -1172,7 +1211,7 @@ const buildOrdersQuery = (startDate, endDate, first = 10, after = null) => {
             formatted
             formattedArea
           }
-          addresses(first: 10) {
+          addresses(first: 5) {
             address1
             address2
             city
@@ -1276,7 +1315,7 @@ const buildOrdersQuery = (startDate, endDate, first = 10, after = null) => {
             url
             company
           }
-          fulfillmentLineItems(first: 10) {
+          fulfillmentLineItems(first: 5) {
             edges {
               node {
                 lineItem {
@@ -1296,7 +1335,7 @@ const buildOrdersQuery = (startDate, endDate, first = 10, after = null) => {
             currencyCode
           }
         }
-        discountApplications(first: 5) {
+        discountApplications(first: 3) {
           edges {
             node {
               allocationMethod
@@ -1350,8 +1389,8 @@ const buildOrdersQuery = (startDate, endDate, first = 10, after = null) => {
           }
         }
         
-        # Line Items with enhanced details and inventory locations
-        lineItems(first: 100) {
+        # Line Items with enhanced details and inventory locations (first: 50 to stay under query cost limit)
+        lineItems(first: 50) {
           edges {
             node {
               id
@@ -1401,11 +1440,19 @@ const buildOrdersQuery = (startDate, endDate, first = 10, after = null) => {
                     url 
                     altText 
                   }
+                  metafields(first: 3, namespace: "custom") {
+                    edges {
+                      node {
+                        key
+                        value
+                      }
+                    }
+                  }
                 }
                 # Inventory locations for this variant
                 inventoryItem {
                   id
-                  inventoryLevels(first: 10) {
+                  inventoryLevels(first: 5) {
                     edges {
                       node {
                         location {
@@ -1449,7 +1496,7 @@ const buildOrdersQuery = (startDate, endDate, first = 10, after = null) => {
         note
         
         # Metadata
-        metafields(first: 10) {
+        metafields(first: 5) {
           edges {
             node {
               id
@@ -1699,6 +1746,8 @@ const getShopifyOrders = async (req, res) => {
       });
     }
     var shippingOptions = await finerworksService.SHIPPING_OPTIONS_LIST();
+    console.log("shippingOptions====>>",shippingOptions);
+     
     const query = req.body?.query; // optional override for custom queries
     let orders = await fetchAllOrders({ shopDomain, accessToken, apiVersion, query, startDate, endDate });
 
@@ -1715,20 +1764,23 @@ const getShopifyOrders = async (req, res) => {
 
     orders.forEach(order => {
       order.shippingLines.edges.forEach(edge => {
-        if (edge.node.title === 'Standard') {
-          shippingOptions.shipping_options.forEach(option => {
-            if (option.shipping_method === 'Standard - Parcel') {
-              edge.node.code = option.id;
-            }
-          });
-        }
-        if (edge.node.title === 'Economy') {
-          shippingOptions.shipping_options.forEach(option => {
-            if (option.shipping_method === 'Economy') {
-              edge.node.code = option.id;
-            }
-          });
-        }
+        const matchedId = matchShippingOptionId(
+          edge.node?.title,
+          shippingOptions.shipping_options,
+          edge.node?.code
+        );
+        if (matchedId != null) edge.node.code = matchedId;
+      });
+      // Add product_guid to each line item's product from metafield (custom.product_guid)
+      const lineItemEdges = order?.lineItems?.edges || [];
+      lineItemEdges.forEach(liEdge => {
+        const product = liEdge?.node?.variant?.product;
+        if (!product) return;
+        const metafieldEdges = product?.metafields?.edges || [];
+        const productGuidNode = metafieldEdges.find(
+          e => e?.node?.key === 'product_guid'
+        );
+        product.product_guid = productGuidNode?.node?.value ?? null;
       });
     });
     return res.status(200).json({ success: true, count: orders.length, orders });
@@ -2157,7 +2209,7 @@ const buildOrderByNameQuery = (orderName) => {
             marketingOptInLevel
           }
           note
-          metafields(first: 10) {
+          metafields(first: 5) {
             edges {
               node {
                 id
@@ -2186,7 +2238,7 @@ const buildOrderByNameQuery = (orderName) => {
             formatted
             formattedArea
           }
-          addresses(first: 10) {
+          addresses(first: 5) {
             address1
             address2
             city
@@ -2311,7 +2363,7 @@ const buildOrderByNameQuery = (orderName) => {
             currencyCode
           }
         }
-        discountApplications(first: 5) {
+        discountApplications(first: 3) {
           edges {
             node {
               allocationMethod
@@ -2416,6 +2468,14 @@ const buildOrderByNameQuery = (orderName) => {
                     url 
                     altText 
                   }
+                  metafields(first: 3, namespace: "custom") {
+                    edges {
+                      node {
+                        key
+                        value
+                      }
+                    }
+                  }
                 }
               }
               taxLines {
@@ -2442,7 +2502,7 @@ const buildOrderByNameQuery = (orderName) => {
         note
         
         # Metadata
-        metafields(first: 10) {
+        metafields(first: 5) {
           edges {
             node {
               id
@@ -2487,22 +2547,28 @@ const fetchOrderByName = async ({ shopDomain, accessToken, apiVersion, orderName
   }
   const edges = resp?.data?.data?.orders?.edges || [];
   const node = edges.length > 0 ? edges[0].node : null;
-  console.log("node=====", node.shippingLines);
+  if (!node) return null;
+
+  // Map shipping line to FinerWorks option id (same as /shopify/orders)
   node.shippingLines.edges.forEach(edge => {
-    console.log("edge=====", edge.node.title);
-    if (edge.node.title === 'Standard') {
-      shippingOptions.shipping_options.forEach(option => {
-        if (option.shipping_method === 'Standard - Parcel') {
-          edge.node.code = option.id;
-        }
-      });
-    } else if (edge.node.title === 'Economy') {
-      shippingOptions.shipping_options.forEach(option => {
-        if (option.shipping_method === 'Economy') {
-          edge.node.code = option.id;
-        }
-      });
-    }
+    const matchedId = matchShippingOptionId(
+      edge.node?.title,
+      shippingOptions.shipping_options,
+      edge.node?.code
+    );
+    if (matchedId != null) edge.node.code = matchedId;
+  });
+
+  // Add product_guid to each line item's product from metafield (same as /shopify/orders)
+  const lineItemEdges = node?.lineItems?.edges || [];
+  lineItemEdges.forEach(liEdge => {
+    const product = liEdge?.node?.variant?.product;
+    if (!product) return;
+    const metafieldEdges = product?.metafields?.edges || [];
+    const productGuidNode = metafieldEdges.find(
+      e => e?.node?.key === 'product_guid'
+    );
+    product.product_guid = productGuidNode?.node?.value ?? null;
   });
 
   return node;
