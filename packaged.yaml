@@ -54,7 +54,7 @@ Resources:
         - MyLambdaExecutionRole
         - Arn
       Runtime: nodejs18.x
-      CodeUri: s3://order-fullfilment-app-lambda-server/134e5b04b85ce80f26b21065ba29ddcd
+      CodeUri: s3://order-fullfilment-app-lambda-server/6bd950495fe057e762ae639a6506c97b
       MemorySize: 3008
       Timeout: 900
       Environment:
@@ -262,7 +262,7 @@ Resources:
         - MyLambdaExecutionRole
         - Arn
       Runtime: nodejs18.x
-      CodeUri: s3://order-fullfilment-app-lambda-server/134e5b04b85ce80f26b21065ba29ddcd
+      CodeUri: s3://order-fullfilment-app-lambda-server/6bd950495fe057e762ae639a6506c97b
       MemorySize: 3008
       Timeout: 900
       Environment:
@@ -528,6 +528,13 @@ Resources:
               Ref: MyApiGateway
             Method: POST
             Path: /api/shopify/disconnect
+        ShopifyDisconnectionFromOfa:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: POST
+            Path: /api/shopify/disconnectShopifyFromOfa
     Metadata:
       SamResourceId: OrderFullFillmentServerLessDevServerV2Again
   OrderFullFillmentServerLessDevServerLogGroup:

@@ -299,8 +299,8 @@ const handleShopifyDisconnect = async (req, res) => {
  */
 const disconnectShopifyFromOfa = async (req, res) => {
     try {
-        const { shop, secret, account_key } = req.body || {};
-        if (!shop || !secret) {
+        const { storeName, account_key } = req.body || {};
+        if (!storeName) {
             return res.status(400).json({
                 success: false,
                 message: 'Missing required parameters: shop and secret'
@@ -312,13 +312,15 @@ const disconnectShopifyFromOfa = async (req, res) => {
                 message: 'Missing required parameter: account_key'
             });
         }
+        console.log("hello")
 
         const disconnectResponse = await axios.post(
             'https://shopify.finerworks.com/api/disconnect',
-            { shop, secret },
+            { shop:storeName, 
+                secret:process.env.SECRET },
             { headers: { 'Content-Type': 'application/json' } }
         );
-
+        console.log("disconnectResponse===",disconnectResponse);
         const success = disconnectResponse?.data?.success === true;
         if (!success) {
             return res.status(400).json({

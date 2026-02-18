@@ -508,6 +508,12 @@ Resources:
             RestApiId: !Ref MyApiGateway
             Method: POST
             Path: "/api/shopify/disconnect"
+        ShopifyDisconnectionFromOfa:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Method: POST
+            Path: "/api/shopify/disconnectShopifyFromOfa"
         # HealthCheck:
         #   Type: Api
         #   Properties:
