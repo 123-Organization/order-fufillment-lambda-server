@@ -159,6 +159,8 @@ const UpdateVirtualInventorySchema = Joi.object({
             third_party_integrations: Joi.object({
                 etsy_product_id: Joi.any().allow(null).optional(),
                 shopify_product_id: Joi.any().allow(null).optional(),
+                shopify_graphql_product_id: Joi.any().allow(null).optional(),
+                shopify_graphql_variant_id: Joi.any().allow(null).optional(),
                 shopify_variant_id: Joi.any().allow(null).optional(),
                 squarespace_product_id: Joi.any().allow(null).optional(),
                 squarespace_variant_id: Joi.any().allow(null).optional(),
