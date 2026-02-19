@@ -16,10 +16,10 @@ const listVirtualInventorySchema = Joi.object({
     sort_direction: Joi.string().valid('ASC', 'DESC').default('DESC'),
     created_date_from: Joi.date().allow(null),
     created_date_to: Joi.date().allow(null),
-    account_key:Joi.string().allow('').allow(null)
+    account_key: Joi.string().allow('').allow(null)
 });
 // Middleware for validation
-exports.validateListVirtualInventory = async(req, res, next) => {
+exports.validateListVirtualInventory = async (req, res, next) => {
     const { error, value } = listVirtualInventorySchema.validate(req.body);
     if (error) {
         return res.status(400).json({
@@ -154,6 +154,8 @@ const UpdateVirtualInventorySchema = Joi.object({
             track_inventory: Joi.boolean().required(),
             third_party_integrations: Joi.object({
                 etsy_product_id: Joi.any().allow(null).optional(),
+                shopify_graphql_product_id: Joi.any().allow(null).optional(),
+                shopify_graphql_variant_id: Joi.any().allow(null).optional(),
                 shopify_product_id: Joi.any().allow(null).optional(),
                 shopify_variant_id: Joi.any().allow(null).optional(),
                 squarespace_product_id: Joi.any().allow(null).optional(),
@@ -166,10 +168,10 @@ const UpdateVirtualInventorySchema = Joi.object({
             }).required()
         })
     ).required(),
-    account_key:Joi.string().optional()
+    account_key: Joi.string().optional()
 });
 // Middleware for validation
-exports.validateUpdateVirtualInventory = async(req, res, next) => {
+exports.validateUpdateVirtualInventory = async (req, res, next) => {
     const { error, value } = UpdateVirtualInventorySchema.validate(req.body);
     if (error) {
         return res.status(400).json({
