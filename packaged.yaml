@@ -54,7 +54,7 @@ Resources:
         - MyLambdaExecutionRole
         - Arn
       Runtime: nodejs18.x
-      CodeUri: s3://order-fullfilment-app-lambda-server/1b6c910bb122ab9094c7cec9df41ce15
+      CodeUri: s3://order-fullfilment-app-lambda-server/b7a304db8c1b7508ccbd833f9989fc8a
       MemorySize: 3008
       Timeout: 900
       Environment:
@@ -250,6 +250,13 @@ Resources:
               Ref: MyApiGateway
             Method: POST
             Path: /api/webhooks/product-delete
+        ShopifyCarrierServiceCallbackApi:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: POST
+            Path: /api/shopify/carrier-service/callback
     Metadata:
       SamResourceId: OrderFullFillmentServerLessDevServerAgain
   OrderFullFillmentServerLessDevServerV2Again:
@@ -262,7 +269,7 @@ Resources:
         - MyLambdaExecutionRole
         - Arn
       Runtime: nodejs18.x
-      CodeUri: s3://order-fullfilment-app-lambda-server/1b6c910bb122ab9094c7cec9df41ce15
+      CodeUri: s3://order-fullfilment-app-lambda-server/b7a304db8c1b7508ccbd833f9989fc8a
       MemorySize: 3008
       Timeout: 900
       Environment:
@@ -507,13 +514,6 @@ Resources:
               Ref: MyApiGateway
             Method: DELETE
             Path: /api/shopify/carrier-service
-        ShopifyCarrierServiceCallbackApi:
-          Type: Api
-          Properties:
-            RestApiId:
-              Ref: MyApiGateway
-            Method: POST
-            Path: /api/shopify/carrier-service/callback
         ShopifyWebhookRegister:
           Type: Api
           Properties:

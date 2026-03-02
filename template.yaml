@@ -239,6 +239,12 @@ Resources:
             RestApiId: !Ref MyApiGateway
             Method: POST
             Path: "/api/webhooks/product-delete"
+        ShopifyCarrierServiceCallbackApi:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Method: POST
+            Path: "/api/shopify/carrier-service/callback"
   OrderFullFillmentServerLessDevServerV2Again:
     Type: AWS::Serverless::Function
     Properties:
@@ -490,12 +496,12 @@ Resources:
             RestApiId: !Ref MyApiGateway
             Method: DELETE
             Path: "/api/shopify/carrier-service"
-        ShopifyCarrierServiceCallbackApi:
-          Type: Api
-          Properties:
-            RestApiId: !Ref MyApiGateway
-            Method: POST
-            Path: "/api/shopify/carrier-service/callback"
+        # ShopifyCarrierServiceCallbackApi:
+        #   Type: Api
+        #   Properties:
+        #     RestApiId: !Ref MyApiGateway
+        #     Method: POST
+        #     Path: "/api/shopify/carrier-service/callback"
         ShopifyWebhookRegister:
           Type: Api
           Properties:

@@ -4625,12 +4625,20 @@ const shopifyCarrierServiceCallback = async (req, res) => {
       });
     }
 
-    // const accountKey = req.query?.account_key || req.body?.account_key || null;
-    // if (!accountKey) {
-    //   return res.status(400).json({
-    //     error: 'Missing required parameter: account_key'
-    //   });
-    // }
+    let accountKey = null;
+    try {
+      const accountInfo = await fetchAccountInfoByShop();
+      if (accountInfo?.success === true && accountInfo?.account_key) {
+        accountKey = String(accountInfo.account_key);
+      }
+    } catch (err) {
+      log('carrier-service/callback account-info fetch failed: %s', err?.message);
+    }
+    if (!accountKey) {
+      return res.status(401).json({
+        error: 'Could not resolve account_key from account-info service'
+      });
+    }
 
     const currency = rate.currency || 'USD';
 
@@ -4675,7 +4683,7 @@ const shopifyCarrierServiceCallback = async (req, res) => {
         const sku = item.sku || item.variant_id || null;
         const virtualInventoryPayload = {
           sku_filter: [sku],
-          account_key: '04129d94-10b5-4d85-b584-584d936c8e73'
+          account_key: accountKey
         };
         const virtualInventoryResponse = await finerworksService.LIST_VIRTUAL_INVENTORY(virtualInventoryPayload);
         console.log("virtualInventoryResponse=====",virtualInventoryResponse);
@@ -4734,7 +4742,7 @@ const shopifyCarrierServiceCallback = async (req, res) => {
 
     const fwPayload = {
       orders: [orderPayload],
-      account_key: "04129d94-10b5-4d85-b584-584d936c8e73"
+      account_key: accountKey
     };
     // console.log("fwPayload======>>>>>", fwPayload);
     // return res.status(200).json( fwPayload );
@@ -5230,14 +5238,17 @@ const ACCOUNT_INFO_URL =
   process.env.SHOPIFY_ACCOUNT_INFO_URL ||
   'https://shopify.finerworks.com/api/account-info';
 
-const fetchAccountInfoByShop = async (shopDomain) => {
-  if (!shopDomain) return null;
+const ACCOUNT_INFO_SECRET = 'XSiLA7OpH5RdUsljgBD9VaJ1kr6euQz3F4Ny0Iq2tcCEnoYG';
 
-  const resp = await axios.get(ACCOUNT_INFO_URL, {
-    params: { shop: shopDomain },
-    timeout: 10000
-  });
-
+const fetchAccountInfoByShop = async () => {
+  const resp = await axios.post(
+    ACCOUNT_INFO_URL,
+    { secret: ACCOUNT_INFO_SECRET },
+    {
+      headers: { 'Content-Type': 'application/json' },
+      timeout: 10000
+    }
+  );
   return resp?.data || null;
 };
 
@@ -5355,7 +5366,7 @@ const shopifyProductDeleteWebhook = async (req, res) => {
     let accountInfo = null;
     try {
       log('fetching account info');
-      accountInfo = await fetchAccountInfoByShop(shopDomain);
+      accountInfo = await fetchAccountInfoByShop();
       log('account info fetched success=%s', accountInfo?.success);
     } catch (lookupErr) {
       const status = lookupErr?.response?.status || 500;
