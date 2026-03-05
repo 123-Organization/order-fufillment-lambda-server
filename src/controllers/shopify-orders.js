@@ -4628,6 +4628,7 @@ const shopifyCarrierServiceCallback = async (req, res) => {
     let accountKey = null;
     try {
       const accountInfo = await fetchAccountInfoByShop();
+      console.log("accountInfo====>>>>",accountInfo);
       if (accountInfo?.success === true && accountInfo?.account_key) {
         accountKey = String(accountInfo.account_key);
       }
@@ -4839,7 +4840,7 @@ const WEBHOOK_SUBSCRIPTION_CREATE_MUTATION = `
   }
 `;
 
-// Map REST-style topics (e.g. "products/delete") to GraphQL enum topics (e.g. "PRODUCTS_DELETE")
+// Map REST-style topics (e.g. "products/delete", "orders/create") to GraphQL enum topics
 const mapWebhookTopicToGraphql = (topic) => {
   const t = String(topic || '').trim();
   if (!t) return null;
@@ -4847,6 +4848,9 @@ const mapWebhookTopicToGraphql = (topic) => {
   const lower = t.toLowerCase();
   if (lower === 'products/delete' || lower === 'products_delete' || lower === 'product/delete') {
     return 'PRODUCTS_DELETE';
+  }
+  if (lower === 'orders/create' || lower === 'orders_create' || lower === 'order/create') {
+    return 'ORDERS_CREATE';
   }
 
   // If caller already passed an enum-like topic, accept it.
@@ -4988,6 +4992,129 @@ const registerShopifyWebhook = async (req, res) => {
     return res.status(status).json({
       success: false,
       message: 'Failed to register Shopify webhook',
+      error: typeof message === 'string' ? message : JSON.stringify(message),
+      details: data || undefined
+    });
+  }
+};
+
+/**
+ * Register a Shopify webhook for order creation (orders/create) via GraphQL Admin API.
+ * Expects: storeName/shop, access_token (body/header/Bearer), and optional webhook address.
+ * If address not provided, uses env SHOPIFY_ORDER_CREATE_WEBHOOK_URL.
+ */
+const registerShopifyOrderCreateWebhook = async (req, res) => {
+  try {
+    let accessToken = req.body?.access_token || req.headers['x-shopify-access-token'];
+    const authHeader = req.headers?.authorization || req.headers?.Authorization;
+    if (!accessToken && authHeader && authHeader.startsWith('Bearer ')) {
+      accessToken = authHeader.slice(7).trim();
+    }
+
+    const storeName =
+      req.body?.storeName ||
+      req.body?.shop ||
+      req.body?.store ||
+      req.query?.storeName ||
+      req.query?.shop;
+
+    const address =
+      req.body?.address ||
+      req.body?.webhook_address ||
+      req.body?.webhook?.address ||
+      process.env.SHOPIFY_ORDER_CREATE_WEBHOOK_URL;
+
+    const apiVersion = process.env.SHOPIFY_API_VERSION || '2025-10';
+
+    if (!accessToken || !storeName) {
+      return res.status(400).json({
+        success: false,
+        message: 'Missing required parameters: access_token and storeName (or shop)'
+      });
+    }
+
+    if (!address || typeof address !== 'string' || !address.trim().toLowerCase().startsWith('https://')) {
+      return res.status(400).json({
+        success: false,
+        message: 'Missing or invalid webhook address. Provide body.address or set SHOPIFY_ORDER_CREATE_WEBHOOK_URL (must be https).'
+      });
+    }
+
+    const shopDomain = normalizeShopDomain(storeName);
+    if (!shopDomain || !shopDomain.match(/^[a-z0-9][a-z0-9-]*\.myshopify\.com$/)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid storeName. Expected shopname or shopname.myshopify.com'
+      });
+    }
+
+    const endpoint = `https://${shopDomain}/admin/api/${apiVersion}/graphql.json`;
+    const headers = {
+      'X-Shopify-Access-Token': accessToken,
+      'Content-Type': 'application/json',
+      Accept: 'application/json'
+    };
+
+    const resp = await axios.post(
+      endpoint,
+      {
+        query: WEBHOOK_SUBSCRIPTION_CREATE_MUTATION,
+        variables: {
+          topic: 'ORDERS_CREATE',
+          webhookSubscription: {
+            uri: address.trim()
+          }
+        }
+      },
+      { headers }
+    );
+
+    if (resp.data.errors) {
+      const message = Array.isArray(resp.data.errors)
+        ? resp.data.errors.map(e => e.message).join('; ')
+        : 'Unknown GraphQL error';
+      return res.status(502).json({
+        success: false,
+        message: 'Shopify API error',
+        error: message
+      });
+    }
+
+    const payload = resp.data?.data?.webhookSubscriptionCreate;
+    if (!payload) {
+      return res.status(502).json({
+        success: false,
+        message: 'Invalid Shopify response for webhookSubscriptionCreate'
+      });
+    }
+
+    if (Array.isArray(payload.userErrors) && payload.userErrors.length > 0) {
+      const message = payload.userErrors
+        .map(e => `${e.field ? e.field.join('.') : 'error'}: ${e.message}`)
+        .join('; ');
+      return res.status(400).json({
+        success: false,
+        message,
+        userErrors: payload.userErrors
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      topic: 'orders/create',
+      shopDomain,
+      webhookSubscription: payload.webhookSubscription || null
+    });
+  } catch (err) {
+    const status = err?.response?.status || 500;
+    const data = err?.response?.data || null;
+    const message =
+      (data && (data.errors || data.error)) ||
+      err.message ||
+      'Request failed';
+    return res.status(status).json({
+      success: false,
+      message: 'Failed to register order creation webhook',
       error: typeof message === 'string' ? message : JSON.stringify(message),
       details: data || undefined
     });
@@ -5241,6 +5368,7 @@ const ACCOUNT_INFO_URL =
 const ACCOUNT_INFO_SECRET = 'XSiLA7OpH5RdUsljgBD9VaJ1kr6euQz3F4Ny0Iq2tcCEnoYG';
 
 const fetchAccountInfoByShop = async () => {
+  console.log("entererererer")
   const resp = await axios.post(
     ACCOUNT_INFO_URL,
     { secret: ACCOUNT_INFO_SECRET },
@@ -5249,6 +5377,7 @@ const fetchAccountInfoByShop = async () => {
       timeout: 10000
     }
   );
+  console.log("resp=====",resp);
   return resp?.data || null;
 };
 
@@ -5467,6 +5596,7 @@ module.exports = {
   deleteShopifyCarrierService,
   shopifyCarrierServiceCallback,
   registerShopifyWebhook,
+  registerShopifyOrderCreateWebhook,
   listShopifyWebhooks,
   deleteShopifyWebhookById,
   shopifyProductDeleteWebhook
