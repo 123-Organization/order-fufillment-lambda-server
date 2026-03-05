@@ -5279,6 +5279,134 @@ const deleteShopifyWebhookById = async (req, res) => {
   }
 };
 
+// GraphQL query to fetch a single order by ID with full details (for orders/create webhook).
+const ORDER_DETAILS_BY_ID_QUERY = `
+  query orderDetails($id: ID!) {
+    order(id: $id) {
+      id
+      name
+      createdAt
+      updatedAt
+      totalPriceSet { shopMoney { amount currencyCode } }
+      subtotalPriceSet { shopMoney { amount currencyCode } }
+      totalTaxSet { shopMoney { amount currencyCode } }
+      totalShippingPriceSet { shopMoney { amount currencyCode } }
+      currencyCode
+      displayFinancialStatus
+      displayFulfillmentStatus
+      confirmed
+      processedAt
+      customerLocale
+      email
+      note
+      customer {
+        id
+        displayName
+        firstName
+        lastName
+        email
+        phone
+        defaultAddress {
+          address1 address2 city province provinceCode country countryCodeV2 zip phone company name formatted formattedArea
+        }
+      }
+      shippingAddress {
+        name formatted formattedArea company city province provinceCode country countryCodeV2
+        firstName lastName address1 address2 zip phone
+      }
+      billingAddress {
+        name formatted formattedArea company city province provinceCode country countryCodeV2
+        firstName lastName address1 address2 zip phone
+      }
+      shippingLine {
+        title
+        originalPriceSet { shopMoney { amount currencyCode } }
+        code
+        carrierIdentifier
+        requestedFulfillmentService { id serviceName }
+        phone
+        discountedPriceSet { shopMoney { amount currencyCode } }
+      }
+      shippingLines(first: 10) {
+        edges {
+          node {
+            title
+            code
+            carrierIdentifier
+            originalPriceSet { shopMoney { amount currencyCode } }
+            discountedPriceSet { shopMoney { amount currencyCode } }
+            requestedFulfillmentService { id serviceName }
+            taxLines { priceSet { shopMoney { amount currencyCode } } }
+          }
+        }
+      }
+      lineItems(first: 100) {
+        edges {
+          node {
+            id
+            title
+            sku
+            quantity
+            originalTotalSet { shopMoney { amount currencyCode } }
+            originalUnitPriceSet { shopMoney { amount currencyCode } }
+            discountedTotalSet { shopMoney { amount currencyCode } }
+            discountedUnitPriceSet { shopMoney { amount currencyCode } }
+            variant {
+              id
+              title
+              sku
+              image { url altText }
+              product {
+                id
+                title
+                handle
+                productType
+                vendor
+                featuredImage { url altText }
+              }
+            }
+            taxLines { priceSet { shopMoney { amount currencyCode } } }
+            discountAllocations { allocatedAmountSet { shopMoney { amount currencyCode } } }
+          }
+        }
+      }
+      fulfillments {
+        id
+        status
+        createdAt
+        deliveredAt
+        estimatedDeliveryAt
+        trackingInfo { number url company }
+      }
+      totalDiscountsSet { shopMoney { amount currencyCode } }
+    }
+  }
+`;
+
+const fetchOrderById = async ({ shopDomain, accessToken, apiVersion, orderId }) => {
+  if (!shopDomain || !accessToken || !orderId) return null;
+  const endpoint = `https://${shopDomain}/admin/api/${apiVersion}/graphql.json`;
+  const headers = {
+    'X-Shopify-Access-Token': accessToken,
+    'Content-Type': 'application/json'
+  };
+  const gid = orderId.startsWith('gid://') ? orderId : `gid://shopify/Order/${orderId}`;
+  const resp = await axios.post(
+    endpoint,
+    { query: ORDER_DETAILS_BY_ID_QUERY, variables: { id: gid } },
+    { headers }
+  );
+  if (resp.data.errors) {
+    const message = Array.isArray(resp.data.errors)
+      ? resp.data.errors.map(e => e.message).join('; ')
+      : 'Unknown GraphQL error';
+    const err = new Error(message);
+    err.status = 502;
+    throw err;
+  }
+  return resp.data?.data?.order || null;
+};
+
 // Shopify "products/delete" webhook receiver.
 //
 // Shopify will POST a JSON payload that includes at least:
@@ -5381,6 +5509,18 @@ const fetchAccountInfoByShop = async () => {
   return resp?.data || null;
 };
 
+/** Fetch account info (access_token, account_key) for a specific shop. Used by webhooks that have X-Shopify-Shop-Domain. */
+const fetchAccountInfoByShopDomain = async (shopDomain) => {
+  console.log("herererererererere",shopDomain)
+  if (!shopDomain) return null;
+  const resp = await axios.post(
+    ACCOUNT_INFO_URL,
+    {  shop: shopDomain },
+    { headers: { 'Content-Type': 'application/json' }, timeout: 10000 }
+  );
+  return resp?.data || null;
+};
+
 const extractSkusFromShopifyProductDetails = (productDetails) => {
   const skus = new Set();
   const nodes = productDetails?.variants?.nodes;
@@ -5454,6 +5594,129 @@ const clearShopifyGraphqlProductIdForSkus = async ({ accountKey, skus }) => {
   }
 
   return { results, errors };
+};
+
+/** Returns true if the line item (or its variant) has a SKU that starts with "AP". */
+const lineItemSkuStartsWithAP = (node) => {
+  const sku = (node?.sku != null ? String(node.sku) : node?.variant?.sku != null ? String(node.variant.sku) : '') || '';
+  return sku.trim().toUpperCase().startsWith('AP');
+};
+
+/**
+ * Shopify "orders/create" webhook receiver.
+ * Ignores the webhook body except for order id; fetches full order via GraphQL, then returns
+ * order details with only line items whose SKU starts with "AP".
+ */
+const shopifyOrdersCreateWebhook = async (req, res) => {
+  try {
+    const apiVersion = process.env.SHOPIFY_API_VERSION || '2025-10';
+    log('shopifyOrdersCreateWebhook hit');
+
+    const shopFromHeader =
+      req.headers['x-shopify-shop-domain'] ||
+      req.headers['X-Shopify-Shop-Domain'] ||
+      req.headers['X-Shopify-Shop-domain'] ||
+      req.body?.storeName ||
+      req.body?.shop;
+
+    const shopDomain = normalizeShopDomain(String(shopFromHeader || '').trim());
+    if (!shopDomain) {
+      return res.status(400).json({
+        success: false,
+        message: 'Missing X-Shopify-Shop-Domain header'
+      });
+    }
+
+    const idRaw = req.body?.id ?? req.body?.admin_graphql_api_id ?? null;
+    const orderId = idRaw != null ? String(idRaw).trim() : null;
+    if (!orderId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Missing order id in webhook body (id or admin_graphql_api_id)'
+      });
+    }
+
+    let accountInfo = null;
+    try {
+      accountInfo = await fetchAccountInfoByShopDomain(shopDomain);
+      console.log("accountInfo===",accountInfo);
+      if (!accountInfo?.access_token) {
+        accountInfo = await fetchAccountInfoByShop();
+      }
+    } catch (lookupErr) {
+      const status = lookupErr?.response?.status || 500;
+      log('account info fetch failed: %s', lookupErr?.message);
+      return res.status(status).json({
+        success: false,
+        message: 'Failed to fetch account info for shop',
+        shopDomain,
+        error: lookupErr?.message || 'Request failed'
+      });
+    }
+
+    const accessToken = accountInfo?.access_token ? String(accountInfo.access_token) : null;
+    if (!accessToken) {
+      return res.status(401).json({
+        success: false,
+        message: 'No access_token for shop',
+        shopDomain
+      });
+    }
+
+    let order = null;
+    try {
+      order = await fetchOrderById({
+        shopDomain,
+        accessToken,
+        apiVersion,
+        orderId
+      });
+    } catch (fetchErr) {
+      const status = fetchErr?.status || fetchErr?.response?.status || 502;
+      log('fetchOrderById failed: %s', fetchErr?.message);
+      return res.status(status).json({
+        success: false,
+        message: 'Failed to fetch order from Shopify',
+        shopDomain,
+        orderId,
+        error: fetchErr?.message || 'Request failed'
+      });
+    }
+
+    if (!order) {
+      return res.status(404).json({
+        success: false,
+        message: 'Order not found',
+        shopDomain,
+        orderId
+      });
+    }
+
+    const edges = order?.lineItems?.edges || [];
+    const filteredEdges = edges.filter((edge) => lineItemSkuStartsWithAP(edge?.node));
+    const filteredOrder = {
+      ...order,
+      lineItems: {
+        ...order.lineItems,
+        edges: filteredEdges
+      }
+    };
+
+    return res.status(200).json({
+      success: true,
+      topic: req.headers['x-shopify-topic'] || 'orders/create',
+      shopDomain,
+      orderId: order.id,
+      order: filteredOrder
+    });
+  } catch (err) {
+    log('shopifyOrdersCreateWebhook error: %s', err?.message);
+    return res.status(500).json({
+      success: false,
+      message: 'Webhook handler failed',
+      error: err?.message || 'Unknown error'
+    });
+  }
 };
 
 const shopifyProductDeleteWebhook = async (req, res) => {
@@ -5599,5 +5862,6 @@ module.exports = {
   registerShopifyOrderCreateWebhook,
   listShopifyWebhooks,
   deleteShopifyWebhookById,
-  shopifyProductDeleteWebhook
+  shopifyProductDeleteWebhook,
+  shopifyOrdersCreateWebhook
 };

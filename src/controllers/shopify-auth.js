@@ -91,6 +91,27 @@ const handleShopifyCallback = async (req, res) => {
         const getInformation = await finerworksService.GET_INFO({ account_key: account_key });
         console.log("getInformation=======", getInformation.user_account.connections);
         const connections = getInformation.user_account.connections;
+        if(connections===null){
+            const payloadForCompanyInformation = {
+
+                name: 'Shopify',
+                id: queryParams.access_token,
+                data: JSON.stringify(queryParams)
+
+            };
+            const connections2=[]
+            connections2.push(payloadForCompanyInformation);
+            const payloadForCompanyInformationv2 = {
+                account_key: account_key,
+                connections: connections2
+            };
+            console.log("payloadForCompanyInformation=======>>>>", payloadForCompanyInformationv2);
+            await finerworksService.UPDATE_INFO(payloadForCompanyInformationv2);
+            return res.status(200).json({
+                success: true,
+                message: 'Shopify connection added successfully'
+            });
+        }
         const filteredConnections = connections.filter(conn => conn.name === 'Shopify');
         console.log("filteredConnections=======", filteredConnections);
         if (filteredConnections.length > 0) {

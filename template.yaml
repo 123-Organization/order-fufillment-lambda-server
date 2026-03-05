@@ -239,6 +239,12 @@ Resources:
             RestApiId: !Ref MyApiGateway
             Method: POST
             Path: "/api/webhooks/product-delete"
+        # WebhookOrdersCreate:
+        #   Type: Api
+        #   Properties:
+        #     RestApiId: !Ref MyApiGateway
+        #     Method: POST
+        #     Path: "/api/webhooks/orders-create"
         ShopifyCarrierServiceCallbackApi:
           Type: Api
           Properties:
