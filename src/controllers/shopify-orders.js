@@ -21,24 +21,33 @@ const normalizeShopDomain = (shopInput) => {
 /** Match Shopify shipping line to a shipping option id. Sets code to option.id (never shipping_code).
  *  Tries: (1) title vs shipping_method, (2) Shopify carrier code (edge.node.code) vs shipping_code. */
 const matchShippingOptionId = (title, options, carrierCodeFromShopify = null) => {
+  console.log("title====",title);
+  console.log("options====",options);
+  console.log("carrierCodeFromShopify====",carrierCodeFromShopify); 
   if (!Array.isArray(options) || !options.length) return null;
   const opts = options;
+  // console.log("opts====",opts);
 
   const byTitle = (t) => {
     if (!t) return null;
     const exact = opts.find(o => o?.shipping_method === t);
+    console.log("exact===",exact)
     if (exact) return exact.id;
     const prefix = opts.find(o => String(o?.shipping_method || '').startsWith(t));
+    console.log("prefix=====",prefix);
     if (prefix) return prefix.id;
     const contains = opts.find(o => String(o?.shipping_method || '').toLowerCase().includes(t.toLowerCase()));
     return contains ? contains.id : null;
   };
 
   const idByTitle = byTitle(title != null ? String(title).trim() : '');
+  console.log("idByTitle====",idByTitle);
   if (idByTitle != null) return idByTitle;
 
   const code = carrierCodeFromShopify != null ? String(carrierCodeFromShopify).trim() : '';
+  console.log("code=====",code)
   if (code) {
+    console.log("enetered the code====")
     const byCode = opts.find(o => String(o?.shipping_code || '').trim() === code);
     if (byCode) return byCode.id;
   }
@@ -3684,84 +3693,93 @@ const syncShopifyProducts = async (req, res) => {
       });
     }
 
-    // Group products by image_guid to determine primary items and their variants.
-    // - If multiple items share the same image_guid, they are considered variants.
-    //   Among them, the one with primaryItem === true (when present) is the primary item,
-    //   and the remaining items are attached under it as variants.
-    // - If image_guid is unique or missing, the item is treated as an individual product.
-    const products = [];
-    const imageGuidMap = new Map();
+    // Variant logic applies only when the "primary" field is present on at least one product.
+    // - If "primary" (or "primaryItem") is absent on all products → treat each as a single product; no grouping.
+    // - If "primary" is present (true or false) on any product → group by image_guid and apply variant logic.
+    const hasPrimaryField = rawProducts.some(
+      (p) => p && ('primary' in p || 'primaryItem' in p)
+    );
 
-    for (const item of rawProducts) {
-      const guid = item && item.image_guid;
-      if (!guid) {
-        // No image_guid: treat as standalone product.
-        products.push(item);
-        continue;
-      }
+    let products = [];
 
-      if (!imageGuidMap.has(guid)) {
-        imageGuidMap.set(guid, []);
-      }
-      imageGuidMap.get(guid).push(item);
-    }
+    if (!hasPrimaryField) {
+      // No primary field: treat every item as a single product; variant logic not applied.
+      products = rawProducts.map((item) => (item ? { ...item } : item)).filter(Boolean);
+    } else {
+      // Primary field present: group by image_guid to determine primary items and their variants.
+      // - If multiple items share the same image_guid, they are considered variants.
+      //   Among them, the one with primaryItem === true or primary === true (when present) is the primary item,
+      //   and the remaining items are attached under it as variants.
+      // - If image_guid is unique or missing, the item is treated as an individual product.
+      const imageGuidMap = new Map();
 
-    for (const items of imageGuidMap.values()) {
-      if (!Array.isArray(items) || !items.length) {
-        continue;
-      }
-
-      if (items.length === 1) {
-        // Only one product for this image_guid; treat as individual product.
-        products.push(items[0]);
-        continue;
-      }
-
-      // More than one product with the same image_guid -> variants.
-      // Choose the primary item when marked, otherwise default to the first.
-      let primary = items.find(p => p && p.primaryItem === true);
-      if (!primary) {
-        primary = items[0];
-      }
-
-      const variants = items.filter(p => p !== primary);
-      if (variants.length) {
-        primary.variants = variants;
-
-        // Build Shopify product options from all items in this group so that
-        // variants can be differentiated (e.g., by Type, Media, Style).
-        //
-        // We derive values (with fallbacks) to guarantee every variant can supply
-        // all required optionValues for the defined options.
-        const allItems = [primary, ...variants];
-        const optionNames = ['Type', 'Media', 'Style'];
-
-        const uniqueValuesByOption = new Map();
-        for (const optName of optionNames) {
-          uniqueValuesByOption.set(optName, []);
+      for (const item of rawProducts) {
+        const guid = item && item.image_guid;
+        if (!guid) {
+          products.push(item);
+          continue;
         }
 
-        for (const item of allItems) {
-          if (!item) continue;
+        if (!imageGuidMap.has(guid)) {
+          imageGuidMap.set(guid, []);
+        }
+        imageGuidMap.get(guid).push(item);
+      }
+
+      for (const items of imageGuidMap.values()) {
+        if (!Array.isArray(items) || !items.length) {
+          continue;
+        }
+
+        if (items.length === 1) {
+          products.push(items[0]);
+          continue;
+        }
+
+        // More than one product with the same image_guid -> variants.
+        // Choose the primary item when marked (primaryItem === true or primary === true), otherwise default to the first.
+        let primary = items.find(
+          (p) => p && (p.primaryItem === true || p.primary === true)
+        );
+        if (!primary) {
+          primary = items[0];
+        }
+
+        const variants = items.filter((p) => p !== primary);
+        if (variants.length) {
+          primary.variants = variants;
+
+          const allItems = [primary, ...variants];
+          const optionNames = ['Type', 'Media', 'Style'];
+
+          const uniqueValuesByOption = new Map();
           for (const optName of optionNames) {
-            const val = deriveOptionValue(item, optName);
-            const list = uniqueValuesByOption.get(optName);
-            if (list && !list.includes(val)) {
-              list.push(val);
+            uniqueValuesByOption.set(optName, []);
+          }
+
+          for (const item of allItems) {
+            if (!item) continue;
+            for (const optName of optionNames) {
+              const val = deriveOptionValue(item, optName);
+              const list = uniqueValuesByOption.get(optName);
+              if (list && !list.includes(val)) {
+                list.push(val);
+              }
             }
           }
+
+          const productOptions = optionNames.map((optName) => ({
+            name: optName,
+            values: (uniqueValuesByOption.get(optName) || []).map((v) => ({
+              name: v
+            }))
+          }));
+
+          primary.productOptions = productOptions;
         }
 
-        const productOptions = optionNames.map((optName) => ({
-          name: optName,
-          values: (uniqueValuesByOption.get(optName) || []).map((v) => ({ name: v }))
-        }));
-
-        // Always attach productOptions for grouped variants (Shopify expects them).
-        primary.productOptions = productOptions;
+        products.push(primary);
       }
-
-      products.push(primary);
     }
 
     // Fetch primary location once for all inventory updates
@@ -4076,7 +4094,9 @@ const syncShopifyProducts = async (req, res) => {
             req.body?.accountkey ||
             null;
 
-          // Use the MAIN Shopify product id for all items (primary + variants).
+          // When each product is distinct (no variant grouping): each item has its own
+          // shopify_graphql_product_id. When variant logic applied: primary + variants
+          // share the same product id (one Shopify product, multiple variants).
           const shopifyProductGid = created?.id || null;
           const shopifyProductNumericId = shopifyProductGid
             ? String(shopifyProductGid).split('/').pop()
@@ -5363,6 +5383,14 @@ const ORDER_DETAILS_BY_ID_QUERY = `
                 productType
                 vendor
                 featuredImage { url altText }
+                metafields(first: 3, namespace: "custom") {
+                  edges {
+                    node {
+                      key
+                      value
+                    }
+                  }
+                }
               }
             }
             taxLines { priceSet { shopMoney { amount currencyCode } } }
@@ -5509,6 +5537,20 @@ const fetchAccountInfoByShop = async () => {
   return resp?.data || null;
 };
 
+const fetchAccountInfoByShopV2 = async (shop) => {
+  console.log("entererererer")
+  const resp = await axios.post(
+    ACCOUNT_INFO_URL,
+    { shop: shop },
+    {
+      headers: { 'Content-Type': 'application/json' },
+      timeout: 10000
+    }
+  );
+  console.log("resp=====",resp);
+  return resp?.data || null;
+};
+
 /** Fetch account info (access_token, account_key) for a specific shop. Used by webhooks that have X-Shopify-Shop-Domain. */
 const fetchAccountInfoByShopDomain = async (shopDomain) => {
   console.log("herererererererere",shopDomain)
@@ -5600,6 +5642,77 @@ const clearShopifyGraphqlProductIdForSkus = async ({ accountKey, skus }) => {
 const lineItemSkuStartsWithAP = (node) => {
   const sku = (node?.sku != null ? String(node.sku) : node?.variant?.sku != null ? String(node.variant.sku) : '') || '';
   return sku.trim().toUpperCase().startsWith('AP');
+};
+
+/**
+ * Transform a single Shopify order (GraphQL shape, after shipping/product_guid enrichment)
+ * into the FinerWorks-style orders payload format.
+ */
+const transformShopifyOrderToOrdersPayload = (order) => {
+  const addr = order?.shippingAddress || order?.customer?.defaultAddress || {};
+  const cust = order?.customer || {};
+  const orderPo = order?.name ? String(order.name).replace(/^#/, '') : '';
+  const orderPoDisplay = order?.name || orderPo || '';
+
+  const recipient = {
+    first_name: addr.firstName ?? cust.firstName ?? null,
+    last_name: addr.lastName ?? cust.lastName ?? null,
+    company_name: addr.company ?? cust.defaultAddress?.company ?? null,
+    address_1: addr.address1 ?? null,
+    address_2: addr.address2 ?? null,
+    address_3: null,
+    city: addr.city ?? null,
+    state_code: addr.provinceCode ?? null,
+    province: addr.province ?? null,
+    zip_postal_code: addr.zip ?? null,
+    country_code: (addr.countryCodeV2 || '').toLowerCase() || null,
+    phone: addr.phone ?? cust.phone ?? null,
+    email: order?.email ?? cust.email ?? null,
+    address_order_po: orderPoDisplay || null
+  };
+
+  const orderItems = (order?.lineItems?.edges || []).map((edge) => {
+    const node = edge?.node || {};
+    const variant = node?.variant || {};
+    const product = variant?.product || {};
+    const imageUrl = variant?.image?.url ?? product?.featuredImage?.url ?? null;
+    return {
+      product_order_po: orderPoDisplay || null,
+      product_qty: node.quantity ?? 0,
+      product_sku: node.sku ?? variant.sku ?? null,
+      product_image: imageUrl,
+      product_title: node.title ?? product?.title ?? null,
+      template: null,
+      product_guid: product.product_guid ?? null,
+      custom_data_1: null,
+      custom_data_2: null,
+      custom_data_3: null
+    };
+  });
+
+  // Use code from shippingLines.edges[].node (matched FinerWorks option id) first, then fallback to shippingLine.code
+  const shippingCode = order?.shippingLines?.edges?.[0]?.node?.code ?? order?.shippingLine?.code;
+  const shippingCodeStr = shippingCode != null ? String(shippingCode) : null;
+
+  return {
+    order_po: orderPoDisplay || null,
+    order_key: null,
+    recipient,
+    order_items: orderItems,
+    shipping_code: shippingCodeStr,
+    ship_by_date: null,
+    customs_tax_info: null,
+    gift_message: order?.note ?? null,
+    test_mode: false,
+    webhook_order_status_url: null,
+    document_url: null,
+    acct_number_ups: null,
+    acct_number_fedex: null,
+    custom_data_1: null,
+    custom_data_2: null,
+    custom_data_3: null,
+    source: null
+  };
 };
 
 /**
@@ -5702,12 +5815,37 @@ const shopifyOrdersCreateWebhook = async (req, res) => {
       }
     };
 
+    const shippingOptions = await finerworksService.SHIPPING_OPTIONS_LIST();
+    log('shippingOptions====>>', shippingOptions);
+    console.log("shippingOptions====>>>",shippingOptions);
+
+    [filteredOrder].forEach((o) => {
+      (o.shippingLines?.edges || []).forEach((edge) => {
+        const matchedId = matchShippingOptionId(
+          edge.node?.title,
+          shippingOptions?.shipping_options,
+          edge.node?.code
+        );
+        if (matchedId != null) edge.node.code = matchedId;
+      });
+      const lineItemEdges = o?.lineItems?.edges || [];
+      lineItemEdges.forEach((liEdge) => {
+        const product = liEdge?.node?.variant?.product;
+        if (!product) return;
+        const metafieldEdges = product?.metafields?.edges || [];
+        const productGuidNode = metafieldEdges.find((e) => e?.node?.key === 'product_guid');
+        product.product_guid = productGuidNode?.node?.value ?? null;
+      });
+    });
+
+    const transformedOrder = transformShopifyOrderToOrdersPayload(filteredOrder);
+    const accountKey = accountInfo?.account_key ?? null;
+
     return res.status(200).json({
-      success: true,
-      topic: req.headers['x-shopify-topic'] || 'orders/create',
-      shopDomain,
-      orderId: order.id,
-      order: filteredOrder
+      orders: [transformedOrder],
+      validate_only: false,
+      payment_token: null,
+      account_key: accountKey
     });
   } catch (err) {
     log('shopifyOrdersCreateWebhook error: %s', err?.message);
@@ -5758,7 +5896,8 @@ const shopifyProductDeleteWebhook = async (req, res) => {
     let accountInfo = null;
     try {
       log('fetching account info');
-      accountInfo = await fetchAccountInfoByShop();
+      accountInfo = await fetchAccountInfoByShopV2(shopDomain);
+      console.log("accountInfo====",accountInfo);
       log('account info fetched success=%s', accountInfo?.success);
     } catch (lookupErr) {
       const status = lookupErr?.response?.status || 500;
@@ -5798,10 +5937,12 @@ const shopifyProductDeleteWebhook = async (req, res) => {
     let listResp = null;
     try {
       log('listing virtual inventory by third_party_connections_filter=%s', productId);
+      console.log("productId=====",productId);
       listResp = await finerworksService.LIST_VIRTUAL_INVENTORY({
         third_party_connections_filter: String(productId),
         account_key: accountKey
       });
+      console.log("listResp===",listResp);
     } catch (listErr) {
       log('list virtual inventory failed message=%s', listErr?.message);
       return res.status(listErr?.response?.status || 500).json({
