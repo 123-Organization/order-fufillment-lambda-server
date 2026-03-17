@@ -4637,6 +4637,9 @@ const deleteShopifyCarrierService = async (req, res) => {
 
 const shopifyCarrierServiceCallback = async (req, res) => {
   try {
+    log('shopifyCarrierServiceCallback hit');
+    log('carrier-service/callback raw body=%s', JSON.stringify(req.body || {}));
+
     const rate = req.body?.rate;
 
     if (!rate) {
@@ -4644,11 +4647,12 @@ const shopifyCarrierServiceCallback = async (req, res) => {
         error: 'Missing required rate object in request body'
       });
     }
+  
 
     let accountKey = null;
     try {
       const accountInfo = await fetchAccountInfoByShop();
-      console.log("accountInfo====>>>>",accountInfo);
+      log('carrier-service/callback account-info success=%s', accountInfo?.success);
       if (accountInfo?.success === true && accountInfo?.account_key) {
         accountKey = String(accountInfo.account_key);
       }
@@ -4698,6 +4702,7 @@ const shopifyCarrierServiceCallback = async (req, res) => {
     };
 
     const items = Array.isArray(rate.items) ? rate.items : [];
+    log('carrier-service/callback items count=%s', items.length);
     const orderItemsPromises = items.map(async(item) => {
       try {
         const title = item.name || item.title || null;
@@ -4707,7 +4712,12 @@ const shopifyCarrierServiceCallback = async (req, res) => {
           account_key: accountKey
         };
         const virtualInventoryResponse = await finerworksService.LIST_VIRTUAL_INVENTORY(virtualInventoryPayload);
-        console.log("virtualInventoryResponse=====",virtualInventoryResponse);
+        log('carrier-service/callback LIST_VIRTUAL_INVENTORY sku=%s products=%s',
+          sku,
+          Array.isArray(virtualInventoryResponse?.products)
+            ? virtualInventoryResponse.products.length
+            : 0
+        );
         
         // Extract product_guid from API response
         const productGuid = virtualInventoryResponse?.products?.[0]?.product_guid || "1c9f4263-035a-437e-9975-ba81b18f5d94";
@@ -4730,13 +4740,18 @@ const shopifyCarrierServiceCallback = async (req, res) => {
         };
       } catch (error) {
         // If API call fails, log error and return null to skip this item
-        console.error(`Failed to fetch virtual inventory for SKU ${item.sku || item.variant_id}:`, error.message);
+        log(
+          'carrier-service/callback LIST_VIRTUAL_INVENTORY failed sku=%s message=%s',
+          item.sku || item.variant_id,
+          error?.message
+        );
         return null;
       }
     });
     
     // Wait for all promises and filter out null values (failed API calls)
     const orderItems = (await Promise.all(orderItemsPromises)).filter(item => item !== null);
+    log('carrier-service/callback built order_items count=%s', orderItems.length);
 
     // Call LIST_VIRTUAL_INVENTORY API
 
@@ -4771,6 +4786,9 @@ const shopifyCarrierServiceCallback = async (req, res) => {
     const fwResponse = await finerworksService.SHIPPING_OPTIONS_MULTIPLE(
       fwPayload
     );
+    console.log("fwResponse=====>>>>>>",fwResponse);
+
+  
 
     const firstOrder =
       fwResponse?.orders && Array.isArray(fwResponse.orders)
@@ -4783,6 +4801,7 @@ const shopifyCarrierServiceCallback = async (req, res) => {
     const shopFromReq =
       req.query?.shop || req.headers['x-shopify-shop-domain'] || req.body?.shop;
     const markupPercent = await getShopShippingMarkupPercent(shopFromReq);
+    console.log("markupPercent=-=======",markupPercent);
     const markupMultiplier =
       Number.isFinite(markupPercent) && markupPercent > 0
         ? 1 + markupPercent / 100
@@ -4814,7 +4833,7 @@ const shopifyCarrierServiceCallback = async (req, res) => {
             service_name: methodName,
             service_code: String(code),
             total_price: String(
-              Number.isFinite(totalPriceMinor) ? totalPriceMinor : 0
+              Number.isFinite(totalPriceMinor) ? totalPriceMinor * 100 : 0
             ),
             currency,
             description
@@ -5651,8 +5670,12 @@ const lineItemSkuStartsWithAP = (node) => {
 const transformShopifyOrderToOrdersPayload = (order) => {
   const addr = order?.shippingAddress || order?.customer?.defaultAddress || {};
   const cust = order?.customer || {};
-  const orderPo = order?.name ? String(order.name).replace(/^#/, '') : '';
-  const orderPoDisplay = order?.name || orderPo || '';
+
+  const rawOrderName = order?.name ? String(order.name) : '';
+  const sanitizedOrderPo =
+    rawOrderName.replace(/[^A-Za-z0-9]/g, '') ||
+    (order?.id ? String(order.id).replace(/[^A-Za-z0-9]/g, '') : '');
+  const orderPoDisplay = sanitizedOrderPo || null;
 
   const recipient = {
     first_name: addr.firstName ?? cust.firstName ?? null,
@@ -5668,7 +5691,7 @@ const transformShopifyOrderToOrdersPayload = (order) => {
     country_code: (addr.countryCodeV2 || '').toLowerCase() || null,
     phone: addr.phone ?? cust.phone ?? null,
     email: order?.email ?? cust.email ?? null,
-    address_order_po: orderPoDisplay || null
+    address_order_po: orderPoDisplay
   };
 
   const orderItems = (order?.lineItems?.edges || []).map((edge) => {
@@ -5680,7 +5703,7 @@ const transformShopifyOrderToOrdersPayload = (order) => {
       product_order_po: orderPoDisplay || null,
       product_qty: node.quantity ?? 0,
       product_sku: node.sku ?? variant.sku ?? null,
-      product_image: imageUrl,
+      product_image: null,
       product_title: node.title ?? product?.title ?? null,
       template: null,
       product_guid: product.product_guid ?? null,
@@ -5841,11 +5864,45 @@ const shopifyOrdersCreateWebhook = async (req, res) => {
     const transformedOrder = transformShopifyOrderToOrdersPayload(filteredOrder);
     const accountKey = accountInfo?.account_key ?? null;
 
-    return res.status(200).json({
+    const finalPayload = {
       orders: [transformedOrder],
       validate_only: false,
-      payment_token: null,
+      payment_token: 'xxxx',
       account_key: accountKey
+    };
+
+    let submitData = null;
+    try {
+      log('Submitting order to FinerWorks: %s', JSON.stringify(finalPayload));
+      // return res.status(200).json({
+      //   // success: true,
+      //   // message: 'Order submitted to FinerWorks',
+      //   // shopDomain,
+      //   // orderId: order.id,
+      //   payload: finalPayload
+      // });
+      submitData = await finerworksService.SUBMIT_ORDERS(finalPayload);
+      log('FinerWorks SUBMIT_ORDERS response: %s', JSON.stringify(submitData));
+    } catch (submitErr) {
+      log('SUBMIT_ORDERS failed: %s', submitErr?.message);
+      console.log(JSON.stringify(submitErr))
+      return res.status(502).json({
+        success: false,
+        message: 'Order submitted to FinerWorks failed',
+        shopDomain,
+        orderId: order.id,
+        payload: finalPayload,
+        error: submitErr?.message || submitErr?.response?.data || 'Unknown error'
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      orders: finalPayload.orders,
+      validate_only: finalPayload.validate_only,
+      payment_token: finalPayload.payment_token,
+      account_key: accountKey,
+      submitData
     });
   } catch (err) {
     log('shopifyOrdersCreateWebhook error: %s', err?.message);

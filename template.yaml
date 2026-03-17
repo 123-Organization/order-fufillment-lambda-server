@@ -544,6 +544,12 @@ Resources:
             RestApiId: !Ref MyApiGateway
             Method: DELETE
             Path: "/api/shopify/delete-webhook"
+        OrderSubmitDirectToFinerWorks :
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Method: POST
+            Path: "/api/webhooks/orders-create"
         # HealthCheck:
         #   Type: Api
         #   Properties:
