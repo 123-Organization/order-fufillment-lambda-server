@@ -10,7 +10,7 @@ const { listShippingOptions,listShippingOptionsV2,listShippingOptionsV3 } = requ
 const { getUserPaymentToken,getCompanyInfo } = require('./payment-token');
 const {updateUserInformation}=require('./userInformation')
 const { handleShopifyAuth, handleShopifyCallback, handleShopifyInstall, handleShopifyDisconnect, disconnectShopifyFromOfa } = require('./shopify-auth');
-const { getShopifyOrders, getShopifyOrderByName, fulfillShopifyOrder, updateOrderReferenceNumbers, updateOrderFulfillmentStatus, syncShopifyProducts, createShopifyCarrierService, listShopifyCarrierServices, deleteShopifyCarrierService, shopifyCarrierServiceCallback, registerShopifyWebhook, registerShopifyOrderCreateWebhook, listShopifyWebhooks, deleteShopifyWebhookById, shopifyProductDeleteWebhook, shopifyOrdersCreateWebhook } = require('./shopify-orders');
+const { getShopifyOrders, getShopifyOrderByName, fulfillShopifyOrder, updateOrderReferenceNumbers, updateOrderFulfillmentStatus, syncShopifyProducts, createShopifyCarrierService, listShopifyCarrierServices, deleteShopifyCarrierService, shopifyCarrierServiceCallback, registerShopifyWebhook, registerShopifyOrderCreateWebhook, listShopifyWebhooks, deleteShopifyWebhookById, shopifyProductDeleteWebhook, shopifyOrdersCreateWebhook, createUsCanadaShippingProfile } = require('./shopify-orders');
 const healthCheck = require('./health-check');
 const app = Router();
 
@@ -82,6 +82,7 @@ app.post('/shopify/carrier-service', createShopifyCarrierService);
 app.get('/shopify/carrier-services', listShopifyCarrierServices);
 app.delete('/shopify/carrier-service', deleteShopifyCarrierService);
 app.post('/shopify/carrier-service/callback', shopifyCarrierServiceCallback);
+app.post('/shopify/create-us-ca-shipping-profile', createUsCanadaShippingProfile);
 app.post('/shopify/register-webhook', registerShopifyWebhook);
 app.post('/shopify/register-webhook-order-create', registerShopifyOrderCreateWebhook);
 app.post('/shopify/list-webhooks', listShopifyWebhooks);

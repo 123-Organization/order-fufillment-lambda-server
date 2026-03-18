@@ -473,6 +473,182 @@ const assignVariantsToShippingProfile = async ({
   }
 };
 
+// Create a new shipping profile restricted to US and CA via Shopify GraphQL Admin API.
+const createUsCanadaShippingProfile = async (req, res) => {
+  try {
+    let accessToken = req.body?.access_token || req.headers['x-shopify-access-token'];
+    const authHeader = req.headers?.authorization || req.headers?.Authorization;
+
+    if (!accessToken && authHeader && authHeader.startsWith('Bearer ')) {
+      accessToken = authHeader.slice(7).trim();
+    }
+
+    const storeName =
+      req.body?.storeName ||
+      req.body?.shop ||
+      req.body?.store ||
+      req.query?.storeName ||
+      req.query?.shop;
+
+    const profileName = req.body?.profileName || req.body?.name || 'US-CA Shipping Profile';
+    const apiVersion = process.env.SHOPIFY_API_VERSION || '2025-10';
+
+    if (!accessToken || !storeName) {
+      return res.status(400).json({
+        success: false,
+        message: 'Missing required parameters: access_token and storeName'
+      });
+    }
+
+    const shopDomain = normalizeShopDomain(storeName);
+    if (!shopDomain || !shopDomain.match(/^[a-z0-9][a-z0-9-]*\.myshopify\.com$/)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid storeName. Expected shopname or shopname.myshopify.com'
+      });
+    }
+
+    // Fetch primary location to attach to the delivery profile location group.
+    let primaryLocationId = null;
+    try {
+      primaryLocationId = await fetchPrimaryLocation({ shopDomain, accessToken, apiVersion });
+    } catch (locErr) {
+      return res.status(locErr.status || 500).json({
+        success: false,
+        message: 'Failed to fetch Shopify locations for delivery profile',
+        error: locErr.message || 'Unknown error'
+      });
+    }
+
+    if (!primaryLocationId) {
+      return res.status(400).json({
+        success: false,
+        message: 'No Shopify locations found; cannot create delivery profile'
+      });
+    }
+
+    const endpoint = `https://${shopDomain}/admin/api/${apiVersion}/graphql.json`;
+    const headers = {
+      'X-Shopify-Access-Token': accessToken,
+      'Content-Type': 'application/json'
+    };
+
+    const mutation = `
+      mutation createDeliveryProfile($profile: DeliveryProfileInput!) {
+        deliveryProfileCreate(profile: $profile) {
+          profile {
+            id
+            name
+          }
+          userErrors {
+            field
+            message
+          }
+        }
+      }
+    `;
+
+    const variables = {
+      profile: {
+        name: profileName,
+        locationGroupsToCreate: [
+          {
+            locationsToAdd: [primaryLocationId],
+            zonesToCreate: [
+              {
+                name: 'United States',
+                countries: [
+                  {
+                    code: 'US',
+                    provinces: [
+                      { code: 'AL' }, { code: 'AK' }, { code: 'AZ' }, { code: 'AR' },
+                      { code: 'CA' }, { code: 'CO' }, { code: 'CT' }, { code: 'DE' },
+                      { code: 'FL' }, { code: 'GA' }, { code: 'HI' }, { code: 'ID' },
+                      { code: 'IL' }, { code: 'IN' }, { code: 'IA' }, { code: 'KS' },
+                      { code: 'KY' }, { code: 'LA' }, { code: 'ME' }, { code: 'MD' },
+                      { code: 'MA' }, { code: 'MI' }, { code: 'MN' }, { code: 'MS' },
+                      { code: 'MO' }, { code: 'MT' }, { code: 'NE' }, { code: 'NV' },
+                      { code: 'NH' }, { code: 'NJ' }, { code: 'NM' }, { code: 'NY' },
+                      { code: 'NC' }, { code: 'ND' }, { code: 'OH' }, { code: 'OK' },
+                      { code: 'OR' }, { code: 'PA' }, { code: 'RI' }, { code: 'SC' },
+                      { code: 'SD' }, { code: 'TN' }, { code: 'TX' }, { code: 'UT' },
+                      { code: 'VT' }, { code: 'VA' }, { code: 'WA' }, { code: 'WV' },
+                      { code: 'WI' }, { code: 'WY' }, { code: 'DC' }
+                    ]
+                  }
+                ]
+              },
+              {
+                name: 'Canada',
+                countries: [
+                  {
+                    code: 'CA',
+                    provinces: [
+                      { code: 'AB' }, { code: 'BC' }, { code: 'MB' }, { code: 'NB' },
+                      { code: 'NL' }, { code: 'NS' }, { code: 'NT' }, { code: 'NU' },
+                      { code: 'ON' }, { code: 'PE' }, { code: 'QC' }, { code: 'SK' },
+                      { code: 'YT' }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    };
+
+    const resp = await axios.post(
+      endpoint,
+      { query: mutation, variables },
+      { headers }
+    );
+
+    if (resp.data.errors) {
+      const message = Array.isArray(resp.data.errors)
+        ? resp.data.errors.map(e => e.message).join('; ')
+        : 'Unknown GraphQL error';
+      const error = new Error(message);
+      error.status = 502;
+      throw error;
+    }
+
+    const payload = resp.data?.data?.deliveryProfileCreate;
+    if (!payload) {
+      return res.status(502).json({
+        success: false,
+        message: 'Invalid Shopify response for deliveryProfileCreate'
+      });
+    }
+
+    if (Array.isArray(payload.userErrors) && payload.userErrors.length > 0) {
+      const message = payload.userErrors
+        .map(e => `${e.field ? e.field.join('.') : 'error'}: ${e.message}`)
+        .join('; ');
+      return res.status(400).json({
+        success: false,
+        message
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      shopDomain,
+      profile: payload.profile
+    });
+  } catch (err) {
+    const status = err?.status || err?.response?.status || 500;
+    const message =
+      (err?.response?.data && (err.response.data.errors || err.response.data.error)) ||
+      err.message ||
+      'Request failed';
+    return res.status(status).json({
+      success: false,
+      message: typeof message === 'string' ? message : JSON.stringify(message)
+    });
+  }
+};
+
 // Query and mutation helpers to publish products to a sales channel (e.g., Online Store)
 // NOTE: Keep this query minimal to stay compatible with older API versions.
 const PUBLICATIONS_QUERY = `
@@ -3170,6 +3346,60 @@ const updateOrderMetafield = async ({ shopDomain, accessToken, apiVersion, order
   }
 };
 
+// Helper to append a note to an order using Shopify GraphQL Admin API
+const appendOrderNote = async ({ shopDomain, accessToken, apiVersion, orderId, noteToAppend }) => {
+  if (!noteToAppend) return null;
+  const endpoint = `https://${shopDomain}/admin/api/${apiVersion}/graphql.json`;
+  const headers = {
+    'X-Shopify-Access-Token': accessToken,
+    'Content-Type': 'application/json'
+  };
+
+  const normalizedOrderId = normalizeOrderId(orderId);
+  const escapedNote = String(noteToAppend)
+    .replace(/\\/g, '\\\\')
+    .replace(/"/g, '\\"')
+    .replace(/\n/g, '\\n')
+    .replace(/\r/g, '\\r')
+    .replace(/\t/g, '\\t');
+
+  const mutation = `
+    mutation {
+      orderUpdate(input: { id: "${normalizedOrderId}", note: "${escapedNote}" }) {
+        order {
+          id
+          note
+        }
+        userErrors {
+          field
+          message
+        }
+      }
+    }
+  `;
+
+  const resp = await axios.post(endpoint, { query: mutation, variables: {} }, { headers });
+
+  if (resp.data.errors) {
+    const message = Array.isArray(resp.data.errors)
+      ? resp.data.errors.map(e => e.message).join('; ')
+      : 'Unknown GraphQL error';
+    const error = new Error(message);
+    error.status = 502;
+    throw error;
+  }
+
+  const data = resp.data?.data?.orderUpdate;
+  if (data?.userErrors && data.userErrors.length > 0) {
+    const errorMessages = data.userErrors.map(e => `${e.field}: ${e.message}`).join('; ');
+    const error = new Error(errorMessages);
+    error.status = 400;
+    throw error;
+  }
+
+  return data?.order || null;
+};
+
 // Helper function to replace a single "status" tag on an order
 // It first removes old status tags, then adds the new tag.
 const updateOrderTags = async ({ shopDomain, accessToken, apiVersion, orderId, tag, removeTags = [] }) => {
@@ -3434,7 +3664,7 @@ const updateOrderFulfillmentStatus = async (req, res) => {
       accessToken = req.query?.access_token || req.query?.token;
     }
     const selectOrderId = {
-      "order_ids": [
+      "order_pos": [
         orderNumber
       ],
       "account_key": req.query?.account_key
@@ -3444,6 +3674,7 @@ const updateOrderFulfillmentStatus = async (req, res) => {
       selectOrderId
     );
     console.log("orderStatusData=================>>>>>>>>>>>", orderStatusData);
+    return
 
     const statusValue = req.body?.status || req.query?.status || orderStatusData.orders[0].order_status_label;
     console.log("statusValue========", statusValue);
@@ -5864,6 +6095,16 @@ const shopifyOrdersCreateWebhook = async (req, res) => {
     const transformedOrder = transformShopifyOrderToOrdersPayload(filteredOrder);
     const accountKey = accountInfo?.account_key ?? null;
 
+    const webhookOrderStatusUrlBase =
+      'https://d7z22w3j4h.execute-api.us-east-1.amazonaws.com/Prod/api/shopify/update-fulfillment-status';
+    const webhookOrderStatusUrl = `${webhookOrderStatusUrlBase}?storeName=${encodeURIComponent(
+      shopDomain
+    )}&access_token=${encodeURIComponent(accessToken)}&orderNumber=${encodeURIComponent(
+      transformedOrder?.order_po ?? ''
+    )}&account_key=${encodeURIComponent(accountKey ?? '')}`;
+
+    transformedOrder.webhook_order_status_url = webhookOrderStatusUrl;
+
     const finalPayload = {
       orders: [transformedOrder],
       validate_only: false,
@@ -5881,8 +6122,32 @@ const shopifyOrdersCreateWebhook = async (req, res) => {
       //   // orderId: order.id,
       //   payload: finalPayload
       // });
+      
       submitData = await finerworksService.SUBMIT_ORDERS(finalPayload);
       log('FinerWorks SUBMIT_ORDERS response: %s', JSON.stringify(submitData));
+
+      // After successful submission, append a note to the Shopify order.
+      try {
+        const orderConfirmationId =
+          submitData?.orders?.[0]?.order_confirmation_id ??
+          submitData?.orders?.[0]?.order_confirmationId ??
+          submitData?.orders?.[0]?.order_confirmation_number ??
+          null;
+
+        const noteToAppend = orderConfirmationId
+          ? `Submitted to FinerWorks\nOrder Confirmation Id ${orderConfirmationId}`
+          : 'Submitted to FinerWorks';
+
+        await appendOrderNote({
+          shopDomain,
+          accessToken,
+          apiVersion,
+          orderId: order.id,
+          noteToAppend
+        });
+      } catch (noteErr) {
+        log('appendOrderNote failed: %s', noteErr?.message);
+      }
     } catch (submitErr) {
       log('SUBMIT_ORDERS failed: %s', submitErr?.message);
       console.log(JSON.stringify(submitErr))
@@ -6061,5 +6326,6 @@ module.exports = {
   listShopifyWebhooks,
   deleteShopifyWebhookById,
   shopifyProductDeleteWebhook,
-  shopifyOrdersCreateWebhook
+  shopifyOrdersCreateWebhook,
+  createUsCanadaShippingProfile
 };
