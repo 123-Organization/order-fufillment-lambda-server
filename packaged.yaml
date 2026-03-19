@@ -54,7 +54,7 @@ Resources:
         - MyLambdaExecutionRole
         - Arn
       Runtime: nodejs18.x
-      CodeUri: s3://order-fullfilment-app-lambda-server/8572a609f42c51faa74a34441f9d0085
+      CodeUri: s3://order-fullfilment-app-lambda-server/5f58db756700e3ff9d45c2d5ab949f3e
       MemorySize: 3008
       Timeout: 900
       Environment:
@@ -269,7 +269,7 @@ Resources:
         - MyLambdaExecutionRole
         - Arn
       Runtime: nodejs18.x
-      CodeUri: s3://order-fullfilment-app-lambda-server/8572a609f42c51faa74a34441f9d0085
+      CodeUri: s3://order-fullfilment-app-lambda-server/5f58db756700e3ff9d45c2d5ab949f3e
       MemorySize: 3008
       Timeout: 900
       Environment:
@@ -563,6 +563,13 @@ Resources:
               Ref: MyApiGateway
             Method: POST
             Path: /api/webhooks/orders-create
+        AddShippingProfile:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: POST
+            Path: /api/shopify/create-us-ca-shipping-profile
     Metadata:
       SamResourceId: OrderFullFillmentServerLessDevServerV2Again
   OrderFullFillmentServerLessDevServerLogGroup:

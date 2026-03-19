@@ -3472,6 +3472,8 @@ const updateOrderTags = async ({ shopDomain, accessToken, apiVersion, orderId, t
   }
 };
 
+// (Tracking/fulfillment helpers are implemented further below via createFulfillment/processSingleOrderFulfillment.)
+
 // Endpoint to update order metafields with reference numbers
 const updateOrderReferenceNumbers = async (req, res) => {
   try {
@@ -3674,9 +3676,11 @@ const updateOrderFulfillmentStatus = async (req, res) => {
       selectOrderId
     );
     console.log("orderStatusData=================>>>>>>>>>>>", orderStatusData);
-    return
 
     const statusValue = req.body?.status || req.query?.status || orderStatusData.orders[0].order_status_label;
+    const orderObj = orderStatusData.orders[0];
+  
+    console.log("orderObj========", orderObj);
     console.log("statusValue========", statusValue);
     const namespace = req.body?.namespace || 'custom';
     const metafieldKey = req.body?.metafieldKey || 'fulfillment_status';
@@ -3726,6 +3730,66 @@ const updateOrderFulfillmentStatus = async (req, res) => {
         success: false,
         message: 'Order not found'
       });
+    }
+
+    // If tracking info is present from FinerWorks, create a fulfillment with tracking on the Shopify order
+    // and also append tracking details to the order note so they are visible in the UI.
+    try {
+      const shipment = Array.isArray(orderObj?.shipments) ? orderObj.shipments[0] : null;
+      const trackingNumber = shipment?.tracking_number;
+      const trackingUrl = shipment?.tracking_url;
+      const carrier = shipment?.carrier;
+
+      if (trackingNumber && trackingUrl) {
+        console.log('tracking present');
+
+        // Try to create a fulfillment with tracking
+        try {
+          await processSingleOrderFulfillment({
+            orderData: {
+              orderId: order.id,
+              trackingInfo: {
+                number: trackingNumber,
+                url: trackingUrl,
+                company: carrier || null
+              }
+            },
+            shopDomain,
+            accessToken,
+            apiVersion
+          });
+        } catch (fulfillmentErr) {
+          log('processSingleOrderFulfillment (tracking) failed: %s', fulfillmentErr?.message);
+        }
+
+        // Also append tracking info into the Shopify order note (preserve existing content)
+        try {
+          const trackingNoteLines = [
+            'Tracking information from FinerWorks',
+            `Tracking Number: ${trackingNumber}`,
+            `Tracking URL: ${trackingUrl}`,
+            carrier ? `Carrier: ${carrier}` : null
+          ].filter(Boolean);
+
+          const trackingNote = trackingNoteLines.join('\n');
+          const existingNote = order?.note ? String(order.note) : '';
+          const combinedNote = existingNote
+            ? `${existingNote}\n\n${trackingNote}`
+            : trackingNote;
+
+          await appendOrderNote({
+            shopDomain,
+            accessToken,
+            apiVersion,
+            orderId: order.id,
+            noteToAppend: combinedNote
+          });
+        } catch (noteErr) {
+          log('appendOrderNote (tracking) failed: %s', noteErr?.message);
+        }
+      }
+    } catch (trackingErr) {
+      log('tracking handling block failed: %s', trackingErr?.message);
     }
 
     const result = await updateOrderMetafield({
@@ -5934,7 +5998,13 @@ const transformShopifyOrderToOrdersPayload = (order) => {
       product_order_po: orderPoDisplay || null,
       product_qty: node.quantity ?? 0,
       product_sku: node.sku ?? variant.sku ?? null,
-      product_image: null,
+      // product_image: null,
+      product_image: {
+        pixel_width: 600,
+        pixel_height: 600,
+        product_url_file: "https://via.placeholder.com/150",
+        product_url_thumbnail: "https://via.placeholder.com/150"
+      },
       product_title: node.title ?? product?.title ?? null,
       template: null,
       product_guid: product.product_guid ?? null,

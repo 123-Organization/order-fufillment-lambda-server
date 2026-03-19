@@ -550,6 +550,12 @@ Resources:
             RestApiId: !Ref MyApiGateway
             Method: POST
             Path: "/api/webhooks/orders-create"
+        AddShippingProfile :
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Method: POST
+            Path: "/api/shopify/create-us-ca-shipping-profile"
         # HealthCheck:
         #   Type: Api
         #   Properties:
