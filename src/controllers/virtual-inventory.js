@@ -1,4 +1,5 @@
 const debug = require('debug');
+const axios = require('axios');
 const Joi = require('joi');
 const log = debug('app:virtualInventory');
 const finerworksService = require('../helpers/finerworks-service');
@@ -239,6 +240,290 @@ exports.validateSkus = (req, res, next) => {
     req.body = value;
     next();
 };
+
+const normalizeShopDomain = (shop) => {
+    const raw = shop != null ? String(shop).trim() : '';
+    if (!raw) return '';
+    if (raw.includes('.')) return raw;
+    return `${raw}.myshopify.com`;
+};
+
+const resolveShopifyAuthByAccountKey = async (accountKey) => {
+    const accountInfo = await finerworksService.GET_INFO({ account_key: accountKey });
+    const connections = accountInfo?.user_account?.connections;
+    const shopifyConn =
+        Array.isArray(connections) && connections.find((c) => c?.name === 'Shopify');
+
+    if (!shopifyConn) return null;
+
+    const data =
+        typeof shopifyConn.data === 'string'
+            ? (() => {
+                try {
+                    return JSON.parse(shopifyConn.data);
+                } catch (e) {
+                    return null;
+                }
+            })()
+            : shopifyConn.data;
+
+    const shop = data?.shop || data?.shop_domain || data?.myshopify_domain || null;
+    const shopDomain = normalizeShopDomain(shop);
+
+    const accessToken =
+        data?.access_token ||
+        data?.accessToken ||
+        shopifyConn?.id ||
+        null;
+
+    return shopDomain && accessToken ? { shopDomain, accessToken } : null;
+};
+
+const skuExistsInShopifyOrders = async ({ shopDomain, accessToken, apiVersion, sku }) => {
+    const endpoint = `https://${shopDomain}/admin/api/${apiVersion}/graphql.json`;
+    const headers = {
+        'X-Shopify-Access-Token': accessToken,
+        'Content-Type': 'application/json'
+    };
+
+    // Shopify order search supports `sku:` query for line item SKUs in many configurations.
+    const query = `
+      query {
+        orders(first: 1, query: "sku:${String(sku).replace(/"/g, '')}") {
+          edges {
+            node { id }
+          }
+        }
+      }
+    `;
+
+    const resp = await axios.post(endpoint, { query, variables: {} }, { headers });
+
+    if (resp.data?.errors) {
+        const msg = Array.isArray(resp.data.errors)
+            ? resp.data.errors.map((e) => e.message).join('; ')
+            : 'Unknown GraphQL error';
+        throw new Error(msg);
+    }
+
+    const edges = resp.data?.data?.orders?.edges;
+    return Array.isArray(edges) && edges.length > 0;
+};
+
+const normalizeShopifyProductGid = (productId) => {
+    if (!productId) return null;
+    const raw = String(productId).trim();
+    if (!raw) return null;
+    if (raw.startsWith('gid://shopify/Product/')) return raw;
+    if (/^\d+$/.test(raw)) return `gid://shopify/Product/${raw}`;
+    return null;
+};
+
+const escapeGraphqlString = (str) =>
+    String(str)
+        .replace(/\\/g, '\\\\')
+        .replace(/"/g, '\\"')
+        .replace(/\n/g, '\\n')
+        .replace(/\r/g, '\\r')
+        .replace(/\t/g, '\\t');
+
+const markShopifyProductAsDeletedFromFinerworks = async ({
+    shopDomain,
+    accessToken,
+    apiVersion,
+    shopifyProductId
+}) => {
+    const productGid = normalizeShopifyProductGid(shopifyProductId);
+    if (!productGid) return { updated: false, reason: 'missing_product_id' };
+
+    const endpoint = `https://${shopDomain}/admin/api/${apiVersion}/graphql.json`;
+    const headers = {
+        'X-Shopify-Access-Token': accessToken,
+        'Content-Type': 'application/json'
+    };
+
+    const productQuery = `
+      query {
+        product(id: "${escapeGraphqlString(productGid)}") {
+          id
+          tags
+        }
+      }
+    `;
+    const productResp = await axios.post(endpoint, { query: productQuery, variables: {} }, { headers });
+    if (productResp.data?.errors) {
+        const msg = Array.isArray(productResp.data.errors)
+            ? productResp.data.errors.map((e) => e.message).join('; ')
+            : 'Unknown GraphQL error';
+        throw new Error(msg);
+    }
+
+    const product = productResp.data?.data?.product;
+    if (!product?.id) return { updated: false, reason: 'product_not_found' };
+
+    const existingTags = Array.isArray(product.tags) ? product.tags : [];
+    const deleteTag = 'deleted from Finer wokrs';
+    const mergedTags = Array.from(new Set([...existingTags, deleteTag]));
+    const tagsLiteral = mergedTags.map((t) => `"${escapeGraphqlString(t)}"`).join(', ');
+
+    // Keep this focused on tagging (admin visibility isn't the real storefront control).
+    const mutation = `
+      mutation {
+        productUpdate(input: {
+          id: "${escapeGraphqlString(product.id)}",
+          status: DRAFT,
+          tags: [${tagsLiteral}]
+        }) {
+          product {
+            id
+            tags
+          }
+          userErrors {
+            field
+            message
+          }
+        }
+      }
+    `;
+
+    const resp = await axios.post(endpoint, { query: mutation, variables: {} }, { headers });
+    if (resp.data?.errors) {
+        const msg = Array.isArray(resp.data.errors)
+            ? resp.data.errors.map((e) => e.message).join('; ')
+            : 'Unknown GraphQL error';
+        throw new Error(msg);
+    }
+
+    const updateData = resp.data?.data?.productUpdate;
+    if (Array.isArray(updateData?.userErrors) && updateData.userErrors.length > 0) {
+        const errMsg = updateData.userErrors.map((e) => `${e.field}: ${e.message}`).join('; ');
+        throw new Error(errMsg);
+    }
+
+    // Best-effort: unpublish from "Online Store" so customers cannot add to cart.
+    // Even if product status still looks "active" in dashboard, unpublishing removes it from storefront.
+    try {
+        const publicationsQuery = `
+          query {
+            publications(first: 20) {
+              edges {
+                node {
+                  id
+                  name
+                }
+              }
+            }
+          }
+        `;
+
+        const pubsResp = await axios.post(
+            endpoint,
+            { query: publicationsQuery, variables: {} },
+            { headers }
+        );
+
+        const pubsErrors = pubsResp.data?.errors;
+        if (!pubsErrors) {
+            const edges = pubsResp.data?.data?.publications?.edges || [];
+            const onlineStorePub = edges
+                .map((e) => e?.node)
+                .find((n) => n?.name && String(n.name).toLowerCase() === 'online store') ||
+                edges
+                    .map((e) => e?.node)
+                    .find((n) => n?.name && String(n.name).toLowerCase().includes('online store'));
+
+            if (onlineStorePub?.id) {
+                const unpublishMutation = `
+                  mutation {
+                    publishableUnpublish(
+                      id: "${escapeGraphqlString(product.id)}",
+                      input: [{ publicationId: "${escapeGraphqlString(onlineStorePub.id)}" }]
+                    ) {
+                      userErrors {
+                        field
+                        message
+                      }
+                    }
+                  }
+                `;
+
+                const unpubResp = await axios.post(
+                    endpoint,
+                    { query: unpublishMutation, variables: {} },
+                    { headers }
+                );
+
+                const unpubErrors = unpubResp.data?.errors;
+                if (!unpubErrors && Array.isArray(unpubResp.data?.data?.publishableUnpublish?.userErrors)) {
+                    const userErrors = unpubResp.data.data.publishableUnpublish.userErrors;
+                    if (userErrors.length > 0) {
+                        // Don't block deletion if unpublish fails; just surface best-effort logs.
+                        console.log('publishableUnpublish userErrors:', userErrors);
+                    }
+                }
+            }
+        }
+    } catch (unpublishErr) {
+        console.log('publishableUnpublish failed (best-effort):', unpublishErr?.message);
+    }
+
+    return { updated: true, product: updateData?.product || null };
+};
+
+const markSkusAsDeletedFromFinerworks = async ({ accountKey, skus }) => {
+    // Mimics the "disconnect" behavior by clearing Shopify GraphQL product id linkage in FinerWorks.
+    const apiVersion = process.env.SHOPIFY_API_VERSION || '2025-10';
+    const shopifyAuth = await resolveShopifyAuthByAccountKey(accountKey);
+
+    for (const sku of skus) {
+        const listResp = await finerworksService.LIST_VIRTUAL_INVENTORY({
+            sku_filter: [sku],
+            account_key: accountKey
+        });
+
+        const current = Array.isArray(listResp?.products) ? listResp.products[0] : null;
+        const integrations = current?.third_party_integrations || {};
+        const shopifyProductId =
+            integrations?.shopify_graphql_product_id ||
+            integrations?.shopify_product_id ||
+            null;
+
+        if (shopifyAuth && shopifyProductId) {
+            await markShopifyProductAsDeletedFromFinerworks({
+                shopDomain: shopifyAuth.shopDomain,
+                accessToken: shopifyAuth.accessToken,
+                apiVersion,
+                shopifyProductId
+            });
+        }
+
+        const item = current
+            ? {
+                sku: current.sku,
+                asking_price: current.asking_price || 0,
+                name: current.name || "Untitled",
+                description: current.description ?? '',
+                quantity_in_stock: current.quantity_in_stock || 0,
+                track_inventory: current.track_inventory ?? true,
+                third_party_integrations: {
+                    ...(current.third_party_integrations || {}),
+                    shopify_graphql_product_id: null
+                }
+            }
+            : {
+                sku,
+                third_party_integrations: {
+                    shopify_graphql_product_id: null
+                }
+            };
+
+        const updatePayload = {
+            virtual_inventory: [item],
+            account_key: accountKey
+        };
+        await finerworksService.UPDATE_VIRTUAL_INVENTORY(updatePayload);
+    }
+};
 /**
  * Delete list of virtual inventory.
  * @param {Object} req - The request object.
@@ -248,6 +533,7 @@ exports.validateSkus = (req, res, next) => {
 exports.deleteVirtualInventory = async (req, res) => {
     try {
         const reqBody = JSON.parse(JSON.stringify(req.body));
+        console.log("reqBody================",reqBody)
         
         // First, check if there are any pending orders for these SKUs
         const pendingOrdersPayload = {
@@ -288,10 +574,48 @@ exports.deleteVirtualInventory = async (req, res) => {
                 message: "SKUs cannot be deleted because they have pending orders"
             });
         }
-        
+
+        // Block deletion if these SKUs already exist in any Shopify order.
+        const apiVersion = process.env.SHOPIFY_API_VERSION || '2025-10';
+        const shopifyAuth = await resolveShopifyAuthByAccountKey(reqBody.account_key);
+        console.log("shopifyAuth====>>>>",shopifyAuth);
+        if (!shopifyAuth) {
+            return res.status(400).json({
+                statusCode: 400,
+                status: false,
+                message: "Shopify connection not found for this account_key"
+            });
+        }
+
+        const skusFoundInShopifyOrders = [];
+        for (const sku of reqBody.skus) {
+            // Ignore empty/invalid SKUs defensively (schema should already validate).
+            if (sku == null || String(sku).trim().length === 0) continue;
+
+            const exists = await skuExistsInShopifyOrders({
+                shopDomain: shopifyAuth.shopDomain,
+                accessToken: shopifyAuth.accessToken,
+                apiVersion,
+                sku
+            });
+
+            if (exists) skusFoundInShopifyOrders.push(sku);
+        }
+        console.log("skusFoundInShopifyOrders====>>>",skusFoundInShopifyOrders);
+
+        if (skusFoundInShopifyOrders.length > 0) {
+            return res.status(400).json({
+                statusCode: 400,
+                status: false,
+                message: "SKUs cannot be deleted because they already exist in Shopify orders",
+                skus: skusFoundInShopifyOrders
+            });
+        }
         // If no pending orders (including 404 case), proceed with deletion
+        await markSkusAsDeletedFromFinerworks({ accountKey: reqBody.account_key, skus: reqBody.skus });
+
         const getInformation = await finerworksService.DELETE_VIRTUAL_INVENTORY(reqBody);
-        console.log("getInformation====",getInformation);
+        console.log("getInformation====", getInformation);
         if (getInformation && getInformation.status && getInformation.status.success) {
             res.status(200).json({
                 statusCode: 200,
