@@ -10,6 +10,7 @@ const { listShippingOptions,listShippingOptionsV2,listShippingOptionsV3 } = requ
 const { getUserPaymentToken,getCompanyInfo } = require('./payment-token');
 const {updateUserInformation}=require('./userInformation')
 const { handleShopifyAuth, handleShopifyCallback, handleShopifyInstall, handleShopifyDisconnect, disconnectShopifyFromOfa } = require('./shopify-auth');
+const { handleSquarespaceAuth, handleSquarespaceCallback } = require('./squarespace-auth');
 const { getShopifyOrders, getShopifyOrderByName, fulfillShopifyOrder, updateOrderReferenceNumbers, updateOrderFulfillmentStatus, syncShopifyProducts, createShopifyCarrierService, listShopifyCarrierServices, deleteShopifyCarrierService, shopifyCarrierServiceCallback, registerShopifyWebhook, registerShopifyOrderCreateWebhook, listShopifyWebhooks, deleteShopifyWebhookById, shopifyProductDeleteWebhook, shopifyOrdersCreateWebhook, createUsCanadaShippingProfile } = require('./shopify-orders');
 const healthCheck = require('./health-check');
 const app = Router();
@@ -70,6 +71,8 @@ app.get('/shipping-options-list', listShippingOptionsV3);
 app.get('/shopify/auth', handleShopifyAuth);
 app.post('/shopify/callback', handleShopifyCallback);
 app.get('/shopify/', handleShopifyInstall);
+app.get('/squarespace/auth', handleSquarespaceAuth);
+app.get('/squarespace/callback', handleSquarespaceCallback);
 app.post('/shopify/disconnect', handleShopifyDisconnect);
 app.post('/shopify/disconnectShopifyFromOfa', disconnectShopifyFromOfa);
 app.post('/shopify/orders', getShopifyOrders);
