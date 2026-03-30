@@ -191,7 +191,7 @@ const guidRegex =
 
 const ordersSchema = Joi.object({
   accountId: Joi.number().required(),
-  payment_token: Joi.string().optional(),
+  payment_token: Joi.string().optional().allow(""),
   account_key: Joi.string().optional(),
   validate_only: Joi.boolean().required(),  // Added validate_only field
   orders: Joi.array()
