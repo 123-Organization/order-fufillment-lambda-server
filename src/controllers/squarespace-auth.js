@@ -73,6 +73,7 @@ const handleSquarespaceAuth = async (req, res) => {
     const state = base64UrlEncode(JSON.stringify({ account_key, nonce }));
 
     const redirectUri = buildRedirectUri(req);
+    console.log("redirectUri",redirectUri)
 
     // Optional: Squarespace will pass website_id to the initiate URL for logged-in users.
     const website_id = req.query?.website_id || req.query?.websiteId || req.body?.website_id;
@@ -98,6 +99,7 @@ const handleSquarespaceAuth = async (req, res) => {
     if (access_type) qs.set('access_type', String(access_type));
 
     const authUrl = `${authUrlBase}?${qs.toString()}`;
+    console.log("authUrl====>>>",authUrl);
     return res.redirect(authUrl);
   } catch (err) {
     return res.status(500).json({

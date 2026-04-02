@@ -556,6 +556,18 @@ Resources:
             RestApiId: !Ref MyApiGateway
             Method: POST
             Path: "/api/shopify/create-us-ca-shipping-profile"
+        SquareSpaceCallback :
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Method: GET
+            Path: "/api/squarespace/callback"
+        SquareSpaceAuthentication :
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Method: GET
+            Path: "/api/squarespace/auth"
         # HealthCheck:
         #   Type: Api
         #   Properties:

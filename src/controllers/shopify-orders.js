@@ -1947,6 +1947,18 @@ const getShopifyOrders = async (req, res) => {
       });
     });
 
+    // Keep only orders that are NOT submitted to FinerWorks yet:
+    // - metafield missing, OR
+    // - submittedToFinerWorks value is not "true"
+    orders = orders.filter((order) => {
+      const metafieldEdges = order?.metafields?.edges || [];
+      const submittedMetafield = metafieldEdges.find(
+        (edge) => edge?.node?.key === 'submittedToFinerWorks'
+      );
+      const rawValue = submittedMetafield?.node?.value;
+      return String(rawValue).toLowerCase() !== 'true';
+    });
+
     orders.forEach(order => {
       order.shippingLines.edges.forEach(edge => {
         const matchedId = matchShippingOptionId(
@@ -2782,6 +2794,18 @@ const getShopifyOrderByName = async (req, res) => {
     if (!order) {
       return res.status(404).json({ success: false, message: 'Order not found' });
     }
+
+    const orderMetafieldEdges = order?.metafields?.edges || [];
+    const submittedToFinerworksMetafield = orderMetafieldEdges.find(
+      (edge) => edge?.node?.key === 'submittedToFinerWorks'
+    );
+    if (String(submittedToFinerworksMetafield?.node?.value).toLowerCase() === 'true') {
+      return res.status(200).json({
+        success: false,
+        message: 'This order is already submitted to FinerWorks'
+      });
+    }
+
     return res.status(200).json({ success: true, order });
   } catch (err) {
     const status = err.status || 500;
@@ -3344,6 +3368,77 @@ const updateOrderMetafield = async ({ shopDomain, accessToken, apiVersion, order
     error.status = status;
     throw error;
   }
+};
+
+const updateOrderBooleanMetafield = async ({
+  shopDomain,
+  accessToken,
+  apiVersion,
+  orderId,
+  namespace = 'custom',
+  key,
+  value
+}) => {
+  const endpoint = `https://${shopDomain}/admin/api/${apiVersion}/graphql.json`;
+  const headers = {
+    'X-Shopify-Access-Token': accessToken,
+    'Content-Type': 'application/json'
+  };
+
+  const normalizeBoolean = (v) => (v ? 'true' : 'false');
+  const escapeGraphQLString = (str) =>
+    String(str)
+      .replace(/\\/g, '\\\\')
+      .replace(/"/g, '\\"')
+      .replace(/\n/g, '\\n')
+      .replace(/\r/g, '\\r')
+      .replace(/\t/g, '\\t');
+
+  const normalizedOrderId = normalizeOrderId(orderId);
+  const mutation = `
+    mutation {
+      metafieldsSet(metafields: [{
+        ownerId: "${normalizedOrderId}",
+        namespace: "${escapeGraphQLString(namespace)}",
+        key: "${escapeGraphQLString(key)}",
+        value: "${normalizeBoolean(value)}",
+        type: "boolean"
+      }]) {
+        metafields {
+          id
+          namespace
+          key
+          value
+          type
+        }
+        userErrors {
+          field
+          message
+        }
+      }
+    }
+  `;
+
+  const resp = await axios.post(endpoint, { query: mutation, variables: {} }, { headers });
+
+  if (resp.data?.errors) {
+    const message = Array.isArray(resp.data.errors)
+      ? resp.data.errors.map((e) => e.message).join('; ')
+      : 'Unknown GraphQL error';
+    const error = new Error(message);
+    error.status = 502;
+    throw error;
+  }
+
+  const metafieldData = resp.data?.data?.metafieldsSet;
+  if (metafieldData?.userErrors && metafieldData.userErrors.length > 0) {
+    const errorMessages = metafieldData.userErrors.map((e) => `${e.field}: ${e.message}`).join('; ');
+    const error = new Error(errorMessages);
+    error.status = 400;
+    throw error;
+  }
+
+  return metafieldData?.metafields?.[0] || null;
 };
 
 // Helper to append a note to an order using Shopify GraphQL Admin API
@@ -6027,7 +6122,7 @@ const transformShopifyOrderToOrdersPayload = (order) => {
     ship_by_date: null,
     customs_tax_info: null,
     gift_message: order?.note ?? null,
-    test_mode: false,
+    test_mode: true,
     webhook_order_status_url: null,
     document_url: null,
     acct_number_ups: null,
@@ -6195,6 +6290,21 @@ const shopifyOrdersCreateWebhook = async (req, res) => {
       
       submitData = await finerworksService.SUBMIT_ORDERS(finalPayload);
       log('FinerWorks SUBMIT_ORDERS response: %s', JSON.stringify(submitData));
+
+      // After successful submission, mark the Shopify order as submittedToFinerWorks=true.
+      try {
+        await updateOrderBooleanMetafield({
+          shopDomain,
+          accessToken,
+          apiVersion,
+          orderId: order.id,
+          namespace: 'custom',
+          key: 'submittedToFinerWorks',
+          value: true
+        });
+      } catch (metafieldErr) {
+        log('updateOrderBooleanMetafield failed: %s', metafieldErr?.message);
+      }
 
       // After successful submission, append a note to the Shopify order.
       try {
