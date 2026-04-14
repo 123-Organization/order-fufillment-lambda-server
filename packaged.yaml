@@ -54,7 +54,7 @@ Resources:
         - MyLambdaExecutionRole
         - Arn
       Runtime: nodejs18.x
-      CodeUri: s3://order-fullfilment-app-lambda-server/7ecc4c18f465641fd681fd032af7abf3
+      CodeUri: s3://order-fullfilment-app-lambda-server/ca4f8212294a18b49d196a5f487b532a
       MemorySize: 3008
       Timeout: 900
       Environment:
@@ -250,6 +250,20 @@ Resources:
               Ref: MyApiGateway
             Method: POST
             Path: /api/webhooks/product-delete
+        SquareSpaceBulkOrderFetching:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: POST
+            Path: /api/squarespace/orders
+        SquareSpaceSingleOrderFetching:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: POST
+            Path: /api/squarespace/order-by-number
         ShopifyCarrierServiceCallbackApi:
           Type: Api
           Properties:
@@ -269,7 +283,7 @@ Resources:
         - MyLambdaExecutionRole
         - Arn
       Runtime: nodejs18.x
-      CodeUri: s3://order-fullfilment-app-lambda-server/7ecc4c18f465641fd681fd032af7abf3
+      CodeUri: s3://order-fullfilment-app-lambda-server/ca4f8212294a18b49d196a5f487b532a
       MemorySize: 3008
       Timeout: 900
       Environment:

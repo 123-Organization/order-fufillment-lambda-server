@@ -239,6 +239,18 @@ Resources:
             RestApiId: !Ref MyApiGateway
             Method: POST
             Path: "/api/webhooks/product-delete"
+        SquareSpaceBulkOrderFetching :
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Method: POST
+            Path: "/api/squarespace/orders" 
+        SquareSpaceSingleOrderFetching :
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Method: POST
+            Path: "/api/squarespace/order-by-number"
         # WebhookOrdersCreate:
         #   Type: Api
         #   Properties:
@@ -568,6 +580,18 @@ Resources:
             RestApiId: !Ref MyApiGateway
             Method: GET
             Path: "/api/squarespace/auth"
+        # SquareSpaceBulkOrderFetching :
+        #   Type: Api
+        #   Properties:
+        #     RestApiId: !Ref MyApiGateway
+        #     Method: POST
+        #     Path: "/api/squarespace/orders" 
+        # SquareSpaceSingleOrderFetching :
+        #   Type: Api
+        #   Properties:
+        #     RestApiId: !Ref MyApiGateway
+        #     Method: POST
+        #     Path: "/api/squarespace/order-by-number"
         # HealthCheck:
         #   Type: Api
         #   Properties:
