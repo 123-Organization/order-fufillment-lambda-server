@@ -152,7 +152,70 @@ const getSquarespaceOrderByNumber = async (req, res) => {
   }
 };
 
+const validateSquarespaceAccessToken = async (req, res) => {
+  try {
+    let accessToken = req.body?.access_token || req.headers['x-squarespace-access-token'];
+    const authHeader = req.headers?.authorization || req.headers?.Authorization;
+    if (!accessToken && typeof authHeader === 'string' && authHeader.startsWith('Bearer ')) {
+      accessToken = authHeader.slice(7).trim();
+    }
+
+    if (!accessToken) {
+      return res.status(400).json({
+        success: false,
+        valid: false,
+        message: 'Missing required parameter: access_token'
+      });
+    }
+
+    const resp = await axios.get('https://api.squarespace.com/1.0/commerce/store_pages', {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'User-Agent': process.env.SQUARESPACE_USER_AGENT || 'ofa-node'
+      },
+      timeout: 60000,
+      validateStatus: () => true
+    });
+    console.log("resp===>>>",resp)
+
+    if (resp.status >= 200 && resp.status < 300) {
+      const pages = Array.isArray(resp?.data?.storePages) ? resp.data.storePages : [];
+      return res.status(200).json({
+        success: true,
+        valid: true,
+        storePageCount: pages.length
+      });
+    }
+
+    const data = resp?.data;
+    return res.status(resp.status || 401).json({
+      success: false,
+      valid: false,
+      message: 'Squarespace access token is invalid or unauthorized',
+      error:
+        (typeof data?.message === 'string' && data.message) ||
+        (typeof data?.error === 'string' && data.error) ||
+        'Unauthorized',
+      ...(data && typeof data === 'object' ? { squarespaceError: data } : {})
+    });
+  } catch (err) {
+    const status = err?.response?.status || 500;
+    const data = err?.response?.data;
+    return res.status(status).json({
+      success: false,
+      valid: false,
+      message: 'Failed to validate Squarespace access token',
+      error:
+        (typeof data?.message === 'string' && data.message) ||
+        (typeof data?.error === 'string' && data.error) ||
+        err?.message ||
+        'Unknown error'
+    });
+  }
+};
+
 module.exports = {
   getSquarespaceOrders,
-  getSquarespaceOrderByNumber
+  getSquarespaceOrderByNumber,
+  validateSquarespaceAccessToken
 };

@@ -251,6 +251,12 @@ Resources:
             RestApiId: !Ref MyApiGateway
             Method: POST
             Path: "/api/squarespace/order-by-number"
+        SquareSpaceTokenValidation :
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Method: POST
+            Path: "/api/squarespace/validate-token"
         # WebhookOrdersCreate:
         #   Type: Api
         #   Properties:
