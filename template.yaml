@@ -257,6 +257,12 @@ Resources:
             RestApiId: !Ref MyApiGateway
             Method: POST
             Path: "/api/squarespace/validate-token"
+        SquareSpaceAccessToken :
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Method: POST
+            Path: "/api/squarespace/refresh-token"
         # WebhookOrdersCreate:
         #   Type: Api
         #   Properties:

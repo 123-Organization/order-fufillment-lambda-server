@@ -10,7 +10,7 @@ const { listShippingOptions,listShippingOptionsV2,listShippingOptionsV3 } = requ
 const { getUserPaymentToken,getCompanyInfo } = require('./payment-token');
 const {updateUserInformation}=require('./userInformation')
 const { handleShopifyAuth, handleShopifyCallback, handleShopifyInstall, handleShopifyDisconnect, disconnectShopifyFromOfa } = require('./shopify-auth');
-const { handleSquarespaceAuth, handleSquarespaceCallback } = require('./squarespace-auth');
+const { handleSquarespaceAuth, handleSquarespaceCallback, refreshSquarespaceToken } = require('./squarespace-auth');
 const { getSquarespaceOrders, getSquarespaceOrderByNumber, validateSquarespaceAccessToken } = require('./squarespace-orders');
 const { getShopifyOrders, getShopifyOrderByName, fulfillShopifyOrder, updateOrderReferenceNumbers, updateOrderFulfillmentStatus, syncShopifyProducts, createShopifyCarrierService, listShopifyCarrierServices, deleteShopifyCarrierService, shopifyCarrierServiceCallback, registerShopifyWebhook, registerShopifyOrderCreateWebhook, listShopifyWebhooks, deleteShopifyWebhookById, shopifyProductDeleteWebhook, shopifyOrdersCreateWebhook, createUsCanadaShippingProfile } = require('./shopify-orders');
 const { syncSquarespaceProducts } = require('./squarespace-products');
@@ -75,6 +75,7 @@ app.post('/shopify/callback', handleShopifyCallback);
 app.get('/shopify/', handleShopifyInstall);
 app.get('/squarespace/auth', handleSquarespaceAuth);
 app.get('/squarespace/callback', handleSquarespaceCallback);
+app.post('/squarespace/refresh-token', refreshSquarespaceToken);
 app.post('/shopify/disconnect', handleShopifyDisconnect);
 app.post('/shopify/disconnectShopifyFromOfa', disconnectShopifyFromOfa);
 app.post('/shopify/orders', getShopifyOrders);

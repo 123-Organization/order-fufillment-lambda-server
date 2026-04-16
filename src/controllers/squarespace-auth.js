@@ -252,8 +252,130 @@ const handleSquarespaceCallback = async (req, res) => {
   }
 };
 
+/**
+ * Refreshes Squarespace access token using refresh_token and persists
+ * the new access/refresh token into tenant connections.
+ *
+ * Expected body/query:
+ * - account_key (required)
+ * - refresh_token (required)
+ */
+const refreshSquarespaceToken = async (req, res) => {
+  try {
+    const account_key =
+      req.body?.account_key ||
+      req.body?.accountKey ||
+      req.query?.account_key ||
+      req.query?.accountKey;
+    const refresh_token =
+      req.body?.refresh_token ||
+      req.body?.refreshToken ||
+      req.query?.refresh_token ||
+      req.query?.refreshToken;
+
+    if (!account_key || !refresh_token) {
+      return res.status(400).json({
+        success: false,
+        message: 'Missing required parameters: account_key and refresh_token'
+      });
+    }
+
+    const clientId = process.env.SQUARESPACE_CLIENT_ID;
+    const clientSecret = process.env.SQUARESPACE_CLIENT_SECRET;
+    if (!clientId || !clientSecret) {
+      return res.status(500).json({
+        success: false,
+        message: 'Squarespace OAuth credentials not configured'
+      });
+    }
+
+    const tokenUrl = 'https://login.squarespace.com/api/1/login/oauth/provider/tokens';
+    const basicAuth = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
+
+    const tokenResp = await axios.post(
+      tokenUrl,
+      {
+        grant_type: 'refresh_token',
+        refresh_token: String(refresh_token).trim()
+      },
+      {
+        headers: {
+          Authorization: `Basic ${basicAuth}`,
+          'Content-Type': 'application/json',
+          'User-Agent': process.env.SQUARESPACE_USER_AGENT || 'ofa-node'
+        },
+        timeout: 20000
+      }
+    );
+
+    const tokenData = tokenResp?.data || {};
+    if (!tokenData?.access_token) {
+      return res.status(400).json({
+        success: false,
+        message: 'Token refresh succeeded but access_token missing',
+        data: tokenData
+      });
+    }
+
+    const getInformation = await finerworksService.GET_INFO({ account_key });
+    const connections = Array.isArray(getInformation?.user_account?.connections)
+      ? JSON.parse(JSON.stringify(getInformation.user_account.connections))
+      : [];
+
+    const idx = connections.findIndex((c) => c && c.name === 'Squarespace');
+    const existingDataRaw = idx !== -1 ? connections[idx]?.data : null;
+    let existingData = {};
+    if (typeof existingDataRaw === 'string') {
+      try {
+        existingData = JSON.parse(existingDataRaw);
+      } catch (_) {
+        existingData = {};
+      }
+    } else if (existingDataRaw && typeof existingDataRaw === 'object') {
+      existingData = existingDataRaw;
+    }
+
+    const mergedData = {
+      ...existingData,
+      ...tokenData
+    };
+
+    const nextConnection = {
+      name: 'Squarespace',
+      id: tokenData.access_token,
+      data: JSON.stringify(mergedData)
+    };
+
+    if (idx !== -1) {
+      connections[idx] = nextConnection;
+    } else {
+      connections.push(nextConnection);
+    }
+
+    await finerworksService.UPDATE_INFO({
+      account_key,
+      connections
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: 'Squarespace token refreshed successfully',
+      access_token: tokenData.access_token,
+      refresh_token: tokenData.refresh_token || refresh_token,
+      expires_in: tokenData.expires_in ?? null
+    });
+  } catch (err) {
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to refresh Squarespace token',
+      error: err?.response?.data || err?.message || 'Unknown error'
+    });
+  }
+};
+
 module.exports = {
   handleSquarespaceAuth,
-  handleSquarespaceCallback
+  handleSquarespaceCallback,
+  refreshSquarespaceToken
 };
 

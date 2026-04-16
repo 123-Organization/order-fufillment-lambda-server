@@ -54,7 +54,7 @@ Resources:
         - MyLambdaExecutionRole
         - Arn
       Runtime: nodejs18.x
-      CodeUri: s3://order-fullfilment-app-lambda-server/6d73324f05c572dc2387c781322ba3d1
+      CodeUri: s3://order-fullfilment-app-lambda-server/b805290b94fc782e7570eb216d33f7c4
       MemorySize: 3008
       Timeout: 900
       Environment:
@@ -271,6 +271,13 @@ Resources:
               Ref: MyApiGateway
             Method: POST
             Path: /api/squarespace/validate-token
+        SquareSpaceAccessToken:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: POST
+            Path: /api/squarespace/refresh-token
         ShopifyCarrierServiceCallbackApi:
           Type: Api
           Properties:
@@ -290,7 +297,7 @@ Resources:
         - MyLambdaExecutionRole
         - Arn
       Runtime: nodejs18.x
-      CodeUri: s3://order-fullfilment-app-lambda-server/6d73324f05c572dc2387c781322ba3d1
+      CodeUri: s3://order-fullfilment-app-lambda-server/b805290b94fc782e7570eb216d33f7c4
       MemorySize: 3008
       Timeout: 900
       Environment:
