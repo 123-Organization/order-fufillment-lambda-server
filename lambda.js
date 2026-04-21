@@ -25,8 +25,8 @@ exports.handler = async (event, context) => {
     // Default behavior for API Gateway / HTTP events
     return await serverlessApp(event, context);
 };
-// const port = 9001;
-// server.listen(port, () => {
-//     log(`start application on port ${port}`)
-//     console.log(`Example app listening on port ${port}`);
-// });
+const port = 9001;
+server.listen(port, () => {
+    log(`start application on port ${port}`)
+    console.log(`Example app listening on port ${port}`);
+});

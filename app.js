@@ -17,9 +17,9 @@ const server = http.createServer(app);
 app.use('/api', apiRoutes);
 const debug = require('debug');
 const log = debug('app:appIndex');
-// app.get('/', (req, res) => {
-//     res.send('File Management App will run on this port');
-//   });
+app.get('/', (req, res) => {
+    res.send('File Management App will run on this port');
+  });
 // const port = 5001;
 // server.listen(port, () => {
 //     log(`start application on port ${port}`)
