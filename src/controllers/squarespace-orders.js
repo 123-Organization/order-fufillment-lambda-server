@@ -241,6 +241,45 @@ const fulfillSquareSpaceOrderWithTrackingInfo = async (req, res) => {
     let orderResp = null;
     try {
       orderResp = await axios.get(`${SQUARESPACE_ORDERS_URL}/${orderNumber}`, { headers, timeout: 120000 });
+      console.log("orderResp=================>>>>>>>>>>>", orderResp);
+
+      const selectOrderId = {
+        "order_pos": [
+          orderNumber
+        ],
+        "account_key": account_key
+      }
+      console.log("selectOrderId=================>>>>>>>>>>>", selectOrderId);
+      const orderStatusData = await finerworksService.GET_ORDER_STATUS(
+        selectOrderId
+      );
+      console.log("orderStatusData=================>>>>>>>>>>>", orderStatusData?.orders[0]?.shipments[0]);
+      const trackingNumber = orderStatusData?.orders[0]?.shipments[0]?.tracking_number;
+      const trackingUrl = orderStatusData?.orders[0]?.shipments[0]?.tracking_url;
+      const carrierName = orderStatusData?.orders[0]?.shipments[0]?.carrier;
+      const service = 'service';
+      const shipDate = orderStatusData?.orders[0]?.shipments[0]?.shipment_date;
+      
+      const url = `${SQUARESPACE_ORDERS_URL}/${orderNumber}/fulfillments`;
+      const payload = {
+        "shipments": [
+          {
+            "carrierName": carrierName,
+            "service": service,
+            "shipDate": shipDate,
+            "trackingNumber": trackingNumber,
+            "trackingUrl": trackingUrl
+          }
+        ],
+        "shouldSendNotification": true
+      }
+      const resp = await axios.post(url, JSON.stringify(payload), { headers });
+      console.log("resp=================>>>>>>>>>>>", resp);
+      return res.status(200).json({
+        success: true,
+        message: 'Squarespace order fulfilled with tracking info',
+        data: resp.data
+      });
     } catch (error) {
       // Major reason for this error block is unauthorized access to the squarespace api.
       const getInformation = await finerworksService.GET_INFO({ account_key });
@@ -248,7 +287,7 @@ const fulfillSquareSpaceOrderWithTrackingInfo = async (req, res) => {
       const squarespaceConnection = connections.find((c) => c?.name === 'Squarespace');
       if (squarespaceConnection) {
         const squarespaceData = JSON.parse(squarespaceConnection?.data);
-        const access_token = squarespaceData?.access_token;
+        const access_token = squarespaceData?.refresh_token;
         headers = {
           ...headers,
           Authorization: `Bearer ${access_token}`,
