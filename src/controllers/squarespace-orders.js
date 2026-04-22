@@ -240,17 +240,16 @@ const fulfillSquareSpaceOrderWithTrackingInfo = async (req, res) => {
     };
     let orderResp = null;
     try {
-      orderResp = await axios.get(`${SQUARESPACE_ORDERS_URL}/${orderNumber}`, { headers, timeout: 120000 });
-      console.log("orderResp=================>>>>>>>>>>>", orderResp);
+      orderResp = await axios.get(`https://api.squarespace.com/1.0/commerce/store_pages`, { headers, timeout: 120000 });
     } catch (error) {
       // Major reason for this error block is unauthorized access to the squarespace api.
-      console.log("error=================>>>>>>>>>>>", error);
       const getInformation = await finerworksService.GET_INFO({ account_key });
       const connections = getInformation?.user_account?.connections || [];
       const squarespaceConnection = connections.find((c) => c?.name === 'Squarespace');
       if (squarespaceConnection) {
         const squarespaceData = JSON.parse(squarespaceConnection?.data);
         const refresh_token = squarespaceData?.refresh_token;
+        console.log("refresh_token=================>>>>>>>>>>>", refresh_token);
         // create a new access token using the refresh token
         const clientId = process.env.SQUARESPACE_CLIENT_ID;
         const clientSecret = process.env.SQUARESPACE_CLIENT_SECRET;
@@ -319,14 +318,14 @@ const fulfillSquareSpaceOrderWithTrackingInfo = async (req, res) => {
         error: error?.message || 'Unknown error'
       });
     }
-    console.log("orderStatusData=================>>>>>>>>>>>", orderStatusData?.orders[0]?.shipments[0]);
+    console.log("orderStatusData=================>>>>>>>>>>>", orderStatusData);
     const trackingNumber = orderStatusData?.orders[0]?.shipments[0]?.tracking_number;
     const trackingUrl = orderStatusData?.orders[0]?.shipments[0]?.tracking_url;
     const carrierName = orderStatusData?.orders[0]?.shipments[0]?.carrier;
     const service = 'service';
     const shipDate = orderStatusData?.orders[0]?.shipments[0]?.shipment_date;
     
-    const url = `${SQUARESPACE_ORDERS_URL}/${orderNumber}/fulfillments`;
+    const url = `${SQUARESPACE_ORDERS_URL}/${1}/fulfillments`;
     const payload = {
       "shipments": [
         {
@@ -339,16 +338,20 @@ const fulfillSquareSpaceOrderWithTrackingInfo = async (req, res) => {
       ],
       "shouldSendNotification": true
     }
-    console.log("payload=================>>>>>>>>>>>", payload);
+    if(!carrierName || !service || !shipDate || !trackingNumber) {
+      return res.status(400).json({
+        success: false,
+        message: 'Missing required parameters: carrier name or service or ship date or tracking number'
+      });
+    }
     const resp = await axios.post(url, JSON.stringify(payload), { headers });
-    console.log("resp=================>>>>>>>>>>>", resp);
     return res.status(200).json({
       success: true,
       message: 'Squarespace order fulfilled with tracking info',
       data: resp.data
     });
   } catch (err) {
-    console.log("err=================>>>>>>>>>>>", err);
+    console.log("API error", err);
     return res.status(500).json({
       success: false,
       message: 'Failed to fulfill Squarespace order with tracking info',
