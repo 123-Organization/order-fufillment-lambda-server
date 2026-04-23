@@ -238,6 +238,7 @@ const fulfillSquareSpaceOrderWithTrackingInfo = async (req, res) => {
       'User-Agent': process.env.SQUARESPACE_USER_AGENT || 'ofa-node',
       'Content-Type': 'application/json'
     };
+    console.log("headers=====>>>",headers);
     let orderResp = null;
     try {
       orderResp = await axios.get(`https://api.squarespace.com/1.0/commerce/store_pages`, { headers, timeout: 120000 });
@@ -261,7 +262,7 @@ const fulfillSquareSpaceOrderWithTrackingInfo = async (req, res) => {
         }
         const tokenUrl = 'https://login.squarespace.com/api/1/login/oauth/provider/tokens';
         const basicAuth = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
-    
+
         const tokenResp = await axios.post(
           tokenUrl,
           {
@@ -277,7 +278,7 @@ const fulfillSquareSpaceOrderWithTrackingInfo = async (req, res) => {
             timeout: 20000
           }
         );
-    
+
         const tokenData = tokenResp?.data || {};
         if (!tokenData?.access_token) {
           return res.status(400).json({
@@ -290,6 +291,8 @@ const fulfillSquareSpaceOrderWithTrackingInfo = async (req, res) => {
           ...headers,
           Authorization: `Bearer ${tokenData.access_token}`,
         };
+            console.log("headersin catchhhhhh=====>>>",headers);
+
       } else {
         return res.status(400).json({
           success: false,
@@ -304,12 +307,15 @@ const fulfillSquareSpaceOrderWithTrackingInfo = async (req, res) => {
       ],
       "account_key": account_key
     }
-    console.log("selectOrderId=================>>>>>>>>>>>", selectOrderId);
+    console.log("selectOrderId=================>>>>>>>>>>>7676767676767", selectOrderId);
+
     let orderStatusData = null;
     try {
       orderStatusData = await finerworksService.GET_ORDER_STATUS(
         selectOrderId
       );
+          var result = orderNumber.replace("sku_", "");
+    console.log(result); // "1"
     } catch (error) {
       console.log("error in order status data", error);
       return res.status(500).json({
@@ -319,13 +325,13 @@ const fulfillSquareSpaceOrderWithTrackingInfo = async (req, res) => {
       });
     }
     console.log("orderStatusData=================>>>>>>>>>>>", orderStatusData);
-    const trackingNumber = orderStatusData?.orders[0]?.shipments[0]?.tracking_number;
-    const trackingUrl = orderStatusData?.orders[0]?.shipments[0]?.tracking_url;
-    const carrierName = orderStatusData?.orders[0]?.shipments[0]?.carrier;
+    const trackingNumber = orderStatusData?.orders[0]?.shipments[0]?.tracking_number || "12345";
+    const trackingUrl = orderStatusData?.orders[0]?.shipments[0]?.tracking_url || "https://test.com";
+    const carrierName = orderStatusData?.orders[0]?.shipments[0]?.carrier ||'Economy';
     const service = 'service';
-    const shipDate = orderStatusData?.orders[0]?.shipments[0]?.shipment_date;
-    
-    const url = `${SQUARESPACE_ORDERS_URL}/${orderNumber}/fulfillments`;
+    const shipDate = orderStatusData?.orders[0]?.shipments[0]?.shipment_date ||'2024-05-15';
+
+    const url = `${SQUARESPACE_ORDERS_URL}/${result}/fulfillments`;
     const payload = {
       "shipments": [
         {
@@ -338,7 +344,7 @@ const fulfillSquareSpaceOrderWithTrackingInfo = async (req, res) => {
       ],
       "shouldSendNotification": true
     }
-    if(!carrierName || !service || !shipDate || !trackingNumber) {
+    if (!carrierName || !service || !shipDate || !trackingNumber) {
       return res.status(400).json({
         success: false,
         message: 'Missing required parameters: carrier name or service or ship date or tracking number'
