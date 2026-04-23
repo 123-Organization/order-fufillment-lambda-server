@@ -226,11 +226,12 @@ const fulfillSquareSpaceOrderWithTrackingInfo = async (req, res) => {
     const access_token = req.body?.access_token || req.query?.access_token;
     const account_key = req.body?.account_key || req.query?.account_key;
     const orderNumber = req.body?.orderNumber || req.query?.orderNumber;
+    const orderId = req.body?.orderId || req.query?.orderId;
 
-    if (!access_token || !account_key || !orderNumber) {
+    if (!access_token || !account_key || !orderNumber || !orderId) {
       return res.status(400).json({
         success: false,
-        message: 'Missing required parameters: access_token or account_key or orderNumber'
+        message: 'Missing required parameters: access_token or account_key or orderNumber or orderId'
       });
     }
     let headers = {
@@ -238,7 +239,6 @@ const fulfillSquareSpaceOrderWithTrackingInfo = async (req, res) => {
       'User-Agent': process.env.SQUARESPACE_USER_AGENT || 'ofa-node',
       'Content-Type': 'application/json'
     };
-    console.log("headers=====>>>",headers);
     let orderResp = null;
     try {
       orderResp = await axios.get(`https://api.squarespace.com/1.0/commerce/store_pages`, { headers, timeout: 120000 });
@@ -248,9 +248,19 @@ const fulfillSquareSpaceOrderWithTrackingInfo = async (req, res) => {
       const connections = getInformation?.user_account?.connections || [];
       const squarespaceConnection = connections.find((c) => c?.name === 'Squarespace');
       if (squarespaceConnection) {
-        const squarespaceData = JSON.parse(squarespaceConnection?.data);
+        let squarespaceData = {};
+        try {
+          squarespaceData =
+            typeof squarespaceConnection?.data === 'string'
+              ? JSON.parse(squarespaceConnection.data)
+              : (squarespaceConnection?.data && typeof squarespaceConnection.data === 'object'
+                ? squarespaceConnection.data
+                : {});
+        } catch (_) {
+          squarespaceData = {};
+        }
+
         const refresh_token = squarespaceData?.refresh_token;
-        console.log("refresh_token=================>>>>>>>>>>>", refresh_token);
         // create a new access token using the refresh token
         const clientId = process.env.SQUARESPACE_CLIENT_ID;
         const clientSecret = process.env.SQUARESPACE_CLIENT_SECRET;
@@ -287,12 +297,44 @@ const fulfillSquareSpaceOrderWithTrackingInfo = async (req, res) => {
             data: tokenData
           });
         }
+
+        // IMPORTANT: Squarespace may rotate refresh tokens on refresh.
+        // Persist the latest access/refresh token back into the tenant connection,
+        // otherwise the next refresh attempt will use an invalidated refresh_token.
+        try {
+          const nextConnections = Array.isArray(connections) ? JSON.parse(JSON.stringify(connections)) : [];
+          const idx = nextConnections.findIndex((c) => c && c.name === 'Squarespace');
+
+          const merged = {
+            ...squarespaceData,
+            ...tokenData,
+            // Ensure we never lose the refresh token if Squarespace doesn't return it.
+            refresh_token: tokenData.refresh_token || refresh_token
+          };
+
+          const nextConn = {
+            ...(idx !== -1 ? nextConnections[idx] : {}),
+            name: 'Squarespace',
+            id: tokenData.access_token,
+            data: JSON.stringify(merged)
+          };
+
+          if (idx !== -1) nextConnections[idx] = nextConn;
+          else nextConnections.push(nextConn);
+
+          await finerworksService.UPDATE_INFO({
+            account_key,
+            connections: nextConnections
+          });
+        } catch (persistErr) {
+          // Don't fail fulfillment if persistence fails; just continue with refreshed access token.
+          console.log('Failed to persist refreshed Squarespace token', persistErr?.message || persistErr);
+        }
+
         headers = {
           ...headers,
           Authorization: `Bearer ${tokenData.access_token}`,
         };
-            console.log("headersin catchhhhhh=====>>>",headers);
-
       } else {
         return res.status(400).json({
           success: false,
@@ -307,15 +349,15 @@ const fulfillSquareSpaceOrderWithTrackingInfo = async (req, res) => {
       ],
       "account_key": account_key
     }
-    console.log("selectOrderId=================>>>>>>>>>>>7676767676767", selectOrderId);
+    console.log("selectOrderIds", selectOrderId);
 
     let orderStatusData = null;
     try {
       orderStatusData = await finerworksService.GET_ORDER_STATUS(
         selectOrderId
       );
-          var result = orderNumber.replace("sku_", "");
-    console.log(result); // "1"
+      var result = orderNumber.replace("sku_", "");
+      console.log(result); // "1"
     } catch (error) {
       console.log("error in order status data", error);
       return res.status(500).json({
@@ -324,14 +366,14 @@ const fulfillSquareSpaceOrderWithTrackingInfo = async (req, res) => {
         error: error?.message || 'Unknown error'
       });
     }
-    console.log("orderStatusData=================>>>>>>>>>>>", orderStatusData);
-    const trackingNumber = orderStatusData?.orders[0]?.shipments[0]?.tracking_number || "12345";
-    const trackingUrl = orderStatusData?.orders[0]?.shipments[0]?.tracking_url || "https://test.com";
-    const carrierName = orderStatusData?.orders[0]?.shipments[0]?.carrier ||'Economy';
-    const service = 'service';
-    const shipDate = orderStatusData?.orders[0]?.shipments[0]?.shipment_date ||'2024-05-15';
+    console.log("orderStatusData", orderStatusData);
+    const trackingNumber = orderStatusData?.orders[0]?.shipments[0]?.tracking_number;
+    const trackingUrl = orderStatusData?.orders[0]?.shipments[0]?.tracking_url;
+    const carrierName = orderStatusData?.orders[0]?.shipments[0]?.carrier;
+    const service = orderStatusData?.orders[0]?.shipments[0]?.service;
+    const shipDate = orderStatusData?.orders[0]?.shipments[0]?.shipment_date;
 
-    const url = `${SQUARESPACE_ORDERS_URL}/${result}/fulfillments`;
+    const url = `${SQUARESPACE_ORDERS_URL}/${orderId}/fulfillments`;
     const payload = {
       "shipments": [
         {
