@@ -67,9 +67,43 @@ function pickImageUrls(p) {
   return [...new Set(urls)];
 }
 
+async function mintWixAppAccessTokenFromInstanceId(instanceId) {
+  const clientId = process.env.WIX_CLIENT_ID;
+  const clientSecret = process.env.WIX_CLIENT_SECRET;
+  if (!clientId || !clientSecret) return null;
+  const resp = await axios.post(
+    'https://www.wixapis.com/oauth2/token',
+    {
+      grant_type: 'client_credentials',
+      client_id: String(clientId).trim(),
+      client_secret: String(clientSecret).trim(),
+      instance_id: String(instanceId).trim()
+    },
+    { timeout: 20000 }
+  );
+  return resp?.data || null;
+}
+
+function isExpired(expires_at) {
+  if (!expires_at) return true;
+  const t = Date.parse(expires_at);
+  if (!Number.isFinite(t)) return true;
+  // Refresh a bit early.
+  return Date.now() + 60_000 >= t;
+}
+
 async function resolveWixAuth({ account_key, access_token, site_id }) {
+  // Request override can be either OAuth access token only, or legacy api_key + site_id.
+  if (access_token && !site_id) {
+    return { authType: 'oauth', accessToken: String(access_token).trim(), siteId: null, source: 'request' };
+  }
   if (access_token && site_id) {
-    return { apiKey: String(access_token).trim(), siteId: String(site_id).trim(), source: 'request' };
+    return {
+      authType: 'api_key',
+      accessToken: String(access_token).trim(),
+      siteId: String(site_id).trim(),
+      source: 'request'
+    };
   }
 
   // Prefer tenant connection if available.
@@ -84,16 +118,58 @@ async function resolveWixAuth({ account_key, access_token, site_id }) {
       } catch (_) {
         data = {};
       }
-      const apiKey = String(data?.access_token || wixConn.id || '').trim();
+      const authType =
+        data?.auth_type === 'api_key' ? 'api_key' : 'oauth';
+      const accessToken = String(data?.access_token || wixConn.id || '').trim();
       const siteId = String(data?.site_id || '').trim();
-      if (apiKey && siteId) return { apiKey, siteId, source: 'connections' };
+      const instanceId = String(data?.instance_id || '').trim();
+      const expiresAt = data?.expires_at || null;
+
+      if (authType === 'api_key') {
+        if (accessToken && siteId) return { authType, accessToken, siteId, source: 'connections' };
+      } else {
+        // If we have an instance id and either no token or it's expired, mint a fresh one.
+        if (instanceId && (!accessToken || isExpired(expiresAt))) {
+          const tokenData = await mintWixAppAccessTokenFromInstanceId(instanceId);
+          const nextAccess = tokenData?.access_token ? String(tokenData.access_token).trim() : '';
+          const expires_in = tokenData?.expires_in;
+          const nextExpiresAt =
+            Number.isFinite(Number(expires_in)) ? new Date(Date.now() + Number(expires_in) * 1000).toISOString() : null;
+
+          if (nextAccess) {
+            // Persist refreshed token back into connections for reuse.
+            const nextData = {
+              ...data,
+              auth_type: 'oauth_client_credentials',
+              instance_id: instanceId,
+              site_id: siteId || null,
+              access_token: nextAccess,
+              expires_in: expires_in ?? null,
+              expires_at: nextExpiresAt,
+              refreshed_at: new Date().toISOString()
+            };
+            const idx = Array.isArray(connections) ? connections.findIndex((c) => c && c.name === 'Wix') : -1;
+            if (idx !== -1) {
+              const copy = JSON.parse(JSON.stringify(connections));
+              copy[idx] = { name: 'Wix', id: nextAccess, data: JSON.stringify(nextData) };
+              await finerworksService.UPDATE_INFO({ account_key: String(account_key).trim(), connections: copy });
+            }
+            return { authType, accessToken: nextAccess, siteId: siteId || null, source: 'connections_refresh' };
+          }
+        }
+
+        if (accessToken) return { authType, accessToken, siteId: siteId || null, source: 'connections' };
+      }
     }
   }
 
   // Fallback to env.
-  const apiKey = String(process.env.WIX_API_KEY || '').trim();
-  const siteId = String(process.env.WIX_SITE_ID || '').trim();
-  if (apiKey && siteId) return { apiKey, siteId, source: 'env' };
+  const envAccess = String(process.env.WIX_API_KEY || '').trim();
+  const envSite = String(process.env.WIX_SITE_ID || '').trim();
+  if (envAccess && envSite) return { authType: 'api_key', accessToken: envAccess, siteId: envSite, source: 'env' };
+
+  const envOauthAccess = String(process.env.WIX_OAUTH_ACCESS_TOKEN || '').trim();
+  if (envOauthAccess) return { authType: 'oauth', accessToken: envOauthAccess, siteId: null, source: 'env' };
 
   return null;
 }
@@ -139,16 +215,16 @@ const syncWixProducts = async (req, res) => {
     if (!wixAuth) {
       return res.status(400).json({
         success: false,
-        message: 'Missing Wix auth. Connect Wix first or provide access_token + site_id.'
+        message: 'Missing Wix auth. Connect Wix first or provide access_token (and site_id only if using API key auth).'
       });
     }
 
     const headers = {
-      Authorization: wixAuth.apiKey,
-      'wix-site-id': wixAuth.siteId,
+      Authorization: wixAuth.authType === 'oauth' ? (String(wixAuth.accessToken).trim().match(/^Bearer\s+/i) ? String(wixAuth.accessToken).trim() : `Bearer ${String(wixAuth.accessToken).trim()}`) : wixAuth.accessToken,
       'Content-Type': 'application/json',
       Accept: 'application/json, text/plain, */*'
     };
+    if (wixAuth.authType === 'api_key') headers['wix-site-id'] = wixAuth.siteId;
 
     const results = [];
     let created = 0;
@@ -241,6 +317,7 @@ const syncWixProducts = async (req, res) => {
     return res.status(200).json({
       success: failed === 0,
       wixAuthSource: wixAuth.source,
+      wixAuthType: wixAuth.authType,
       created,
       failed,
       results
