@@ -1,6 +1,8 @@
 const axios = require('axios');
 const finerworksService = require('../helpers/finerworks-service');
 const crypto = require('crypto');
+const log = debug("app:wix-auth");
+
 
 function maskSecret(s) {
   const str = String(s || '');
@@ -370,6 +372,7 @@ async function exchangeWixAuthorizationCode({ code }) {
  */
 const handleWixAuthStart = async (req, res) => {
   try {
+    log("handleWixAuthStart==========>>>>>>>>>>>", req.query);
     const account_key =
       req.query?.account_key ||
       req.query?.accountKey ||
@@ -409,6 +412,8 @@ const handleWixAuthStart = async (req, res) => {
     }
 
     const installUrl = `${installerBase}?${qs.toString()}`;
+    console.log("installUrl==========>>>>>>>>>>>", installUrl);
+    log("installUrl==========>>>>>>>>>>>", installUrl);
     return res.redirect(installUrl);
   } catch (err) {
     return res.status(500).json({
@@ -643,6 +648,7 @@ const connectWixOAuth = async (req, res) => {
  */
 const handleWixOAuthCallback = async (req, res) => {
   try {
+    log("handleWixOAuthCallback==========>>>>>>>>>>>", req.query);
     const code = req.query?.code;
     const state = req.query?.state;
     const return_url = req.query?.return_url;
@@ -711,6 +717,7 @@ const handleWixOAuthCallback = async (req, res) => {
  * - account_key (required)
  */
 const getWixOAuthState = async (req, res) => {
+  log("getWixOAuthState==========>>>>>>>>>>>", req.query);
   const account_key = req.query?.account_key || req.body?.account_key || req.query?.accountKey || req.body?.accountKey;
   if (!account_key || !String(account_key).trim()) {
     return res.status(400).json({ success: false, message: 'Missing required parameter: account_key' });
