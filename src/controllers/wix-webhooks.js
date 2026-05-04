@@ -1,94 +1,159 @@
-const finerworksService = require('../helpers/finerworks-service');
+const jwt = require('jsonwebtoken');
+const debug = require('debug');
+const log = debug('app:wix-webhooks');
+
+function parseMaybeJsonString(v) {
+  if (v == null) return null;
+  if (typeof v === 'object') return v;
+  if (typeof v !== 'string') return null;
+  try {
+    return JSON.parse(v);
+  } catch (_) {
+    return null;
+  }
+}
+
+/**
+ * Wix encodes the App installed JWT payload in different shapes; this covers the nested JSON-string
+ * form (payload.data is a string containing instanceId + inner string `data` for appId).
+ */
+function extractWixAppInstalledFields(payload) {
+  if (!payload || typeof payload !== 'object') return null;
+
+  const outerData = parseMaybeJsonString(payload.data) || (typeof payload.data === 'object' ? payload.data : null) || {};
+  const metadata = parseMaybeJsonString(payload.metadata) || (typeof payload.metadata === 'object' ? payload.metadata : null) || {};
+  const innerData = parseMaybeJsonString(outerData.data) || (typeof outerData.data === 'object' ? outerData.data : null) || {};
+
+  const instanceId =
+    outerData.instanceId || metadata.instanceId || payload.instanceId || innerData.instanceId || null;
+
+  const accountInfo =
+    metadata.accountInfo && typeof metadata.accountInfo === 'object'
+      ? metadata.accountInfo
+      : parseMaybeJsonString(metadata.accountInfo) || {};
+
+  const siteId =
+    accountInfo.siteId || metadata.siteId || outerData.siteId || payload.siteId || innerData.siteId || null;
+
+  const appId = innerData.appId || outerData.appId || payload.appId || null;
+  const originInstanceId = innerData.originInstanceId || outerData.originInstanceId || payload.originInstanceId || null;
+
+  const eventType = outerData.eventType || metadata.eventType || payload.eventType || null;
+
+  return { instanceId, siteId, appId, originInstanceId, eventType };
+}
 
 /**
  * Wix App Instance Installed webhook handler.
  *
+ * The HTTP body is a signed JWT (not a JSON object). Decode the payload to read event fields.
+ * Verify the signature in production using the public key from the Wix app Webhooks page.
+ *
  * Wix sends `metadata.instanceId` (app instance GUID) and may send `metadata.accountInfo.siteId`.
- * We persist these into the tenant's `connections[]` so future calls can mint access tokens
- * using the OAuth client-credentials flow (requires WIX_CLIENT_SECRET).
+ * We persist these into the tenant's `connections[]` when `account_key` is provided so you can mint
+ * access tokens via client_credentials (`createWixAccessTokenFromInstance`).
  *
- * IMPORTANT: This server does not currently validate Wix webhook signatures. If you expose this
- * publicly, add verification using Wix's webhook signing guidance.
- *
- * How we associate a Wix install to an OFA tenant:
- * - We require `account_key` to be provided (query/body/header). In a production-grade setup,
- *   you'd typically map instanceId->tenant via your own installation UI or signed state.
+ * If `account_key` is omitted (typical for Wix-only callbacks), we still return 200 and log the
+ * decoded payload so installs are not retried indefinitely while you wire tenant mapping.
  */
-const handleWixAppInstanceInstalled = async (req, res) => {
+/** Shared handler: raw body is a Wix-signed JWT (e.g. App instance installed). Used by dedicated webhook URL or POST /wix/oauth/callback. */
+const handleWixJwtBodyAsAppInstall = async (req, res) => {
   try {
-    const account_key =
-      req.query?.account_key ||
-      req.body?.account_key ||
-      req.headers['x-account-key'] ||
-      req.query?.accountKey ||
-      req.body?.accountKey;
+    const raw =
+      typeof req.body === 'string'
+        ? req.body
+        : Buffer.isBuffer(req.body)
+          ? req.body.toString('utf8')
+          : '';
 
-    if (!account_key || !String(account_key).trim()) {
-      return res.status(400).json({
-        success: false,
-        message:
-          'Missing required parameter: account_key. Provide it as query `account_key`, body `account_key`, or header `x-account-key` so we can store the install against the correct tenant.'
-      });
+    const token = String(raw || '').trim();
+    if (!token) {
+      return res.status(400).json({ success: false, message: 'Empty webhook body (expected JWT string)' });
     }
 
-    const instanceId = req.body?.metadata?.instanceId || req.body?.instanceId || null;
-    const siteId = req.body?.metadata?.accountInfo?.siteId || req.body?.siteId || null;
-    const appId = req.body?.data?.appId || req.body?.appId || null;
-    const originInstanceId = req.body?.data?.originInstanceId || null;
+    const decoded = jwt.decode(token, { complete: true });
+    const payload = decoded && typeof decoded === 'object' ? decoded.payload : null;
+    if (!payload || typeof payload !== 'object') {
+      return res.status(400).json({ success: false, message: 'Could not decode Wix webhook JWT payload' });
+    }
+
+    const extracted = extractWixAppInstalledFields(payload);
+    const instanceId = extracted?.instanceId || null;
+    const siteId = extracted?.siteId || null;
+    const appId = extracted?.appId || null;
+    const originInstanceId = extracted?.originInstanceId || null;
+
+    log('[wix app-install JWT] decoded (signature not verified):', {
+      instanceId,
+      siteId,
+      appId,
+      originInstanceId,
+      eventType: extracted?.eventType
+    });
+
+    let account_key =
+      req.query?.account_key ||
+      req.query?.accountKey ||
+      req.headers['x-account-key'] ||
+      null;
+
+    // Optional: same signed ctx used on GET /wix/oauth/install-return (only if you append ?ctx= to the webhook URL via a proxy).
+    if ((!account_key || !String(account_key).trim()) && req.query?.ctx) {
+      try {
+        const secret = process.env.WIX_INSTALL_CTX_SECRET || process.env.WIX_CLIENT_SECRET;
+        if (secret) {
+          const p = jwt.verify(String(req.query.ctx), secret);
+          if (p?.purpose === 'wix_install_return' && p?.account_key) {
+            account_key = String(p.account_key).trim();
+          }
+        }
+      } catch (_) {
+        /* ignore invalid ctx */
+      }
+    }
 
     if (!instanceId || !String(instanceId).trim()) {
       return res.status(400).json({
         success: false,
-        message: 'Missing required field from Wix webhook payload: metadata.instanceId'
+        message: 'Missing instanceId in decoded JWT (expected instanceId inside payload.data or metadata)'
       });
     }
 
-    const getInformation = await finerworksService.GET_INFO({ account_key: String(account_key).trim() });
-    const connections = Array.isArray(getInformation?.user_account?.connections)
-      ? JSON.parse(JSON.stringify(getInformation.user_account.connections))
-      : [];
-
-    const idx = connections.findIndex((c) => c && c.name === 'Wix');
-    const existing = idx !== -1 ? connections[idx] : null;
-    let existingData = {};
-    try {
-      existingData = existing?.data ? (typeof existing.data === 'string' ? JSON.parse(existing.data) : existing.data) : {};
-    } catch (_) {
-      existingData = {};
+    if (!account_key || !String(account_key).trim()) {
+      return res.status(200).json({
+        success: true,
+        message:
+          'Webhook JWT decoded; instanceId available. Use GET /wix/oauth/start?account_key=… so the install redirect can complete with tokens, or pass account_key / x-account-key on the webhook request.',
+        wix: {
+          instance_id: String(instanceId).trim(),
+          site_id: siteId ? String(siteId).trim() : null,
+          app_id: appId ? String(appId).trim() : null,
+          origin_instance_id: originInstanceId ? String(originInstanceId).trim() : null
+        }
+      });
     }
 
-    const nextData = {
-      ...existingData,
-      auth_type: 'oauth_client_credentials',
-      instance_id: String(instanceId).trim(),
-      site_id: siteId ? String(siteId).trim() : (existingData?.site_id || null),
-      app_id: appId ? String(appId).trim() : (existingData?.app_id || null),
-      origin_instance_id: originInstanceId ? String(originInstanceId).trim() : (existingData?.origin_instance_id || null),
-      installed_at: new Date().toISOString()
-    };
-
-    const conn = {
-      name: 'Wix',
-      // Keep `id` as "last known access token" if we ever minted one; otherwise leave existing id.
-      id: existing?.id || '',
-      data: JSON.stringify(nextData)
-    };
-
-    if (idx !== -1) connections[idx] = conn;
-    else connections.push(conn);
-
-    await finerworksService.UPDATE_INFO({
-      account_key: String(account_key).trim(),
-      connections
-    });
+    const { persistWixClientCredentialsConnection, maskSecret } = require('./wix-auth');
+    const out = await persistWixClientCredentialsConnection(
+      String(account_key).trim(),
+      String(instanceId).trim(),
+      siteId ? String(siteId).trim() : null,
+      {
+        app_id: appId ? String(appId).trim() : null,
+        origin_instance_id: originInstanceId ? String(originInstanceId).trim() : null,
+        installed_via: 'wix_webhook'
+      }
+    );
 
     return res.status(200).json({
       success: true,
-      message: 'Wix app installation recorded',
+      message: 'Wix app installed; access token minted and connection saved',
       wix: {
-        instance_id: nextData.instance_id,
-        site_id: nextData.site_id,
-        app_id: nextData.app_id
+        instance_id: out.instance_id,
+        site_id: out.site_id,
+        app_id: appId ? String(appId).trim() : null,
+        access_token: maskSecret(out.access_token),
+        expires_at: out.expires_at
       }
     });
   } catch (err) {
@@ -101,7 +166,10 @@ const handleWixAppInstanceInstalled = async (req, res) => {
   }
 };
 
+const handleWixAppInstanceInstalled = handleWixJwtBodyAsAppInstall;
+
 module.exports = {
-  handleWixAppInstanceInstalled
+  handleWixAppInstanceInstalled,
+  handleWixJwtBodyAsAppInstall
 };
 

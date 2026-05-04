@@ -279,7 +279,7 @@ Resources:
           Type: Api
           Properties:
             RestApiId: !Ref MyApiGateway
-            Method: POST
+            Method: GET
             Path: "/api/wix/oauth/start"
         WixOauthCallback:
           Type: Api
@@ -287,6 +287,12 @@ Resources:
             RestApiId: !Ref MyApiGateway
             Method: POST
             Path: "/api/wix/oauth/callback"
+        WixOauthInstallReturn:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Method: GET
+            Path: "/api/wix/oauth/install-return"
   OrderFullFillmentServerLessDevServerV2Again:
     Type: AWS::Serverless::Function
     Properties:

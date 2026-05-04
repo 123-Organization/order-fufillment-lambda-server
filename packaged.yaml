@@ -54,7 +54,7 @@ Resources:
         - MyLambdaExecutionRole
         - Arn
       Runtime: nodejs18.x
-      CodeUri: s3://order-fullfilment-app-lambda-server/b805290b94fc782e7570eb216d33f7c4
+      CodeUri: s3://order-fullfilment-app-lambda-server/fb1e6bebf273b1dcdab927e2e1e61fe5
       MemorySize: 3008
       Timeout: 900
       Environment:
@@ -285,6 +285,27 @@ Resources:
               Ref: MyApiGateway
             Method: POST
             Path: /api/shopify/carrier-service/callback
+        WixOauthStart:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: GET
+            Path: /api/wix/oauth/start
+        WixOauthCallback:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: POST
+            Path: /api/wix/oauth/callback
+        WixOauthInstallReturn:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: GET
+            Path: /api/wix/oauth/install-return
     Metadata:
       SamResourceId: OrderFullFillmentServerLessDevServerAgain
   OrderFullFillmentServerLessDevServerV2Again:
@@ -297,7 +318,7 @@ Resources:
         - MyLambdaExecutionRole
         - Arn
       Runtime: nodejs18.x
-      CodeUri: s3://order-fullfilment-app-lambda-server/b805290b94fc782e7570eb216d33f7c4
+      CodeUri: s3://order-fullfilment-app-lambda-server/fb1e6bebf273b1dcdab927e2e1e61fe5
       MemorySize: 3008
       Timeout: 900
       Environment:
