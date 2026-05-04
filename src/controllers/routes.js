@@ -11,6 +11,9 @@ const { getUserPaymentToken,getCompanyInfo } = require('./payment-token');
 const {updateUserInformation}=require('./userInformation')
 const { handleShopifyAuth, handleShopifyCallback, handleShopifyInstall, handleShopifyDisconnect, disconnectShopifyFromOfa } = require('./shopify-auth');
 const { handleSquarespaceAuth, handleSquarespaceCallback, refreshSquarespaceToken } = require('./squarespace-auth');
+const { connectWix, handleWixAuthStart, connectWixOAuth, handleWixOAuthCallback, getWixOAuthState, getWixHeadlessVisitorTokens, getWixInstallLink, connectWixFromInstance } = require('./wix-auth');
+const { handleWixAppInstanceInstalled } = require('./wix-webhooks');
+const { syncWixProducts } = require('./wix-products');
 const { getSquarespaceOrders, getSquarespaceOrderByNumber, validateSquarespaceAccessToken, fulfillSquareSpaceOrderWithTrackingInfo } = require('./squarespace-orders');
 const { getShopifyOrders, getShopifyOrderByName, fulfillShopifyOrder, updateOrderReferenceNumbers, updateOrderFulfillmentStatus, syncShopifyProducts, createShopifyCarrierService, listShopifyCarrierServices, deleteShopifyCarrierService, shopifyCarrierServiceCallback, registerShopifyWebhook, registerShopifyOrderCreateWebhook, listShopifyWebhooks, deleteShopifyWebhookById, shopifyProductDeleteWebhook, shopifyOrdersCreateWebhook, createUsCanadaShippingProfile } = require('./shopify-orders');
 const { syncSquarespaceProducts } = require('./squarespace-products');
@@ -76,6 +79,16 @@ app.get('/shopify/', handleShopifyInstall);
 app.get('/squarespace/auth', handleSquarespaceAuth);
 app.get('/squarespace/callback', handleSquarespaceCallback);
 app.post('/squarespace/refresh-token', refreshSquarespaceToken);
+app.post('/wix/connect', connectWix); // This is using the api key to connect to the wix account.
+// app.get('/wix/install', getWixInstallLink);
+app.get('/wix/oauth/start', handleWixAuthStart); // Oauth start api from our end
+app.post('/wix/oauth/connect', connectWixOAuth); // using site id and instance id
+app.get('/wix/oauth/callback', handleWixOAuthCallback); // this is the api will be called by wix to get the access token and refresh token.
+app.get('/wix/oauth/state', getWixOAuthState); // might not be in use
+app.get('/wix/instance/connect', connectWixFromInstance);
+app.post('/wix/headless/tokens', getWixHeadlessVisitorTokens); // might not needed in the oauth flow
+app.post('/wix/webhooks/app-instance-installed', handleWixAppInstanceInstalled);
+app.post('/wix/sync-products', syncWixProducts);
 app.post('/shopify/disconnect', handleShopifyDisconnect);
 app.post('/shopify/disconnectShopifyFromOfa', disconnectShopifyFromOfa);
 app.post('/shopify/orders', getShopifyOrders);
