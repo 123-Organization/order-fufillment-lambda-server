@@ -1,8 +1,10 @@
 const axios = require('axios');
 const finerworksService = require('../helpers/finerworks-service');
+const { handleWixJwtBodyAsAppInstall } = require('./wix-webhooks');
 const crypto = require('crypto');
-const log = debug("app:wix-auth");
-
+const jwt = require('jsonwebtoken');
+const debug = require('debug');
+const log = debug('app:wix-auth');
 
 function maskSecret(s) {
   const str = String(s || '');
@@ -50,10 +52,21 @@ const getApiBaseUrl = (req) => (req.baseUrl ? req.baseUrl : '/api');
 
 const buildWixRedirectUri = (req) => {
   // Keep redirect_uri consistent between initiate + callback.
+  return "https://d7z22w3j4h.execute-api.us-east-1.amazonaws.com/Prod/api/wix/oauth/callback";
   return (
     process.env.WIX_REDIRECT_URI ||
     `${req.protocol}://${req.get('host')}${getApiBaseUrl(req)}/wix/oauth/callback`
   );
+};
+
+/**
+ * Browser redirect after install (GET). Must match Wix Dev Center **exactly** (path only, no ?query):
+ * e.g. https://xxx.execute-api.region.amazonaws.com/Prod/api/wix/oauth/install-return
+ */
+const buildWixInstallReturnUri = (req) => {
+  const fromEnv = process.env.WIX_INSTALL_RETURN_URL && String(process.env.WIX_INSTALL_RETURN_URL).trim();
+  if (fromEnv) return fromEnv.split('?')[0].replace(/\/$/, '');
+  return String(buildWixRedirectUri(req)).replace(/\/wix\/oauth\/callback\/?$/i, '/wix/oauth/install-return');
 };
 
 /**
@@ -259,6 +272,40 @@ async function createWixAccessTokenFromInstance({ instance_id }) {
   return resp?.data || {};
 }
 
+async function persistWixClientCredentialsConnection(account_key, instance_id, site_id, extraData = null) {
+  const tokenData = await createWixAccessTokenFromInstance({ instance_id });
+  const access_token = tokenData?.access_token;
+  const expires_in = tokenData?.expires_in;
+  if (!access_token) {
+    const err = new Error('Token creation succeeded but access_token missing');
+    err.statusCode = 400;
+    err.tokenData = tokenData;
+    throw err;
+  }
+  const now = Date.now();
+  const expires_at = Number.isFinite(Number(expires_in)) ? new Date(now + Number(expires_in) * 1000).toISOString() : null;
+  const baseData = {
+    auth_type: 'oauth_client_credentials',
+    instance_id: String(instance_id).trim(),
+    site_id: site_id ? String(site_id).trim() : null,
+    access_token,
+    expires_in: expires_in ?? null,
+    expires_at,
+    connected_at: new Date().toISOString()
+  };
+  await upsertWixConnection({
+    account_key: String(account_key).trim(),
+    id: access_token,
+    data: extraData && typeof extraData === 'object' ? { ...baseData, ...extraData } : baseData
+  });
+  return {
+    access_token,
+    expires_at,
+    instance_id: String(instance_id).trim(),
+    site_id: site_id ? String(site_id).trim() : null
+  };
+}
+
 /**
  * Wix Headless visitor tokens (clientId-only).
  *
@@ -355,20 +402,20 @@ async function exchangeWixAuthorizationCode({ code }) {
 }
 
 /**
- * Initiates Wix install/auth flow (custom authentication legacy).
+ * Starts external Wix app install and returns users to GET /wix/oauth/install-return.
  *
- * Mirrors the Squarespace /auth endpoint behavior:
- * - UI hits this endpoint with `account_key`
- * - we generate `state` that embeds account_key + nonce
- * - we redirect to Wix install URL
+ * Modern Wix apps use **OAuth client credentials** (App ID + secret + `instance_id`); the OAuth page in
+ * Dev Center often shows **only keys** — there is **no Redirect URL field**, and that is expected.
  *
- * Notes:
- * - This flow only works for Wix apps that already have "custom authentication (legacy)" enabled.
- * - For modern Wix Apps, prefer storing instance_id via install webhook and minting tokens via client_credentials.
+ * Use the **external install** URL documented by Wix (not legacy `installer/install?redirectUrl=…`, which
+ * requires a pre-registered redirect and causes "couldn't find an app with this redirect url"):
+ * `https://www.wix.com/app-installer?appId=…&postInstallationUrl=…`
+ * The callback may include query params (e.g. signed `state`); Wix preserves them and appends
+ * `instanceId`, `tenantId`, `appId`.
  *
  * Query:
  * - account_key (required)
- * - return_url (optional): appended to callback as `return_url`
+ * - return_url (optional): stored inside signed `state` JWT for post-install redirect
  */
 const handleWixAuthStart = async (req, res) => {
   try {
@@ -388,31 +435,50 @@ const handleWixAuthStart = async (req, res) => {
       return res.status(500).json({ success: false, message: 'WIX_CLIENT_ID not configured' });
     }
 
-    const nonce = crypto.randomBytes(16).toString('hex');
-    const state = base64UrlEncode(JSON.stringify({ account_key: String(account_key).trim(), nonce }));
-
-    const redirectUrl = buildWixRedirectUri(req);
-
-    // Default Wix install URL pattern used by AppStrategy.getInstallUrl().
-    const installerBase = process.env.WIX_INSTALLER_BASE_URL || 'https://www.wix.com/installer/install';
-    const qs = new URLSearchParams({
-      appId: String(clientId).trim(),
-      redirectUrl,
-      state
-    });
-
-    const return_url = req.query?.return_url || req.body?.return_url || null;
-    if (return_url) {
-      // We can't control what Wix sends back besides our redirectUrl.
-      // So we include return_url into our own redirectUrl via query param.
-      const redirectWithReturn = `${redirectUrl}${redirectUrl.includes('?') ? '&' : '?'}return_url=${encodeURIComponent(
-        String(return_url)
-      )}`;
-      qs.set('redirectUrl', redirectWithReturn);
+    const ctxSecret = process.env.WIX_INSTALL_CTX_SECRET || process.env.WIX_CLIENT_SECRET;
+    if (!ctxSecret || !String(ctxSecret).trim()) {
+      return res.status(500).json({
+        success: false,
+        message:
+          'Set WIX_CLIENT_SECRET or WIX_INSTALL_CTX_SECRET to sign install `state` (carries account_key).'
+      });
     }
 
-    const installUrl = `${installerBase}?${qs.toString()}`;
-    console.log("installUrl==========>>>>>>>>>>>", installUrl);
+    const nonce = crypto.randomBytes(16).toString('hex');
+    const return_url = req.query?.return_url || req.body?.return_url || null;
+
+    const state = jwt.sign(
+      {
+        purpose: 'wix_install_return',
+        account_key: String(account_key).trim(),
+        nonce,
+        ...(return_url ? { return_url: String(return_url).trim() } : {})
+      },
+      String(ctxSecret).trim(),
+      { expiresIn: '24h' }
+    );
+
+    const installReturnBase = buildWixInstallReturnUri(req);
+    const sep = installReturnBase.includes('?') ? '&' : '?';
+    const postInstallationUrl = `${installReturnBase}${sep}state=${encodeURIComponent(state)}`;
+
+    const legacy = String(process.env.WIX_LEGACY_INSTALLER || '').trim() === '1';
+    const installerBase =
+      process.env.WIX_INSTALLER_BASE_URL ||
+      (legacy ? 'https://www.wix.com/installer/install' : 'https://www.wix.com/app-installer');
+
+    let installUrl;
+    if (legacy) {
+      const qs = new URLSearchParams({
+        appId: String(clientId).trim(),
+        redirectUrl: installReturnBase,
+        state
+      });
+      installUrl = `${installerBase}?${qs.toString()}`;
+    } else {
+      installUrl = `${installerBase}?appId=${encodeURIComponent(String(clientId).trim())}&postInstallationUrl=${encodeURIComponent(postInstallationUrl)}`;
+    }
+
     log("installUrl==========>>>>>>>>>>>", installUrl);
     return res.redirect(installUrl);
   } catch (err) {
@@ -589,43 +655,20 @@ const connectWixOAuth = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Missing required parameter: instance_id' });
     }
 
-    const tokenData = await createWixAccessTokenFromInstance({ instance_id });
-    const access_token = tokenData?.access_token;
-    const expires_in = tokenData?.expires_in;
-
-    if (!access_token) {
-      return res.status(400).json({
-        success: false,
-        message: 'Token creation succeeded but access_token missing',
-        data: tokenData
-      });
-    }
-
-    const now = Date.now();
-    const expires_at = Number.isFinite(Number(expires_in)) ? new Date(now + Number(expires_in) * 1000).toISOString() : null;
-
-    await upsertWixConnection({
-      account_key: String(account_key).trim(),
-      id: access_token,
-      data: {
-        auth_type: 'oauth_client_credentials',
-        instance_id: String(instance_id).trim(),
-        site_id: site_id ? String(site_id).trim() : null,
-        access_token,
-        expires_in: expires_in ?? null,
-        expires_at,
-        connected_at: new Date().toISOString()
-      }
-    });
+    const out = await persistWixClientCredentialsConnection(
+      String(account_key).trim(),
+      String(instance_id).trim(),
+      site_id ? String(site_id).trim() : null
+    );
 
     return res.status(200).json({
       success: true,
       message: 'Wix OAuth connection added successfully',
       wix: {
-        instance_id: String(instance_id).trim(),
-        site_id: site_id ? String(site_id).trim() : null,
-        access_token: maskSecret(access_token),
-        expires_at
+        instance_id: out.instance_id,
+        site_id: out.site_id,
+        access_token: maskSecret(out.access_token),
+        expires_at: out.expires_at
       }
     });
   } catch (err) {
@@ -633,34 +676,153 @@ const connectWixOAuth = async (req, res) => {
     return res.status(status).json({
       success: false,
       message: 'Failed to connect Wix via OAuth',
-      error: err?.response?.data || err?.message || 'Unknown error'
+      error: err?.response?.data || err?.message || 'Unknown error',
+      ...(err?.tokenData ? { data: err.tokenData } : {})
     });
   }
 };
 
 /**
- * Custom auth (legacy) callback-style handler.
+ * GET /wix/oauth/install-return — after install, Wix redirects here with the same **state** we sent
+ * (signed JWT with account_key) plus **instance** / ids. Optional legacy **ctx** query still supported.
+ */
+const handleWixOAuthInstallReturn = async (req, res) => {
+  try {
+    const secret = process.env.WIX_INSTALL_CTX_SECRET || process.env.WIX_CLIENT_SECRET;
+    log("handleWixOAuthInstallReturn==========>>>>>>>>>>>", req.query);
+    if (!secret || !String(secret).trim()) {
+      return res.status(500).json({
+        success: false,
+        message: 'Set WIX_INSTALL_CTX_SECRET or WIX_CLIENT_SECRET to verify install state.'
+      });
+    }
+
+    let account_key = null;
+    let return_url_from_state = null;
+
+    const ctx = req.query?.ctx;
+    if (ctx) {
+      try {
+        const ctxPayload = jwt.verify(String(ctx), String(secret).trim());
+        if (ctxPayload?.purpose === 'wix_install_return' && ctxPayload?.account_key) {
+          account_key = String(ctxPayload.account_key).trim();
+          if (ctxPayload.return_url) return_url_from_state = String(ctxPayload.return_url).trim();
+        }
+      } catch (_) {
+        /* fall through to state */
+      }
+    }
+
+    const stateQ = req.query?.state;
+    if (!account_key && stateQ) {
+      try {
+        const sp = jwt.verify(String(stateQ), String(secret).trim());
+        if (sp?.purpose === 'wix_install_return' && sp?.account_key) {
+          account_key = String(sp.account_key).trim();
+          if (sp.return_url) return_url_from_state = String(sp.return_url).trim();
+        }
+      } catch (_) {
+        try {
+          const stateObj = JSON.parse(base64UrlDecode(String(stateQ)));
+          if (stateObj?.account_key) account_key = String(stateObj.account_key).trim();
+        } catch (__) {
+          /* ignore */
+        }
+      }
+    }
+
+    if (!account_key) {
+      return res.status(400).json({
+        success: false,
+        message:
+          'Missing install context. Start from GET /wix/oauth/start?account_key=... (Wix must return `state` on this redirect).'
+      });
+    }
+    const instanceToken = req.query?.instance || null;
+    const instanceIdRaw = req.query?.instanceId || req.query?.instance_id;
+    let instance_id = instanceIdRaw ? String(instanceIdRaw).trim() : '';
+    let site_id =
+      (req.query?.siteId || req.query?.site_id || '').trim() || null;
+
+    if (!instance_id && instanceToken) {
+      const instPayload = jwtPayloadDecode(instanceToken);
+      if (!instance_id) {
+        instance_id = String(instPayload?.instanceId || instPayload?.instance_id || instPayload?.inst || '').trim();
+      }
+      if (!site_id) {
+        site_id =
+          String(instPayload?.siteId || instPayload?.site_id || instPayload?.metaSiteId || '').trim() || null;
+      }
+    }
+
+    if (!instance_id) {
+      return res.status(400).json({
+        success: false,
+        message:
+          'Missing Wix instance. Wix should redirect with `instance` or `instanceId` after install. If not, open the installed app from the site dashboard or use the App installed webhook plus POST /wix/oauth/connect.'
+      });
+    }
+
+    const out = await persistWixClientCredentialsConnection(account_key, instance_id, site_id);
+
+    const return_url = req.query?.return_url || return_url_from_state;
+    if (return_url) {
+      const sep = String(return_url).includes('?') ? '&' : '?';
+      return res.redirect(`${return_url}${sep}success=1`);
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: 'Wix connected after install redirect'
+    });
+  } catch (err) {
+    const status = err?.statusCode || err?.response?.status || 500;
+    return res.status(status).json({
+      success: false,
+      message: 'Failed to complete Wix install return',
+      error: err?.response?.data || err?.message || 'Unknown error',
+      ...(err?.tokenData ? { data: err.tokenData } : {})
+    });
+  }
+};
+
+/**
+ * POST /wix/oauth/callback — two shapes:
  *
- * Query:
- * - code (required)
- * - state (required): base64url JSON containing { account_key, nonce }
- * - return_url (optional): redirect to this URL with ?success=1 on success
+ * 1) Wix **App installed** (and similar) webhooks: body is a **raw JWT** string. Register this URL in
+ *    Wix Dev Center → Webhooks. Must run behind `express.text` before `express.json` (see app.js).
+ *
+ * 2) **Custom auth (legacy)** redirect callback: query `code` + `state` (no JWT body required).
  */
 const handleWixOAuthCallback = async (req, res) => {
   try {
-    log("handleWixOAuthCallback==========>>>>>>>>>>>", req.query);
-    log("req object => ", req);
+    log('handleWixOAuthCallback', req.query);
+    log('handleWixOAuthCallback body type', typeof req.body);
+
     const code = req.query?.code;
     const state = req.query?.state;
     const return_url = req.query?.return_url;
     const error = req.query?.error;
 
-    return res.status(200).json({ success: true, message: 'Wix OAuth callback received' });
-    if (error) {
-      return res.status(400).json({ success: false, message: String(error) });
+    const rawBody =
+      typeof req.body === 'string'
+        ? req.body.trim()
+        : Buffer.isBuffer(req.body)
+          ? req.body.toString('utf8').trim()
+          : '';
+    const looksLikeJwt = rawBody.length > 0 && rawBody.split('.').length >= 3;
+
+    // Wix app lifecycle webhooks (e.g. App installed) POST a JWT; legacy OAuth uses code+state.
+    if (looksLikeJwt && !(code && state)) {
+      return handleWixJwtBodyAsAppInstall(req, res);
     }
+
     if (!code || !state) {
-      return res.status(400).json({ success: false, message: 'Missing required parameters: code, state' });
+      return res.status(400).json({
+        success: false,
+        message:
+          'Missing OAuth query params code and state, and body is not a Wix JWT. For App installed, POST a JWT body (or use legacy ?code=&state=).'
+      });
     }
 
     let stateObj = null;
@@ -734,6 +896,9 @@ module.exports = {
   handleWixAuthStart,
   connectWixOAuth,
   handleWixOAuthCallback,
+  handleWixOAuthInstallReturn,
+  persistWixClientCredentialsConnection,
+  maskSecret,
   getWixOAuthState,
   getWixHeadlessVisitorTokens,
   getWixInstallLink,
