@@ -79,14 +79,14 @@ app.get('/shopify/', handleShopifyInstall);
 app.get('/squarespace/auth', handleSquarespaceAuth);
 app.get('/squarespace/callback', handleSquarespaceCallback);
 app.post('/squarespace/refresh-token', refreshSquarespaceToken);
-app.post('/wix/connect', connectWix);
-app.get('/wix/install', getWixInstallLink);
-app.get('/wix/oauth/start', handleWixAuthStart);
-app.post('/wix/oauth/connect', connectWixOAuth);
-app.get('/wix/oauth/callback', handleWixOAuthCallback);
-app.get('/wix/oauth/state', getWixOAuthState);
+app.post('/wix/connect', connectWix); // This is using the api key to connect to the wix account.
+// app.get('/wix/install', getWixInstallLink);
+app.get('/wix/oauth/start', handleWixAuthStart); // Oauth start api from our end
+app.post('/wix/oauth/connect', connectWixOAuth); // using site id and instance id
+app.get('/wix/oauth/callback', handleWixOAuthCallback); // this is the api will be called by wix to get the access token and refresh token.
+app.get('/wix/oauth/state', getWixOAuthState); // might not be in use
 app.get('/wix/instance/connect', connectWixFromInstance);
-app.post('/wix/headless/tokens', getWixHeadlessVisitorTokens);
+app.post('/wix/headless/tokens', getWixHeadlessVisitorTokens); // might not needed in the oauth flow
 app.post('/wix/webhooks/app-instance-installed', handleWixAppInstanceInstalled);
 app.post('/wix/sync-products', syncWixProducts);
 app.post('/shopify/disconnect', handleShopifyDisconnect);

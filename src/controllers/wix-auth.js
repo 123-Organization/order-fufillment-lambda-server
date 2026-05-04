@@ -649,11 +649,13 @@ const connectWixOAuth = async (req, res) => {
 const handleWixOAuthCallback = async (req, res) => {
   try {
     log("handleWixOAuthCallback==========>>>>>>>>>>>", req.query);
+    log("req object => ", req);
     const code = req.query?.code;
     const state = req.query?.state;
     const return_url = req.query?.return_url;
     const error = req.query?.error;
 
+    return res.status(200).json({ success: true, message: 'Wix OAuth callback received' });
     if (error) {
       return res.status(400).json({ success: false, message: String(error) });
     }
