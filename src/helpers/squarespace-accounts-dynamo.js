@@ -2,17 +2,49 @@ const { DynamoDBClient } = require('@aws-sdk/client-dynamodb');
 const {
   DynamoDBDocumentClient,
   PutCommand,
+  UpdateCommand,
   ScanCommand
 } = require('@aws-sdk/lib-dynamodb');
 
 const dynamodb = DynamoDBDocumentClient.from(new DynamoDBClient({}));
 
 /**
- * Table primary key must include partition key `id` (per your DynamoDB schema).
- * We set `id` to `item.id` when provided, otherwise to `account_key` so one row per tenant.
- * Also keeps `account_key` for FinerWorks lookups and the renewal job.
+ * Table partition key: `id`. Items store both `id` and `account_key`.
+ *
+ * Upsert rules:
+ * - `id` and `account_key` are required on every call (validation error if missing).
+ * - Looks up an existing row with a paginated Scan on `account_key`.
+ * - If found: UpdateItem on that row's `id` (merge attributes; partition key is not changed).
+ * - If not found: PutItem using the payload `id` (create).
+ *
+ * Note: Lookup by `account_key` uses Scan. For large tables, add a GSI on `account_key` and Query instead.
  */
 const tableName = () => process.env.SQUARESPACE_ACCOUNTS_TABLE_NAME;
+
+const findFirstItemByAccountKey = async (TableName, account_key) => {
+  let ExclusiveStartKey;
+  do {
+    const page = await dynamodb.send(
+      new ScanCommand({
+        TableName,
+        FilterExpression: 'account_key = :ak',
+        ExpressionAttributeValues: { ':ak': account_key },
+        ExclusiveStartKey
+      })
+    );
+    if (page.Items?.length) {
+      if (page.Items.length > 1) {
+        console.warn(
+          'squarespace-accounts: multiple items share account_key; using first match',
+          account_key
+        );
+      }
+      return page.Items[0];
+    }
+    ExclusiveStartKey = page.LastEvaluatedKey;
+  } while (ExclusiveStartKey);
+  return null;
+};
 
 const putSquarespaceAccount = async (item) => {
   const TableName = tableName();
@@ -21,12 +53,66 @@ const putSquarespaceAccount = async (item) => {
     return;
   }
 
-  const id = item.id != null && String(item.id).length ? item.id : item.account_key;
-  if (id == null || String(id).length === 0) {
-    throw new Error('putSquarespaceAccount: item must include id or account_key');
+  if (item?.id == null || String(item.id).trim() === '') {
+    throw new Error('putSquarespaceAccount: id is required');
+  }
+  if (item?.account_key == null || String(item.account_key).trim() === '') {
+    throw new Error('putSquarespaceAccount: account_key is required');
   }
 
-  const account_key = item.account_key != null ? item.account_key : id;
+  const id = item.id;
+  const account_key = item.account_key;
+  const updated_at = new Date().toISOString();
+
+  const existing = await findFirstItemByAccountKey(TableName, account_key);
+
+  if (existing) {
+    const partitionId = existing.id;
+    if (partitionId == null || String(partitionId).trim() === '') {
+      throw new Error(
+        'putSquarespaceAccount: existing item matched by account_key is missing id (partition key)'
+      );
+    }
+
+    const merged = {
+      ...existing,
+      ...item,
+      id: partitionId,
+      account_key,
+      updated_at
+    };
+
+    const names = {};
+    const values = {};
+    const setParts = [];
+    let i = 0;
+
+    for (const [attr, val] of Object.entries(merged)) {
+      if (attr === 'id') continue;
+      if (val === undefined) continue;
+      const nameKey = `#a${i}`;
+      const valueKey = `:v${i}`;
+      names[nameKey] = attr;
+      values[valueKey] = val;
+      setParts.push(`${nameKey} = ${valueKey}`);
+      i += 1;
+    }
+
+    if (setParts.length === 0) {
+      return;
+    }
+
+    await dynamodb.send(
+      new UpdateCommand({
+        TableName,
+        Key: { id: partitionId },
+        UpdateExpression: `SET ${setParts.join(', ')}`,
+        ExpressionAttributeNames: names,
+        ExpressionAttributeValues: values
+      })
+    );
+    return;
+  }
 
   await dynamodb.send(
     new PutCommand({
@@ -35,7 +121,7 @@ const putSquarespaceAccount = async (item) => {
         ...item,
         id,
         account_key,
-        updated_at: new Date().toISOString()
+        updated_at
       }
     })
   );

@@ -7,7 +7,6 @@ const {
 } = require('../helpers/squarespace-accounts-dynamo');
 const debug = require("debug");
 const log = debug("app:squarespaceAuth");
-const { v4: uuidv4 } = require('uuid');
 require('dotenv').config();
 
 const base64UrlEncode = (input) => {
@@ -129,7 +128,7 @@ const handleSquarespaceCallback = async (req, res) => {
     const error = req.query?.error;
     const access_denied = req.query?.access_denied;
     const return_url = req.query?.return_url;
-
+    log("handleSquarespaceCallback", { code, state, error, access_denied, return_url });
     if (error || access_denied) {
       return res.status(400).json({
         success: false,
@@ -242,14 +241,14 @@ const handleSquarespaceCallback = async (req, res) => {
 
     try {
       await putSquarespaceAccount({
+        id: crypto.randomUUID(),
         account_key,
         access_token: tokenData.access_token,
         refresh_token: tokenData.refresh_token || null,
         expires_in: tokenData.expires_in ?? null,
         token_type: tokenData.token_type ?? null,
         redirect_uri: redirectUri,
-        scope: tokenData.scope ?? null,
-        id: uuidv4()
+        scope: tokenData.scope ?? null
       });
     } catch (dynamoErr) {
       console.error('Failed to write Squarespace account to DynamoDB', dynamoErr);
@@ -421,12 +420,21 @@ const runSquarespaceTokenRenewalJob = async () => {
   const summary = { renewed: [], skipped: [], errors: [] };
 
   for (const row of rows) {
-    const account_key = row.account_key ?? row.id;
+    log("runSquarespaceTokenRenewalJob", { row });
+    const account_key = row.account_key;
     const refresh_token = row.refresh_token;
     if (!account_key || !refresh_token) {
       summary.skipped.push({
         account_key: account_key || null,
-        reason: 'missing account_key (or id) or refresh_token'
+        reason: 'missing account_key or refresh_token'
+      });
+      continue;
+    }
+
+    if (row.id == null || String(row.id).trim() === '') {
+      summary.skipped.push({
+        account_key,
+        reason: 'missing id on DynamoDB item'
       });
       continue;
     }
@@ -434,14 +442,14 @@ const runSquarespaceTokenRenewalJob = async () => {
     try {
       const tokenData = await refreshSquarespaceTokensCore(account_key, refresh_token);
       await putSquarespaceAccount({
+        id: row.id,
         account_key,
         access_token: tokenData.access_token,
         refresh_token: tokenData.refresh_token || refresh_token,
         expires_in: tokenData.expires_in ?? null,
         token_type: tokenData.token_type ?? null,
         redirect_uri: row.redirect_uri ?? null,
-        scope: tokenData.scope ?? row.scope ?? null,
-        id: uuidv4()
+        scope: tokenData.scope ?? row.scope ?? null
       });
       summary.renewed.push(account_key);
     } catch (err) {
