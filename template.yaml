@@ -42,6 +42,20 @@ Resources:
                 Action: 
                   - s3:*
                 Resource: "*"
+        - PolicyName: SquarespaceAccountsDynamoDBPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:Scan
+                  - dynamodb:Query
+                Resource:
+                  - arn:aws:dynamodb:us-east-1:583574610515:table/squarespace-accounts
+                  - arn:aws:dynamodb:us-east-1:583574610515:table/squarespace-accounts/index/*
   
   OrderFullFillmentServerLessDevServerAgain:
     Type: AWS::Serverless::Function
@@ -56,6 +70,7 @@ Resources:
       Environment:
         Variables:
           DEBUG: app*
+          SQUARESPACE_ACCOUNTS_TABLE_NAME: squarespace-accounts
       Events:
         MainEntryRoute:
           Type: Api 
@@ -306,6 +321,7 @@ Resources:
       Environment:
         Variables:
           DEBUG: app*
+          SQUARESPACE_ACCOUNTS_TABLE_NAME: squarespace-accounts
       Events:
         # MainEntryRoute:
         #   Type: Api 
