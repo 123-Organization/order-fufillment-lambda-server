@@ -644,7 +644,7 @@ exports.uploadOrdersToLocalDatabaseShopify = async (req, res) => {
       for (const order of orders) {
         order.createdAt = new Date();
         order.submittedAt = null;
-        order.source = "Shopify"
+        // order.source = "Shopify"
         const urlEncodedData = urlEncodeJSON(order);
         const insertPayload = {
           tablename: process.env.FINER_fwAPI_FULFILLMENTS_TABLE,
