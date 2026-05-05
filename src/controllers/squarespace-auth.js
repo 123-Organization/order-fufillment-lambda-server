@@ -1,7 +1,12 @@
 const axios = require('axios');
 const crypto = require('crypto');
 const finerworksService = require('../helpers/finerworks-service');
-
+const {
+  putSquarespaceAccount,
+  scanAllSquarespaceAccounts
+} = require('../helpers/squarespace-accounts-dynamo');
+const debug = require("debug");
+const log = debug("app:squarespaceAuth");
 require('dotenv').config();
 
 const base64UrlEncode = (input) => {
@@ -123,7 +128,7 @@ const handleSquarespaceCallback = async (req, res) => {
     const error = req.query?.error;
     const access_denied = req.query?.access_denied;
     const return_url = req.query?.return_url;
-
+    log("handleSquarespaceCallback", { code, state, error, access_denied, return_url });
     if (error || access_denied) {
       return res.status(400).json({
         success: false,
@@ -234,6 +239,21 @@ const handleSquarespaceCallback = async (req, res) => {
       connections: nextConnections
     });
 
+    try {
+      await putSquarespaceAccount({
+        id: crypto.randomUUID(),
+        account_key,
+        access_token: tokenData.access_token,
+        refresh_token: tokenData.refresh_token || null,
+        expires_in: tokenData.expires_in ?? null,
+        token_type: tokenData.token_type ?? null,
+        redirect_uri: redirectUri,
+        scope: tokenData.scope ?? null
+      });
+    } catch (dynamoErr) {
+      console.error('Failed to write Squarespace account to DynamoDB', dynamoErr);
+    }
+
     if (return_url) {
       const sep = return_url.includes('?') ? '&' : '?';
       return res.redirect(`${return_url}${sep}success=1`);
@@ -250,6 +270,92 @@ const handleSquarespaceCallback = async (req, res) => {
       error: err?.message || 'Unknown error'
     });
   }
+};
+
+const exchangeSquarespaceRefreshToken = async (refresh_token) => {
+  const clientId = process.env.SQUARESPACE_CLIENT_ID;
+  const clientSecret = process.env.SQUARESPACE_CLIENT_SECRET;
+  if (!clientId || !clientSecret) {
+    throw new Error('Squarespace OAuth credentials not configured');
+  }
+
+  const tokenUrl = 'https://login.squarespace.com/api/1/login/oauth/provider/tokens';
+  const basicAuth = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
+
+  const tokenResp = await axios.post(
+    tokenUrl,
+    {
+      grant_type: 'refresh_token',
+      refresh_token: String(refresh_token).trim()
+    },
+    {
+      headers: {
+        Authorization: `Basic ${basicAuth}`,
+        'Content-Type': 'application/json',
+        'User-Agent': process.env.SQUARESPACE_USER_AGENT || 'ofa-node'
+      },
+      timeout: 20000
+    }
+  );
+
+  return tokenResp?.data || {};
+};
+
+const saveSquarespaceTokensToFinerworks = async (account_key, tokenData) => {
+  if (!tokenData?.access_token) {
+    throw new Error('Squarespace token payload missing access_token');
+  }
+
+  const getInformation = await finerworksService.GET_INFO({ account_key });
+  const connections = Array.isArray(getInformation?.user_account?.connections)
+    ? JSON.parse(JSON.stringify(getInformation.user_account.connections))
+    : [];
+
+  const idx = connections.findIndex((c) => c && c.name === 'Squarespace');
+  const existingDataRaw = idx !== -1 ? connections[idx]?.data : null;
+  let existingData = {};
+  if (typeof existingDataRaw === 'string') {
+    try {
+      existingData = JSON.parse(existingDataRaw);
+    } catch (_) {
+      existingData = {};
+    }
+  } else if (existingDataRaw && typeof existingDataRaw === 'object') {
+    existingData = existingDataRaw;
+  }
+
+  const mergedData = {
+    ...existingData,
+    ...tokenData
+  };
+
+  const nextConnection = {
+    name: 'Squarespace',
+    id: tokenData.access_token,
+    data: JSON.stringify(mergedData)
+  };
+
+  if (idx !== -1) {
+    connections[idx] = nextConnection;
+  } else {
+    connections.push(nextConnection);
+  }
+
+  await finerworksService.UPDATE_INFO({
+    account_key,
+    connections
+  });
+};
+
+const refreshSquarespaceTokensCore = async (account_key, refresh_token) => {
+  const tokenData = await exchangeSquarespaceRefreshToken(refresh_token);
+  if (!tokenData?.access_token) {
+    const err = new Error('Token refresh response missing access_token');
+    err.tokenData = tokenData;
+    throw err;
+  }
+  await saveSquarespaceTokensToFinerworks(account_key, tokenData);
+  return tokenData;
 };
 
 /**
@@ -280,82 +386,7 @@ const refreshSquarespaceToken = async (req, res) => {
       });
     }
 
-    const clientId = process.env.SQUARESPACE_CLIENT_ID;
-    const clientSecret = process.env.SQUARESPACE_CLIENT_SECRET;
-    if (!clientId || !clientSecret) {
-      return res.status(500).json({
-        success: false,
-        message: 'Squarespace OAuth credentials not configured'
-      });
-    }
-
-    const tokenUrl = 'https://login.squarespace.com/api/1/login/oauth/provider/tokens';
-    const basicAuth = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
-
-    const tokenResp = await axios.post(
-      tokenUrl,
-      {
-        grant_type: 'refresh_token',
-        refresh_token: String(refresh_token).trim()
-      },
-      {
-        headers: {
-          Authorization: `Basic ${basicAuth}`,
-          'Content-Type': 'application/json',
-          'User-Agent': process.env.SQUARESPACE_USER_AGENT || 'ofa-node'
-        },
-        timeout: 20000
-      }
-    );
-
-    const tokenData = tokenResp?.data || {};
-    if (!tokenData?.access_token) {
-      return res.status(400).json({
-        success: false,
-        message: 'Token refresh succeeded but access_token missing',
-        data: tokenData
-      });
-    }
-
-    const getInformation = await finerworksService.GET_INFO({ account_key });
-    const connections = Array.isArray(getInformation?.user_account?.connections)
-      ? JSON.parse(JSON.stringify(getInformation.user_account.connections))
-      : [];
-
-    const idx = connections.findIndex((c) => c && c.name === 'Squarespace');
-    const existingDataRaw = idx !== -1 ? connections[idx]?.data : null;
-    let existingData = {};
-    if (typeof existingDataRaw === 'string') {
-      try {
-        existingData = JSON.parse(existingDataRaw);
-      } catch (_) {
-        existingData = {};
-      }
-    } else if (existingDataRaw && typeof existingDataRaw === 'object') {
-      existingData = existingDataRaw;
-    }
-
-    const mergedData = {
-      ...existingData,
-      ...tokenData
-    };
-
-    const nextConnection = {
-      name: 'Squarespace',
-      id: tokenData.access_token,
-      data: JSON.stringify(mergedData)
-    };
-
-    if (idx !== -1) {
-      connections[idx] = nextConnection;
-    } else {
-      connections.push(nextConnection);
-    }
-
-    await finerworksService.UPDATE_INFO({
-      account_key,
-      connections
-    });
+    const tokenData = await refreshSquarespaceTokensCore(account_key, refresh_token);
 
     return res.status(200).json({
       success: true,
@@ -365,6 +396,13 @@ const refreshSquarespaceToken = async (req, res) => {
       expires_in: tokenData.expires_in ?? null
     });
   } catch (err) {
+    if (err?.tokenData) {
+      return res.status(400).json({
+        success: false,
+        message: err.message,
+        data: err.tokenData
+      });
+    }
     return res.status(500).json({
       success: false,
       message: 'Failed to refresh Squarespace token',
@@ -373,9 +411,67 @@ const refreshSquarespaceToken = async (req, res) => {
   }
 };
 
+/**
+ * Scans `squarespace-accounts` DynamoDB table, refreshes tokens, updates FinerWorks
+ * connections, and writes refreshed tokens back to DynamoDB.
+ */
+const runSquarespaceTokenRenewalJob = async () => {
+  const rows = await scanAllSquarespaceAccounts();
+  const summary = { renewed: [], skipped: [], errors: [] };
+
+  for (const row of rows) {
+    log("runSquarespaceTokenRenewalJob", { row });
+    const account_key = row.account_key;
+    const refresh_token = row.refresh_token;
+    if (!account_key || !refresh_token) {
+      summary.skipped.push({
+        account_key: account_key || null,
+        reason: 'missing account_key or refresh_token'
+      });
+      continue;
+    }
+
+    if (row.id == null || String(row.id).trim() === '') {
+      summary.skipped.push({
+        account_key,
+        reason: 'missing id on DynamoDB item'
+      });
+      continue;
+    }
+
+    try {
+      const tokenData = await refreshSquarespaceTokensCore(account_key, refresh_token);
+      await putSquarespaceAccount({
+        id: row.id,
+        account_key,
+        access_token: tokenData.access_token,
+        refresh_token: tokenData.refresh_token || refresh_token,
+        expires_in: tokenData.expires_in ?? null,
+        token_type: tokenData.token_type ?? null,
+        redirect_uri: row.redirect_uri ?? null,
+        scope: tokenData.scope ?? row.scope ?? null
+      });
+      summary.renewed.push(account_key);
+    } catch (err) {
+      console.error(
+        'Squarespace token renewal failed',
+        account_key,
+        err?.response?.data || err?.message
+      );
+      summary.errors.push({
+        account_key,
+        message: err?.message || 'Unknown error'
+      });
+    }
+  }
+
+  return summary;
+};
+
 module.exports = {
   handleSquarespaceAuth,
   handleSquarespaceCallback,
-  refreshSquarespaceToken
+  refreshSquarespaceToken,
+  runSquarespaceTokenRenewalJob
 };
 

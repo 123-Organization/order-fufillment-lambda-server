@@ -42,6 +42,20 @@ Resources:
             Action:
             - s3:*
             Resource: '*'
+      - PolicyName: SquarespaceAccountsDynamoDBPolicy
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Effect: Allow
+            Action:
+            - dynamodb:GetItem
+            - dynamodb:PutItem
+            - dynamodb:UpdateItem
+            - dynamodb:Scan
+            - dynamodb:Query
+            Resource:
+            - arn:aws:dynamodb:us-east-1:583574610515:table/squarespace-accounts
+            - arn:aws:dynamodb:us-east-1:583574610515:table/squarespace-accounts/index/*
     Metadata:
       SamResourceId: MyLambdaExecutionRole
   OrderFullFillmentServerLessDevServerAgain:
@@ -54,12 +68,13 @@ Resources:
         - MyLambdaExecutionRole
         - Arn
       Runtime: nodejs18.x
-      CodeUri: s3://order-fullfilment-app-lambda-server/fb1e6bebf273b1dcdab927e2e1e61fe5
+      CodeUri: s3://order-fullfilment-app-lambda-server/1563569508aad19863289b67197c3828
       MemorySize: 3008
       Timeout: 900
       Environment:
         Variables:
           DEBUG: app*
+          SQUARESPACE_ACCOUNTS_TABLE_NAME: squarespace-accounts
       Events:
         MainEntryRoute:
           Type: Api
@@ -318,12 +333,13 @@ Resources:
         - MyLambdaExecutionRole
         - Arn
       Runtime: nodejs18.x
-      CodeUri: s3://order-fullfilment-app-lambda-server/fb1e6bebf273b1dcdab927e2e1e61fe5
+      CodeUri: s3://order-fullfilment-app-lambda-server/1563569508aad19863289b67197c3828
       MemorySize: 3008
       Timeout: 900
       Environment:
         Variables:
           DEBUG: app*
+          SQUARESPACE_ACCOUNTS_TABLE_NAME: squarespace-accounts
       Events:
         ExportToWoocommerce:
           Type: Api

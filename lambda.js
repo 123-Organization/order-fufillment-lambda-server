@@ -3,26 +3,31 @@ const serverless = require('serverless-http');
 const serverlessApp = serverless(server);
 const debug = require('debug');
 const log = debug('app:local');
-const http = require('http');
-log('Starting');
+const { runSquarespaceTokenRenewalJob } = require('./src/controllers/squarespace-auth');
+
+/**
+ * EventBridge (scheduled rule), EventBridge Scheduler, or explicit payload from Scheduler.
+ * For Scheduler targets with a custom JSON input, set e.g. {"squarespaceTokenRenewal": true}.
+ */
+function isScheduledSquarespaceRenewal(event) {
+    if (!event || typeof event !== 'object') return false;
+    if (event.squarespaceTokenRenewal === true) return true;
+    if (event.source === 'aws.events') return true;
+    if (event.source === 'aws.scheduler') return true;
+    if (event['detail-type'] === 'Scheduled Event') return true;
+    return false;
+}
+
 // Lambda handler function
 exports.handler = async (event, context) => {
-    // If invoked by a CloudWatch/EventBridge schedule, simulate an HTTP GET
-    // request to the /api/health-check endpoint so the same Express route runs.
-    if (event && event.source === 'aws.events') {
-        const healthCheckEvent = {
-            httpMethod: 'GET',
-            path: '/api/health-check',
-            headers: {},
-            queryStringParameters: null,
-            pathParameters: null,
-            body: null,
-            isBase64Encoded: false,
+    if (isScheduledSquarespaceRenewal(event)) {
+        const summary = await runSquarespaceTokenRenewalJob();
+        return {
+            statusCode: 200,
+            body: JSON.stringify({ ok: true, summary })
         };
-        return await serverlessApp(healthCheckEvent, context);
     }
 
-    // Default behavior for API Gateway / HTTP events
     return await serverlessApp(event, context);
 };
 // const port = 9001;
