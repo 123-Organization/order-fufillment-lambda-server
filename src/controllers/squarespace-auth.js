@@ -5,7 +5,9 @@ const {
   putSquarespaceAccount,
   scanAllSquarespaceAccounts
 } = require('../helpers/squarespace-accounts-dynamo');
-
+const debug = require("debug");
+const log = debug("app:squarespaceAuth");
+const { v4: uuidv4 } = require('uuid');
 require('dotenv').config();
 
 const base64UrlEncode = (input) => {
@@ -246,7 +248,8 @@ const handleSquarespaceCallback = async (req, res) => {
         expires_in: tokenData.expires_in ?? null,
         token_type: tokenData.token_type ?? null,
         redirect_uri: redirectUri,
-        scope: tokenData.scope ?? null
+        scope: tokenData.scope ?? null,
+        id: uuidv4()
       });
     } catch (dynamoErr) {
       console.error('Failed to write Squarespace account to DynamoDB', dynamoErr);
@@ -418,12 +421,12 @@ const runSquarespaceTokenRenewalJob = async () => {
   const summary = { renewed: [], skipped: [], errors: [] };
 
   for (const row of rows) {
-    const account_key = row.account_key;
+    const account_key = row.account_key ?? row.id;
     const refresh_token = row.refresh_token;
     if (!account_key || !refresh_token) {
       summary.skipped.push({
         account_key: account_key || null,
-        reason: 'missing account_key or refresh_token'
+        reason: 'missing account_key (or id) or refresh_token'
       });
       continue;
     }
@@ -437,7 +440,8 @@ const runSquarespaceTokenRenewalJob = async () => {
         expires_in: tokenData.expires_in ?? null,
         token_type: tokenData.token_type ?? null,
         redirect_uri: row.redirect_uri ?? null,
-        scope: tokenData.scope ?? row.scope ?? null
+        scope: tokenData.scope ?? row.scope ?? null,
+        id: uuidv4()
       });
       summary.renewed.push(account_key);
     } catch (err) {
