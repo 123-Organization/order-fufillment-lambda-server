@@ -308,6 +308,12 @@ Resources:
             RestApiId: !Ref MyApiGateway
             Method: GET
             Path: "/api/wix/oauth/install-return"
+        WixProductsSync:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Method: POST
+            Path: "/api/wix/sync-products"
   OrderFullFillmentServerLessDevServerV2Again:
     Type: AWS::Serverless::Function
     Properties:
