@@ -627,15 +627,103 @@ const syncWixProducts = async (req, res) => {
 
         if (r.status >= 200 && r.status < 300) {
           created += 1;
-          results.push({
+          const wixProductId =
+            r?.data?.product?._id || r?.data?.product?.id || null;
+
+          const resultEntry = {
             success: true,
             jobIndex: ji,
             ...(guid ? { image_guid: guid } : {}),
             variantCount: items.length,
             sku: skuPreview,
-            wixProductId: r?.data?.product?._id || r?.data?.product?.id || null,
+            wixProductId,
             wixResponse: r.data
-          });
+          };
+
+          // Update FinerWorks virtual inventory with the new Wix product id (inventory integration field).
+          try {
+            const accountKey =
+              req.body?.account_key ||
+              req.body?.accountKey ||
+              req.body?.accountkey ||
+              req.query?.account_key ||
+              req.query?.accountKey ||
+              null;
+
+            if (wixProductId && accountKey) {
+              const wixInventoryId = String(wixProductId);
+
+              const virtualInventoryItems = [];
+              for (const src of items) {
+                if (!src) continue;
+                const srcSku = normalizeSku(src?.sku);
+                if (!srcSku) continue;
+
+                virtualInventoryItems.push({
+                  sku: srcSku,
+                  asking_price:
+                    src?.asking_price ??
+                    src?.per_item_price ??
+                    src?.price_details?.product_price ??
+                    src?.total_price ??
+                    0,
+                  name: pickName(src),
+                  description:
+                    src?.description_long ??
+                    src?.description_short ??
+                    '',
+                  quantity_in_stock: pickQty(src),
+                  track_inventory: true,
+                  third_party_integrations: {
+                    ...(src?.third_party_integrations || {}),
+                    wix_inventory_id: wixInventoryId
+                  }
+                });
+              }
+
+              const finalPayload = {
+                virtual_inventory: virtualInventoryItems,
+                account_key: accountKey
+              };
+
+              const virtualInventoryUpdates = [];
+              const virtualInventoryUpdateErrors = [];
+
+              for (const viItem of virtualInventoryItems) {
+                try {
+                  const onePayload = {
+                    virtual_inventory: [viItem],
+                    account_key: accountKey
+                  };
+                  const updateResult = await finerworksService.UPDATE_VIRTUAL_INVENTORY(onePayload);
+                  virtualInventoryUpdates.push({
+                    sku: viItem?.sku || null,
+                    result: updateResult
+                  });
+                } catch (singleErr) {
+                  virtualInventoryUpdateErrors.push({
+                    sku: viItem?.sku || null,
+                    error: singleErr.message || 'Unknown virtual inventory update error'
+                  });
+                }
+              }
+
+              if (virtualInventoryUpdates.length) {
+                resultEntry.virtualInventoryUpdates = virtualInventoryUpdates;
+              }
+              if (virtualInventoryUpdateErrors.length) {
+                resultEntry.virtualInventoryUpdateErrors = virtualInventoryUpdateErrors;
+              }
+              if (virtualInventoryItems.length) {
+                resultEntry.virtualInventoryPayload = finalPayload;
+              }
+            }
+          } catch (fwErr) {
+            resultEntry.virtualInventoryUpdateError =
+              fwErr.message || 'Unknown virtual inventory update error';
+          }
+
+          results.push(resultEntry);
         } else {
           failed += 1;
           results.push({
