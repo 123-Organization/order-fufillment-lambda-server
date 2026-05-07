@@ -1732,9 +1732,12 @@ exports.disconnectAndProcess = async (req, res) => {
           message: "Deauthorize API endpoint is not configured in environment variables.",
         });
       }
-
-      internalApiResponse = await axios.post(apiEndpoint);
-      console.log("internalApiResponse=========>>>>>>", internalApiResponse);
+      try{
+        internalApiResponse = await axios.post(apiEndpoint);
+        console.log("internalApiResponse=========>>>>>>", internalApiResponse);
+      }catch(error){
+        console.log("error=========>>>>>>", error);
+      }
 
       const getInformation = await finerworksService.GET_INFO({ account_key: client_id });
       console.log("getInformation==============>>>>>>>>>>", getInformation);
@@ -1744,8 +1747,10 @@ exports.disconnectAndProcess = async (req, res) => {
 
       // Filter out objects with name === "WooCommerce"
       const filteredConnections = connections.filter(conn => conn.name !== "WooCommerce");
+      console.log("filteredConnections====>>>>",filteredConnections);
 
       console.log("Filtered connections:", filteredConnections);
+      return
       const payloadForCompanyInformation = {
         account_key: client_id,
         connections: filteredConnections,
