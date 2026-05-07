@@ -68,7 +68,7 @@ Resources:
         - MyLambdaExecutionRole
         - Arn
       Runtime: nodejs18.x
-      CodeUri: s3://order-fullfilment-app-lambda-server/1563569508aad19863289b67197c3828
+      CodeUri: s3://order-fullfilment-app-lambda-server/8c306e389c2c55f5077dbcf66b050a7d
       MemorySize: 3008
       Timeout: 900
       Environment:
@@ -321,6 +321,13 @@ Resources:
               Ref: MyApiGateway
             Method: GET
             Path: /api/wix/oauth/install-return
+        WixProductsSync:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: POST
+            Path: /api/wix/sync-products
     Metadata:
       SamResourceId: OrderFullFillmentServerLessDevServerAgain
   OrderFullFillmentServerLessDevServerV2Again:
@@ -333,7 +340,7 @@ Resources:
         - MyLambdaExecutionRole
         - Arn
       Runtime: nodejs18.x
-      CodeUri: s3://order-fullfilment-app-lambda-server/1563569508aad19863289b67197c3828
+      CodeUri: s3://order-fullfilment-app-lambda-server/8c306e389c2c55f5077dbcf66b050a7d
       MemorySize: 3008
       Timeout: 900
       Environment:
