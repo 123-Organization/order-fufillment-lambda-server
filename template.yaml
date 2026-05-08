@@ -638,12 +638,6 @@ Resources:
             RestApiId: !Ref MyApiGateway
             Method: GET
             Path: "/api/squarespace/auth"
-        StoresDisconnect:
-          Type: Api
-          Properties:
-            RestApiId: !Ref MyApiGateway
-            Method: POST
-            Path: "/api/stores/disconnect"
         # SquareSpaceBulkOrderFetching :
         #   Type: Api
         #   Properties:
