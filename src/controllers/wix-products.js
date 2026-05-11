@@ -773,5 +773,9 @@ const syncWixProducts = async (req, res) => {
 };
 
 module.exports = {
-  syncWixProducts
+  syncWixProducts,
+  resolveWixAuth,
+  buildAuthHeaders,
+  summarizeWixHttpError,
+  maybePersistDiscoveredWixSiteId
 };
