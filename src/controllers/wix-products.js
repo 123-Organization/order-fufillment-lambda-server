@@ -116,6 +116,10 @@ function buildSyncJobs(rawProducts) {
   const processedGuid = new Set();
   const jobs = [];
   for (const p of rawProducts) {
+    // if the product already present in the wix store then we do not need to sync it again.
+    if(p.third_party_integrations && p.third_party_integrations.wix_inventory_id){
+      continue;
+    };
     const g = String(p?.image_guid || '').trim();
     if (!g) {
       jobs.push({ kind: 'single', items: [p] });

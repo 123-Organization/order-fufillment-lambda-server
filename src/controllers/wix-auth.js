@@ -306,73 +306,6 @@ async function persistWixClientCredentialsConnection(account_key, instance_id, s
   };
 }
 
-/**
- * Wix Headless visitor tokens (clientId-only).
- *
- * Important: These tokens are for acting "on behalf of a site visitor" in headless contexts.
- * They are NOT the same as Wix App site-level tokens (instance_id + client_secret) used to manage a site's store.
- *
- * Body/query:
- * - clientId (optional; defaults to WIX_CLIENT_ID)
- * - grantType (optional; "anonymous" or "refresh_token")
- * - refreshToken (required when grantType=refresh_token)
- */
-const getWixHeadlessVisitorTokens = async (req, res) => {
-  try {
-    const clientId =
-      req.body?.clientId ||
-      req.body?.client_id ||
-      req.query?.clientId ||
-      req.query?.client_id ||
-      process.env.WIX_CLIENT_ID;
-
-    const grantType =
-      req.body?.grantType ||
-      req.body?.grant_type ||
-      req.query?.grantType ||
-      req.query?.grant_type ||
-      'anonymous';
-
-    const refreshToken =
-      req.body?.refreshToken ||
-      req.body?.refresh_token ||
-      req.query?.refreshToken ||
-      req.query?.refresh_token ||
-      null;
-
-    if (!clientId || !String(clientId).trim()) {
-      return res.status(400).json({ success: false, message: 'Missing required parameter: clientId' });
-    }
-
-    if (String(grantType) === 'refresh_token' && (!refreshToken || !String(refreshToken).trim())) {
-      return res.status(400).json({ success: false, message: 'Missing required parameter: refreshToken' });
-    }
-
-    const payload = {
-      clientId: String(clientId).trim(),
-      grantType: String(grantType).trim()
-    };
-    if (String(grantType) === 'refresh_token') payload.refreshToken = String(refreshToken).trim();
-
-    const resp = await axios.post('https://www.wixapis.com/oauth2/token', payload, {
-      timeout: 20000,
-      headers: { 'Content-Type': 'application/json' }
-    });
-
-    return res.status(200).json({
-      success: true,
-      tokens: resp?.data || {}
-    });
-  } catch (err) {
-    const status = err?.response?.status || 500;
-    return res.status(status).json({
-      success: false,
-      message: 'Failed to retrieve Wix Headless visitor tokens',
-      error: err?.response?.data || err?.message || 'Unknown error'
-    });
-  }
-};
-
 async function exchangeWixAuthorizationCode({ code }) {
   const clientId = process.env.WIX_CLIENT_ID;
   const clientSecret = process.env.WIX_CLIENT_SECRET;
@@ -872,25 +805,6 @@ const handleWixOAuthCallback = async (req, res) => {
   }
 };
 
-/**
- * Helper endpoint to generate a Wix `state` value for (legacy) consent flows.
- * This does not start an OAuth redirect by itself because Wix consent URLs are configured
- * within Wix app installation (for legacy custom auth).
- *
- * Query/body:
- * - account_key (required)
- */
-const getWixOAuthState = async (req, res) => {
-  log("getWixOAuthState==========>>>>>>>>>>>", req.query);
-  const account_key = req.query?.account_key || req.body?.account_key || req.query?.accountKey || req.body?.accountKey;
-  if (!account_key || !String(account_key).trim()) {
-    return res.status(400).json({ success: false, message: 'Missing required parameter: account_key' });
-  }
-  const nonce = crypto.randomBytes(16).toString('hex');
-  const state = base64UrlEncode(JSON.stringify({ account_key: String(account_key).trim(), nonce }));
-  return res.status(200).json({ success: true, state });
-};
-
 module.exports = {
   connectWix,
   handleWixAuthStart,
@@ -899,8 +813,6 @@ module.exports = {
   handleWixOAuthInstallReturn,
   persistWixClientCredentialsConnection,
   maskSecret,
-  getWixOAuthState,
-  getWixHeadlessVisitorTokens,
   getWixInstallLink,
   connectWixFromInstance
 };
