@@ -8,6 +8,8 @@ const {
 
 const WIX_SEARCH_ORDERS_URL = 'https://www.wixapis.com/ecom/v1/orders/search';
 const MAX_ORDER_SEARCH_PAGES = 100;
+/** Max order_number / GUID values per request when `order_number` is an array. */
+const MAX_WIX_ORDER_BY_NUMBER_BATCH = 100;
 
 function toIsoOrNull(v) {
   if (v === undefined || v === null || String(v).trim() === '') return null;
@@ -64,6 +66,59 @@ function parseOrderNumber(raw) {
   return Number.isFinite(n) && n >= 0 ? n : null;
 }
 
+/** Non-empty trimmed strings; skips null/empty entries (does not 400 on those). */
+function normalizeOrderNumberArray(raw) {
+  if (!Array.isArray(raw)) return [];
+  const out = [];
+  for (const item of raw) {
+    if (item === undefined || item === null) continue;
+    const s = String(item).trim();
+    if (s) out.push(s);
+  }
+  return out;
+}
+
+/**
+ * Many clients/API gateways pass multiple order numbers as a string (JSON array or CSV).
+ * Accept those so batch mode still runs.
+ */
+function coerceOrderNumberRaw(raw) {
+  if (raw === undefined || raw === null) return raw;
+  if (Array.isArray(raw)) return raw;
+  if (typeof raw === 'string') {
+    const t = raw.trim();
+    if (!t) return raw;
+    if (t.startsWith('[')) {
+      try {
+        const parsed = JSON.parse(t);
+        if (Array.isArray(parsed)) return parsed;
+      } catch (_) {
+        /* single scalar string or malformed; fall through */
+      }
+    }
+    if (t.includes(',')) {
+      return t
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
+    }
+  }
+  return raw;
+}
+
+async function fetchWixOrderByGuid(wixAuth, guid) {
+  const headers = buildAuthHeaders(wixAuth);
+  const url = `https://www.wixapis.com/ecom/v1/orders/${encodeURIComponent(guid)}`;
+  const r = await axios.get(url, { headers, timeout: 120000, validateStatus: () => true });
+  if (r.status >= 200 && r.status < 300) {
+    const order = r?.data?.order ?? r?.data ?? null;
+    return { ok: true, order, status: r.status };
+  }
+  const wixPayload = summarizeWixHttpError(r);
+  const st = r.status >= 400 && r.status < 600 ? r.status : 502;
+  return { ok: false, status: st, wixPayload, guid };
+}
+
 async function searchWixOrdersPage(wixAuth, body) {
   const headers = buildAuthHeaders(wixAuth);
   return axios.post(WIX_SEARCH_ORDERS_URL, body, {
@@ -110,6 +165,131 @@ async function fetchAllOrdersBySearch({ wixAuth, buildFirstBodyFn }) {
   }
 
   return out;
+}
+
+/** HTTP response for a single GET-by-GUID result (scalar `order_id` / GUID-like `order_number`). */
+function sendSingleGuidOrderLookupResponse(res, fetchResult, notFoundMessage) {
+  const { ok, order, status, wixPayload } = fetchResult;
+  if (ok) {
+    if (!order) {
+      return res.status(502).json({ success: false, message: 'Wix returned an empty order payload' });
+    }
+    return res.status(200).json({ success: true, order });
+  }
+  if (status === 404) {
+    return res.status(404).json({
+      success: false,
+      message: notFoundMessage,
+      wixError: wixPayload
+    });
+  }
+  return res.status(status).json({
+    success: false,
+    message: 'Failed to retrieve Wix order by id',
+    wixError: wixPayload
+  });
+}
+
+function jsonSearchOrdersError(res, err, clientMessage) {
+  const r = err?.response;
+  const wixPayload = typeof r?.data !== 'undefined' ? summarizeWixHttpError(r) : null;
+  const status = r?.status || err?.response?.status || 502;
+  return res.status(status >= 400 ? status : 502).json({
+    success: false,
+    message: clientMessage,
+    ...(wixPayload ? { wixError: wixPayload } : {}),
+    error: wixPayload?.message || err?.message || 'Unknown error'
+  });
+}
+
+/**
+ * Batch: parallel GUID GETs + one paged search for numeric order numbers.
+ */
+async function fetchWixOrdersByNumberList(res, wixAuth, orderNumberList) {
+  for (const item of orderNumberList) {
+    if (looksLikeOrderGuid(item)) continue;
+    if (parseOrderNumber(item) === null) {
+      res.status(400).json({
+        success: false,
+        message: `order_number entries must be numeric or a Wix order GUID (UUID); invalid: ${item}`
+      });
+      return;
+    }
+  }
+
+  const guidKeys = [...new Set(orderNumberList.filter(looksLikeOrderGuid))];
+  const numericKeys = [
+    ...new Set(
+      orderNumberList
+        .filter((x) => !looksLikeOrderGuid(x))
+        .map((x) => parseOrderNumber(x))
+        .filter((n) => n !== null)
+    )
+  ];
+
+  const guidToOrder = new Map();
+  if (guidKeys.length > 0) {
+    const guidResults = await Promise.all(
+      guidKeys.map((guid) => fetchWixOrderByGuid(wixAuth, guid).then((r) => ({ guid, r })))
+    );
+    for (const { guid, r } of guidResults) {
+      if (r.ok) {
+        if (!r.order) {
+          res.status(502).json({
+            success: false,
+            message: 'Wix returned an empty order payload',
+            order_id: guid
+          });
+          return;
+        }
+        guidToOrder.set(guid, r.order);
+      } else if (r.status !== 404) {
+        res.status(r.status).json({
+          success: false,
+          message: 'Failed to retrieve Wix order by id',
+          wixError: r.wixPayload
+        });
+        return;
+      }
+    }
+  }
+
+  const byNumber = new Map();
+  if (numericKeys.length > 0) {
+    try {
+      const searched = await fetchAllOrdersBySearch({
+        wixAuth,
+        buildFirstBodyFn: () => ({
+          search: {
+            filter: { number: { $in: numericKeys } },
+            cursorPaging: { limit: 100 },
+            sort: [{ fieldName: 'createdDate', order: 'DESC' }]
+          }
+        })
+      });
+      for (const o of searched) {
+        const n = Number(o?.number);
+        if (Number.isFinite(n) && !byNumber.has(n)) byNumber.set(n, o);
+      }
+    } catch (searchErr) {
+      jsonSearchOrdersError(res, searchErr, 'Failed to search Wix orders by number');
+      return;
+    }
+  }
+
+  const ordersOut = [];
+  const notFound = [];
+  for (const item of orderNumberList) {
+    const o = looksLikeOrderGuid(item)
+      ? guidToOrder.get(item)
+      : byNumber.get(parseOrderNumber(item));
+    if (o) ordersOut.push(o);
+    else notFound.push(item);
+  }
+
+  const payload = { success: true, count: ordersOut.length, orders: ordersOut };
+  if (notFound.length > 0) payload.not_found = notFound;
+  res.status(200).json(payload);
 }
 
 /**
@@ -201,10 +381,12 @@ exports.getWixOrders = async (req, res) => {
 };
 
 /**
- * Fetches one order by Wix order GUID (`order_id`) or by dashboard order `number`.
+ * Fetches order(s) by Wix order GUID (`order_id`) or by dashboard order `number`.
  * Accepts Shopify-style `#12345` display form for numbers.
  *
  * Provide exactly one of: order_id | order_number / orderNumber / orderName.
+ * When `order_number` is an array, returns `{ orders, count, not_found? }` (200); each
+ * element may be a numeric order number or a Wix order GUID.
  */
 exports.getWixOrderByNumber = async (req, res) => {
   try {
@@ -226,37 +408,50 @@ exports.getWixOrderByNumber = async (req, res) => {
       req.query?.orderId ||
       null;
 
-    const orderNumRaw =
-      req.body?.order_number ||
-      req.body?.orderNumber ||
-      req.body?.orderName ||
-      req.body?.order_name ||
-      req.query?.order_number ||
-      req.query?.orderNumber ||
-      req.query?.orderName ||
-      null;
+    const orderNumRaw = coerceOrderNumberRaw(
+      req.body?.order_number ??
+        req.body?.orderNumber ??
+        req.body?.orderName ??
+        req.body?.order_name ??
+        req.query?.order_number ??
+        req.query?.orderNumber ??
+        req.query?.orderName ??
+        null
+    );
 
     if (!account_key || !String(account_key).trim()) {
       return res.status(400).json({ success: false, message: 'account_key is required' });
     }
 
     const orderIdTrim = orderIdRaw != null && String(orderIdRaw).trim() ? String(orderIdRaw).trim() : null;
+    const isOrderNumArray = Array.isArray(orderNumRaw);
+    const orderNumberList = isOrderNumArray ? normalizeOrderNumberArray(orderNumRaw) : null;
     const orderNumStrTrim =
-      orderNumRaw !== undefined && orderNumRaw !== null && String(orderNumRaw).trim()
+      !isOrderNumArray &&
+      orderNumRaw !== undefined &&
+      orderNumRaw !== null &&
+      String(orderNumRaw).trim()
         ? String(orderNumRaw).trim()
         : null;
 
-    if (orderIdTrim && orderNumStrTrim) {
+    if (orderIdTrim && (orderNumStrTrim || (isOrderNumArray && orderNumberList.length > 0))) {
       return res.status(400).json({
         success: false,
         message: 'Provide only one of order_id or order_number (order_number / orderName)'
       });
     }
 
-    if (!orderIdTrim && !orderNumStrTrim) {
+    if (!orderIdTrim && !orderNumStrTrim && !(isOrderNumArray && orderNumberList.length > 0)) {
       return res.status(400).json({
         success: false,
         message: 'Missing required parameter: order_id or order_number'
+      });
+    }
+
+    if (isOrderNumArray && orderNumberList.length > MAX_WIX_ORDER_BY_NUMBER_BATCH) {
+      return res.status(400).json({
+        success: false,
+        message: `order_number array must have at most ${MAX_WIX_ORDER_BY_NUMBER_BATCH} entries`
       });
     }
 
@@ -277,36 +472,13 @@ exports.getWixOrderByNumber = async (req, res) => {
       await maybePersistDiscoveredWixSiteId(String(account_key).trim(), wixAuth.siteId);
     }
 
-    const headers = buildAuthHeaders(wixAuth);
+    if (isOrderNumArray && orderNumberList.length > 0) {
+      await fetchWixOrdersByNumberList(res, wixAuth, orderNumberList);
+      return;
+    }
 
-    const fetchOrderByGuid = async (guid) => {
-      const url = `https://www.wixapis.com/ecom/v1/orders/${encodeURIComponent(guid)}`;
-      const r = await axios.get(url, { headers, timeout: 120000, validateStatus: () => true });
-
-      if (r.status >= 200 && r.status < 300) {
-        const order = r?.data?.order ?? r?.data ?? null;
-        if (!order) {
-          return res.status(502).json({ success: false, message: 'Wix returned an empty order payload' });
-        }
-        return res.status(200).json({ success: true, order });
-      }
-
-      const wixPayload = summarizeWixHttpError(r);
-      const st = r.status >= 400 && r.status < 600 ? r.status : 502;
-      if (st === 404) {
-        return res.status(404).json({
-          success: false,
-          message: `Order not found for order_id: ${guid}`,
-          wixError: wixPayload
-        });
-      }
-      return res.status(st).json({
-        success: false,
-        message: 'Failed to retrieve Wix order by id',
-        wixError: wixPayload
-      });
-    };
-
+    let guid = null;
+    let notFoundLabel = '';
     if (orderIdTrim) {
       if (!looksLikeOrderGuid(orderIdTrim)) {
         return res.status(400).json({
@@ -314,11 +486,16 @@ exports.getWixOrderByNumber = async (req, res) => {
           message: 'order_id must be a Wix order GUID (UUID)'
         });
       }
-      return fetchOrderByGuid(orderIdTrim);
+      guid = orderIdTrim;
+      notFoundLabel = `Order not found for order_id: ${orderIdTrim}`;
+    } else if (orderNumStrTrim && looksLikeOrderGuid(orderNumStrTrim)) {
+      guid = orderNumStrTrim;
+      notFoundLabel = `Order not found for order_id: ${orderNumStrTrim}`;
     }
 
-    if (looksLikeOrderGuid(orderNumStrTrim)) {
-      return fetchOrderByGuid(orderNumStrTrim);
+    if (guid) {
+      const fetchResult = await fetchWixOrderByGuid(wixAuth, guid);
+      return sendSingleGuidOrderLookupResponse(res, fetchResult, notFoundLabel);
     }
 
     const orderNum = parseOrderNumber(orderNumStrTrim);
