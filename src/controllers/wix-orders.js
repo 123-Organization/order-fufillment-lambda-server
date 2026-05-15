@@ -1,12 +1,15 @@
 const axios = require('axios');
+const finerworksService = require('../helpers/finerworks-service');
 const {
   resolveWixAuth,
   buildAuthHeaders,
   summarizeWixHttpError,
   maybePersistDiscoveredWixSiteId
 } = require('./wix-products');
+const { validateAccountKey } = require('../validators/accountKey.validator');
 
 const WIX_SEARCH_ORDERS_URL = 'https://www.wixapis.com/ecom/v1/orders/search';
+const WIX_CREATE_FULFILLMENT_BASE = 'https://www.wixapis.com/ecom/v1/fulfillments/orders';
 const MAX_ORDER_SEARCH_PAGES = 100;
 /** Max order_number / GUID values per request when `order_number` is an array. */
 const MAX_WIX_ORDER_BY_NUMBER_BATCH = 100;
@@ -104,6 +107,43 @@ function coerceOrderNumberRaw(raw) {
     }
   }
   return raw;
+}
+
+/**
+ * Maps FinerWorks / free-text carrier names to Wix predefined `shippingProvider` slugs when possible.
+ * Custom carriers require `trackingLink` in the Wix API.
+ * @see https://dev.wix.com/docs/rest/business-solutions/e-commerce/order-fulfillments/create-fulfillment.md
+ */
+function resolveWixShippingProvider(carrierRaw) {
+  const raw = String(carrierRaw || '').trim();
+  const c = raw.toLowerCase();
+  if (!c) return { shippingProvider: 'Custom', predefined: false };
+  if (/\bfedex\b|federal\s*express/.test(c)) return { shippingProvider: 'fedex', predefined: true };
+  if (/\bups\b|united\s*parcel/.test(c)) return { shippingProvider: 'ups', predefined: true };
+  if (/\busps\b|u\.?s\.?\s*postal|post\s*office/.test(c)) return { shippingProvider: 'usps', predefined: true };
+  if (/\bdhl\b/.test(c)) return { shippingProvider: 'dhl', predefined: true };
+  if (/\bcanada\s*post\b|canadapost/.test(c)) return { shippingProvider: 'canadaPost', predefined: true };
+  return { shippingProvider: raw.slice(0, 200), predefined: false };
+}
+
+/**
+ * Line items Wix can attach to a shipment fulfillment (excludes obvious non-shipped presets).
+ */
+function buildDefaultFulfillmentLineItems(order) {
+  const items = Array.isArray(order?.lineItems) ? order.lineItems : [];
+  const out = [];
+  for (const li of items) {
+    const id = li?.id != null ? String(li.id).trim() : '';
+    if (!id) continue;
+    const qty = Number(li?.quantity);
+    if (Number.isFinite(qty) && qty <= 0) continue;
+    const preset = li?.itemType?.preset;
+    if (preset === 'DIGITAL' || preset === 'SERVICE') continue;
+    const entry = { id };
+    if (Number.isFinite(qty) && qty > 0) entry.quantity = Math.round(qty);
+    out.push(entry);
+  }
+  return out;
 }
 
 async function fetchWixOrderByGuid(wixAuth, guid) {
@@ -540,6 +580,224 @@ exports.getWixOrderByNumber = async (req, res) => {
     return res.status(status).json({
       success: false,
       message: 'Failed to retrieve Wix order',
+      error: wixPayload?.message || err?.message || 'Unknown error',
+      ...(wixPayload ? { wixError: wixPayload } : {})
+    });
+  }
+};
+
+/**
+ * Like POST /squarespace/fulfill-order: loads tracking from FinerWorks GET_ORDER_STATUS, then creates
+ * a Wix eCommerce fulfillment (Create Fulfillment API).
+ *
+ * Body: account_key (required), order_id (Wix order GUID), order_number (FinerWorks / order_pos key).
+ * Optional: access_token | Authorization: Bearer, line_items [{ id, quantity? }] to override line selection.
+ *
+ * Permissions: Manage Orders (`SCOPE.DC-STORES.MANAGE-ORDERS` per Wix docs).
+ */
+exports.fulfillWixOrderWithTrackingInfo = async (req, res) => {
+  try {
+    const account_key =
+      req.body?.account_key ||
+      req.body?.accountKey ||
+      req.query?.account_key ||
+      req.query?.accountKey;
+
+    let access_token =
+      req.body?.access_token || req.query?.access_token || req.headers['x-wix-access-token'];
+    const authHeader = req.headers?.authorization || req.headers?.Authorization;
+    if (
+      !access_token &&
+      typeof authHeader === 'string' &&
+      /^Bearer\s+/i.test(authHeader.trim())
+    ) {
+      access_token = authHeader.replace(/^Bearer\s+/i, '').trim();
+    }
+
+    const orderIdRaw =
+      req.body?.order_id || req.body?.orderId || req.query?.order_id || req.query?.orderId;
+
+    const orderNumberRaw =
+      req.body?.orderNumber ||
+      req.body?.order_number ||
+      req.body?.orderName ||
+      req.body?.order_name ||
+      req.query?.orderNumber ||
+      req.query?.order_number;
+
+    if (!account_key || !String(account_key).trim()) {
+      return res.status(400).json({ success: false, message: 'account_key is required' });
+    }
+    if (!orderIdRaw || !String(orderIdRaw).trim()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Missing required parameter: order_id (Wix order GUID)'
+      });
+    }
+    if (!orderNumberRaw || !String(orderNumberRaw).trim()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Missing required parameter: order_number (used for FinerWorks GET_ORDER_STATUS)'
+      });
+    }
+
+    const orderId = String(orderIdRaw).trim();
+    const orderNumber = String(orderNumberRaw).trim();
+
+    if (!looksLikeOrderGuid(orderId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'order_id must be a Wix order GUID (UUID)'
+      });
+    }
+
+    const wixAuth = await resolveWixAuth({
+      account_key: String(account_key).trim(),
+      access_token,
+      ignoreRequestToken: false
+    });
+
+    if (!wixAuth?.accessToken) {
+      return res.status(401).json({
+        success: false,
+        message: 'Wix credentials not configured. Connect Wix / pass access_token or set env vars.'
+      });
+    }
+
+    if (wixAuth.siteId && account_key) {
+      await maybePersistDiscoveredWixSiteId(String(account_key).trim(), wixAuth.siteId);
+    }
+
+    const orderFetch = await fetchWixOrderByGuid(wixAuth, orderId);
+    if (!orderFetch.ok) {
+      if (orderFetch.status === 404) {
+        return res.status(404).json({
+          success: false,
+          message: `Wix order not found for order_id: ${orderId}`,
+          ...(orderFetch.wixPayload ? { wixError: orderFetch.wixPayload } : {})
+        });
+      }
+      return res.status(orderFetch.status >= 400 ? orderFetch.status : 502).json({
+        success: false,
+        message: 'Failed to load Wix order before fulfillment',
+        ...(orderFetch.wixPayload ? { wixError: orderFetch.wixPayload } : {})
+      });
+    }
+
+    const wixOrder = orderFetch.order;
+    let lineItems;
+    if (Array.isArray(req.body?.line_items) && req.body.line_items.length > 0) {
+      lineItems = [];
+      for (const row of req.body.line_items) {
+        const id = row?.id != null ? String(row.id).trim() : '';
+        if (!id) {
+          return res.status(400).json({
+            success: false,
+            message: 'line_items entries must include id (Wix line item GUID)'
+          });
+        }
+        const ent = { id };
+        const q = Number(row?.quantity);
+        if (Number.isFinite(q) && q > 0) ent.quantity = Math.round(q);
+        lineItems.push(ent);
+      }
+    } else {
+      lineItems = buildDefaultFulfillmentLineItems(wixOrder);
+    }
+
+    if (!lineItems.length) {
+      return res.status(400).json({
+        success: false,
+        message:
+          'No fulfillable line items on this Wix order (or none match filters). Pass line_items with Wix line item GUIDs.'
+      });
+    }
+
+    const selectOrderId = {
+      order_pos: [orderNumber],
+      account_key: String(account_key).trim()
+    };
+
+    let orderStatusData = null;
+    try {
+      orderStatusData = await finerworksService.GET_ORDER_STATUS(selectOrderId);
+    } catch (error) {
+      return res.status(502).json({
+        success: false,
+        message: 'Failed to get order status data',
+        error: error?.message || 'Unknown error'
+      });
+    }
+
+    const shipment = orderStatusData?.orders?.[0]?.shipments?.[0] || {};
+    const trackingNumber =
+      shipment?.tracking_number != null ? String(shipment.tracking_number).trim() : '';
+    const trackingUrlRaw =
+      shipment?.tracking_url != null ? String(shipment.tracking_url).trim() : '';
+    const carrierName = shipment?.carrier;
+
+    if (!trackingNumber) {
+      return res.status(400).json({
+        success: false,
+        message: 'Missing tracking number in FinerWorks shipment data'
+      });
+    }
+
+    const { shippingProvider, predefined } = resolveWixShippingProvider(carrierName);
+    const trackingInfo = {
+      trackingNumber,
+      shippingProvider
+    };
+
+    if (!predefined) {
+      if (!trackingUrlRaw || !/^https?:\/\//i.test(trackingUrlRaw)) {
+        return res.status(400).json({
+          success: false,
+          message:
+            'Carrier is not a Wix predefined provider; provide a valid http(s) tracking_url from FinerWorks for trackingLink.'
+        });
+      }
+      trackingInfo.trackingLink = trackingUrlRaw;
+    } else if (trackingUrlRaw && /^https?:\/\//i.test(trackingUrlRaw)) {
+      trackingInfo.trackingLink = trackingUrlRaw;
+    }
+
+    const createUrl = `${WIX_CREATE_FULFILLMENT_BASE}/${encodeURIComponent(orderId)}/create-fulfillment`;
+    const createBody = {
+      fulfillment: {
+        lineItems,
+        trackingInfo
+      }
+    };
+
+    const headers = buildAuthHeaders(wixAuth);
+    const resp = await axios.post(createUrl, createBody, {
+      headers,
+      timeout: 120000,
+      validateStatus: () => true
+    });
+
+    if (resp.status >= 200 && resp.status < 300) {
+      return res.status(200).json({
+        success: true,
+        message: 'Wix order fulfillment created',
+        data: resp.data
+      });
+    }
+
+    const wixPayload = summarizeWixHttpError(resp);
+    return res.status(resp.status >= 400 ? resp.status : 502).json({
+      success: false,
+      message: 'Failed to create Wix fulfillment',
+      wixError: wixPayload
+    });
+  } catch (err) {
+    const r = err?.response;
+    const status = r?.status || err?.response?.status || 500;
+    const wixPayload = typeof r?.data !== 'undefined' ? summarizeWixHttpError(r) : null;
+    return res.status(status >= 400 ? status : 502).json({
+      success: false,
+      message: 'Failed to fulfill Wix order with tracking info',
       error: wixPayload?.message || err?.message || 'Unknown error',
       ...(wixPayload ? { wixError: wixPayload } : {})
     });
