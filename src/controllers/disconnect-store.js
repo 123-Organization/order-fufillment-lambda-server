@@ -1,4 +1,7 @@
 const finerworksService = require('../helpers/finerworks-service');
+const {
+  deleteSquarespaceAccountsByAccountKey
+} = require('../helpers/squarespace-accounts-dynamo');
 
 function normalizeSlug(input) {
   return String(input || '')
@@ -47,7 +50,9 @@ exports.disconnectStoreBySlug = async (req, res) => {
       });
     }
 
-    const getInformation = await finerworksService.GET_INFO({ account_key: String(account_key).trim() });
+    const trimmedKey = String(account_key).trim();
+
+    const getInformation = await finerworksService.GET_INFO({ account_key: trimmedKey });
     const connections = Array.isArray(getInformation?.user_account?.connections)
       ? JSON.parse(JSON.stringify(getInformation.user_account.connections))
       : [];
@@ -56,6 +61,9 @@ exports.disconnectStoreBySlug = async (req, res) => {
     const nextConnections = connections.filter((c) => !(c && c.name === connectionName));
 
     if (nextConnections.length === before) {
+      if (connectionName === 'Squarespace') {
+        await deleteSquarespaceAccountsByAccountKey(trimmedKey);
+      }
       return res.status(200).json({
         success: true,
         message: `No ${connectionName} connection found; nothing to disconnect`,
@@ -64,9 +72,13 @@ exports.disconnectStoreBySlug = async (req, res) => {
     }
 
     await finerworksService.UPDATE_INFO({
-      account_key: String(account_key).trim(),
+      account_key: trimmedKey,
       connections: nextConnections
     });
+
+    if (connectionName === 'Squarespace') {
+      await deleteSquarespaceAccountsByAccountKey(trimmedKey);
+    }
 
     return res.status(200).json({
       success: true,
