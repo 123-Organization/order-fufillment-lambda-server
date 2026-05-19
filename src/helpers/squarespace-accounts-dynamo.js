@@ -4,7 +4,8 @@ const {
   PutCommand,
   UpdateCommand,
   QueryCommand,
-  ScanCommand
+  ScanCommand,
+  DeleteCommand
 } = require('@aws-sdk/lib-dynamodb');
 const debug = require("debug");
 const log = debug("app:squarespace-accounts-dynamo");
@@ -27,7 +28,8 @@ const tableName = () => process.env.SQUARESPACE_ACCOUNTS_TABLE_NAME;
 const accountKeyGsiName = () =>
   process.env.SQUARESPACE_ACCOUNTS_ACCOUNT_KEY_GSI || 'account-key';
 
-const findFirstItemByAccountKey = async (TableName, account_key) => {
+/** All items matching `account_key` on the account-key GSI (paginated Query). */
+const queryAllItemsByAccountKey = async (TableName, account_key) => {
   const collected = [];
   let ExclusiveStartKey;
   do {
@@ -43,7 +45,12 @@ const findFirstItemByAccountKey = async (TableName, account_key) => {
     collected.push(...(page.Items || []));
     ExclusiveStartKey = page.LastEvaluatedKey;
   } while (ExclusiveStartKey);
-  log("collected account-key",JSON.stringify(collected));
+  log('collected account-key', JSON.stringify(collected));
+  return collected;
+};
+
+const findFirstItemByAccountKey = async (TableName, account_key) => {
+  const collected = await queryAllItemsByAccountKey(TableName, account_key);
   if (collected.length === 0) return null;
   if (collected.length > 1) {
     console.warn(
@@ -155,7 +162,36 @@ const scanAllSquarespaceAccounts = async () => {
   return acc;
 };
 
+/**
+ * Remove all DynamoDB rows for this tenant via GSI `account_key` → table partition key `id`.
+ * Deletes every item returned by the Query (handles rare duplicate-account_key rows).
+ */
+const deleteSquarespaceAccountsByAccountKey = async (account_key) => {
+  const TableName = tableName();
+  if (!TableName) {
+    console.warn('SQUARESPACE_ACCOUNTS_TABLE_NAME not set; skip DynamoDB delete');
+    return;
+  }
+  if (account_key == null || String(account_key).trim() === '') {
+    throw new Error('deleteSquarespaceAccountsByAccountKey: account_key is required');
+  }
+  const ak = String(account_key).trim();
+  const items = await queryAllItemsByAccountKey(TableName, ak);
+  for (const item of items) {
+    const id = item?.id;
+    if (id == null || String(id).trim() === '') {
+      console.warn(
+        'squarespace-accounts: skip delete for item without id (partition key)',
+        ak
+      );
+      continue;
+    }
+    await dynamodb.send(new DeleteCommand({ TableName, Key: { id } }));
+  }
+};
+
 module.exports = {
   putSquarespaceAccount,
-  scanAllSquarespaceAccounts
+  scanAllSquarespaceAccounts,
+  deleteSquarespaceAccountsByAccountKey
 };
