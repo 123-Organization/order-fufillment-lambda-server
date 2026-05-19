@@ -3,8 +3,11 @@ const {
   DynamoDBDocumentClient,
   PutCommand,
   UpdateCommand,
+  QueryCommand,
   ScanCommand
 } = require('@aws-sdk/lib-dynamodb');
+const debug = require("debug");
+const log = debug("app:squarespace-accounts-dynamo");
 
 const dynamodb = DynamoDBDocumentClient.from(new DynamoDBClient({}));
 
@@ -13,37 +16,42 @@ const dynamodb = DynamoDBDocumentClient.from(new DynamoDBClient({}));
  *
  * Upsert rules:
  * - `id` and `account_key` are required on every call (validation error if missing).
- * - Looks up an existing row with a paginated Scan on `account_key`.
+ * - Looks up an existing row via GSI `account-key` (partition: `account_key`) using Query.
  * - If found: UpdateItem on that row's `id` (merge attributes; partition key is not changed).
  * - If not found: PutItem using the payload `id` (create).
  *
- * Note: Lookup by `account_key` uses Scan. For large tables, add a GSI on `account_key` and Query instead.
+ * Env: `SQUARESPACE_ACCOUNTS_ACCOUNT_KEY_GSI` (default `account-key`) — must match the DynamoDB GSI name.
  */
 const tableName = () => process.env.SQUARESPACE_ACCOUNTS_TABLE_NAME;
 
+const accountKeyGsiName = () =>
+  process.env.SQUARESPACE_ACCOUNTS_ACCOUNT_KEY_GSI || 'account-key';
+
 const findFirstItemByAccountKey = async (TableName, account_key) => {
+  const collected = [];
   let ExclusiveStartKey;
   do {
     const page = await dynamodb.send(
-      new ScanCommand({
+      new QueryCommand({
         TableName,
-        FilterExpression: 'account_key = :ak',
+        IndexName: accountKeyGsiName(),
+        KeyConditionExpression: 'account_key = :ak',
         ExpressionAttributeValues: { ':ak': account_key },
         ExclusiveStartKey
       })
     );
-    if (page.Items?.length) {
-      if (page.Items.length > 1) {
-        console.warn(
-          'squarespace-accounts: multiple items share account_key; using first match',
-          account_key
-        );
-      }
-      return page.Items[0];
-    }
+    collected.push(...(page.Items || []));
     ExclusiveStartKey = page.LastEvaluatedKey;
   } while (ExclusiveStartKey);
-  return null;
+  log("collected account-key",JSON.stringify(collected));
+  if (collected.length === 0) return null;
+  if (collected.length > 1) {
+    console.warn(
+      'squarespace-accounts: multiple items share account_key; using first match',
+      account_key
+    );
+  }
+  return collected[0];
 };
 
 const putSquarespaceAccount = async (item) => {

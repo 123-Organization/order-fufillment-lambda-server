@@ -326,6 +326,12 @@ Resources:
             RestApiId: !Ref MyApiGateway
             Method: POST
             Path: "/api/wix/order-by-number"
+        WixFulfillOrder:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Method: POST
+            Path: "/api/wix/fulfill-order"
         StoresDisconnect:
           Type: Api
           Properties:

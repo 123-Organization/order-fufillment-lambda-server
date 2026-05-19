@@ -14,7 +14,7 @@ const { handleSquarespaceAuth, handleSquarespaceCallback, refreshSquarespaceToke
 const { connectWix, handleWixAuthStart, connectWixOAuth, handleWixOAuthInstallReturn, getWixOAuthState, getWixHeadlessVisitorTokens, getWixInstallLink, connectWixFromInstance } = require('./wix-auth');
 const { disconnectStoreBySlug } = require('./disconnect-store');
 const { syncWixProducts } = require('./wix-products');
-const { getWixOrders, getWixOrderByNumber } = require('./wix-orders');
+const { getWixOrders, getWixOrderByNumber, fulfillWixOrderWithTrackingInfo } = require('./wix-orders');
 const { getSquarespaceOrders, getSquarespaceOrderByNumber, validateSquarespaceAccessToken, fulfillSquareSpaceOrderWithTrackingInfo } = require('./squarespace-orders');
 const { getShopifyOrders, getShopifyOrderByName, fulfillShopifyOrder, updateOrderReferenceNumbers, updateOrderFulfillmentStatus, syncShopifyProducts, createShopifyCarrierService, listShopifyCarrierServices, deleteShopifyCarrierService, shopifyCarrierServiceCallback, registerShopifyWebhook, registerShopifyOrderCreateWebhook, listShopifyWebhooks, deleteShopifyWebhookById, shopifyProductDeleteWebhook, shopifyOrdersCreateWebhook, createUsCanadaShippingProfile } = require('./shopify-orders');
 const { syncSquarespaceProducts } = require('./squarespace-products');
@@ -89,6 +89,7 @@ app.get('/wix/instance/connect', connectWixFromInstance);
 app.post('/wix/sync-products', syncWixProducts);
 app.post('/wix/orders', getWixOrders);
 app.post('/wix/order-by-number', getWixOrderByNumber);
+app.post('/wix/fulfill-order', fulfillWixOrderWithTrackingInfo);
 app.post('/shopify/disconnect', handleShopifyDisconnect);
 app.post('/shopify/disconnectShopifyFromOfa', disconnectShopifyFromOfa);
 app.post('/stores/disconnect', disconnectStoreBySlug);
