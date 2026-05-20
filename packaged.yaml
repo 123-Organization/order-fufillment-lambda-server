@@ -69,7 +69,7 @@ Resources:
         - MyLambdaExecutionRole
         - Arn
       Runtime: nodejs18.x
-      CodeUri: s3://order-fullfilment-app-lambda-server/dbabf63e338a8896d855046874971fe4
+      CodeUri: s3://order-fullfilment-app-lambda-server/66340f160147552e11546f2a6bdef5c8
       MemorySize: 3008
       Timeout: 900
       Environment:
@@ -357,6 +357,27 @@ Resources:
               Ref: MyApiGateway
             Method: POST
             Path: /api/stores/disconnect
+        storeOrderAutoSync:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: POST
+            Path: /api/stores/order-sync
+        SquareSpaceOrderCreateWebhook:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: POST
+            Path: /api/webhooks/squarespace/order-create
+        WixOrderCreateWebhook:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: POST
+            Path: /api/webhooks/wix/order-create
     Metadata:
       SamResourceId: OrderFullFillmentServerLessDevServerAgain
   OrderFullFillmentServerLessDevServerV2Again:
@@ -369,7 +390,7 @@ Resources:
         - MyLambdaExecutionRole
         - Arn
       Runtime: nodejs18.x
-      CodeUri: s3://order-fullfilment-app-lambda-server/dbabf63e338a8896d855046874971fe4
+      CodeUri: s3://order-fullfilment-app-lambda-server/66340f160147552e11546f2a6bdef5c8
       MemorySize: 3008
       Timeout: 900
       Environment:

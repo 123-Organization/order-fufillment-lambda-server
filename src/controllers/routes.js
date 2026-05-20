@@ -120,6 +120,7 @@ app.delete('/shopify/delete-webhook', deleteShopifyWebhookById);
 app.post('/webhooks/product-delete', shopifyProductDeleteWebhook);
 app.post('/webhooks/orders-create', shopifyOrdersCreateWebhook);
 app.post('/webhooks/squarespace/order-create', squarespaceOrderCreateWebhook);
+// POST /webhooks/wix/order-create is registered in app.js with express.text (Wix sends a JWT string body).
 
 
 

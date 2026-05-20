@@ -6,7 +6,8 @@ const {
   normalizePlatform,
   parseConnectionData,
   cloneConnections,
-  findConnectionIndex
+  findConnectionIndex,
+  isOrderSyncEnabled
 } = require('../helpers/platform-connections');
 const {
   listSquarespaceWebhookSubscriptions,
@@ -14,6 +15,8 @@ const {
   deleteSquarespaceWebhookSubscription,
   findOrderCreateSubscription
 } = require('../helpers/squarespace-webhook-api');
+const debug = require('debug');
+const log = debug('app:platformOrderSync');
 
 const SUPPORTED_PLATFORMS = ['squarespace', 'wix'];
 
@@ -25,14 +28,7 @@ function parseOrderSyncFlag(value) {
 }
 
 function buildSquarespaceOrderWebhookUrl(account_key) {
-  const configured = process.env.SQUARESPACE_ORDER_CREATE_WEBHOOK_URL;
-  if (configured && String(configured).trim()) {
-    const base = String(configured).trim().replace(/\/$/, '');
-    const sep = base.includes('?') ? '&' : '?';
-    return `${base}${sep}account_key=${encodeURIComponent(account_key)}`;
-  }
-
-  const apiBase = String(process.env.OFA_PUBLIC_API_BASE_URL || '').trim().replace(/\/$/, '');
+  const apiBase = String(process.env.SQUARESPACE_ORDER_CREATE_WEBHOOK_URL || '').trim().replace(/\/$/, '');
   if (!apiBase) {
     return null;
   }
@@ -317,6 +313,7 @@ exports.setPlatformOrderSync = async (req, res) => {
  */
 exports.squarespaceOrderCreateWebhook = async (req, res) => {
   try {
+    log('Squarespace order create webhook received', req.body);
     const account_key = req.query?.account_key || req.query?.accountKey;
     const { valid, error } = validateAccountKey(account_key);
     if (!valid) {
@@ -330,11 +327,7 @@ exports.squarespaceOrderCreateWebhook = async (req, res) => {
       ? connections.find((c) => c && c.name === 'Squarespace')
       : null;
 
-    const connData = parseConnectionData(conn);
-    const orderSyncEnabled =
-      connData.order_sync === true || (conn?.order_sync === true && connData.order_sync === undefined);
-
-    if (!conn || !orderSyncEnabled) {
+    if (!conn || !isOrderSyncEnabled(conn, 'Squarespace')) {
       return res.status(200).json({
         success: true,
         ignored: true,
@@ -342,6 +335,7 @@ exports.squarespaceOrderCreateWebhook = async (req, res) => {
       });
     }
 
+    log('Squarespace order create webhook processed');
     return res.status(200).json({
       success: true,
       received: true,
@@ -349,6 +343,7 @@ exports.squarespaceOrderCreateWebhook = async (req, res) => {
       orderId: req.body?.data?.orderId || req.body?.orderId || null
     });
   } catch (err) {
+    log('Squarespace order create webhook failed', err);
     return res.status(500).json({
       success: false,
       message: 'Squarespace webhook handler failed',
