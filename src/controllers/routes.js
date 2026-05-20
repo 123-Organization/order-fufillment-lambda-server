@@ -18,6 +18,7 @@ const { getWixOrders, getWixOrderByNumber, fulfillWixOrderWithTrackingInfo } = r
 const { getSquarespaceOrders, getSquarespaceOrderByNumber, validateSquarespaceAccessToken, fulfillSquareSpaceOrderWithTrackingInfo } = require('./squarespace-orders');
 const { getShopifyOrders, getShopifyOrderByName, fulfillShopifyOrder, updateOrderReferenceNumbers, updateOrderFulfillmentStatus, syncShopifyProducts, createShopifyCarrierService, listShopifyCarrierServices, deleteShopifyCarrierService, shopifyCarrierServiceCallback, registerShopifyWebhook, registerShopifyOrderCreateWebhook, listShopifyWebhooks, deleteShopifyWebhookById, shopifyProductDeleteWebhook, shopifyOrdersCreateWebhook, createUsCanadaShippingProfile } = require('./shopify-orders');
 const { syncSquarespaceProducts } = require('./squarespace-products');
+const { setPlatformOrderSync, squarespaceOrderCreateWebhook } = require('./platform-order-sync');
 const healthCheck = require('./health-check');
 const app = Router();
 
@@ -99,6 +100,7 @@ app.post('/shopify/order-by-name', getShopifyOrderByName);
 app.post('/squarespace/order-by-number', getSquarespaceOrderByNumber);
 app.post('/squarespace/validate-token', validateSquarespaceAccessToken);
 app.post('/squarespace/fulfill-order', fulfillSquareSpaceOrderWithTrackingInfo);
+app.post('/stores/order-sync', setPlatformOrderSync);
 app.post('/shopify/fulfill-order', fulfillShopifyOrder);
 app.post('/shopify/update-order-reference-numbers', updateOrderReferenceNumbers);
 app.post('/shopify/update-fulfillment-status', updateOrderFulfillmentStatus);
@@ -117,6 +119,7 @@ app.delete('/shopify/delete-webhook', deleteShopifyWebhookById);
 // Shopify webhooks (called by Shopify)
 app.post('/webhooks/product-delete', shopifyProductDeleteWebhook);
 app.post('/webhooks/orders-create', shopifyOrdersCreateWebhook);
+app.post('/webhooks/squarespace/order-create', squarespaceOrderCreateWebhook);
 
 
 

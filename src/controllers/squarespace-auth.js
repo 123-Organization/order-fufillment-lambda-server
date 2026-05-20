@@ -215,17 +215,33 @@ const handleSquarespaceCallback = async (req, res) => {
       ? (() => {
           const idx = connections.findIndex((c) => c && c.name === 'Squarespace');
           const copy = JSON.parse(JSON.stringify(connections));
+          const previous = idx !== -1 ? copy[idx] : null;
+          let previousData = {};
+          if (previous?.data) {
+            try {
+              previousData =
+                typeof previous.data === 'string' ? JSON.parse(previous.data) : { ...previous.data };
+            } catch (_) {
+              previousData = {};
+            }
+          }
           if (idx !== -1) copy.splice(idx, 1);
+          const mergedData = {
+            ...previousData,
+            ...tokenData,
+            redirect_uri: redirectUri,
+            state_nonce: stateObj?.nonce,
+            needs_reauth: false
+          };
+          if (previous?.order_sync === true && mergedData.order_sync === undefined) {
+            mergedData.order_sync = true;
+          }
+
           copy.push({
             name: 'Squarespace',
             // Keep the same pattern as Shopify: id stores access token.
             id: tokenData.access_token,
-            data: JSON.stringify({
-              ...tokenData,
-              redirect_uri: redirectUri,
-              state_nonce: stateObj?.nonce,
-              needs_reauth: false
-            })
+            data: JSON.stringify(mergedData)
           });
           return copy;
         })()
@@ -454,6 +470,10 @@ const saveSquarespaceTokensToFinerworks = async (account_key, tokenData) => {
   };
   delete mergedData.needs_reauth_reason;
   delete mergedData.needs_reauth_at;
+
+  if (idx !== -1 && connections[idx]?.order_sync === true && mergedData.order_sync === undefined) {
+    mergedData.order_sync = true;
+  }
 
   const nextConnection = {
     name: 'Squarespace',
