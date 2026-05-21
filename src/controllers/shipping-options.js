@@ -15,6 +15,17 @@ exports.listShippingOptions = async (req, res) => {
       });
     }
 
+    if(Array.isArray(req.body.orders)) {
+      req.body.orders = req.body.orders.map((item) => {
+        if(item.order_po.includes("WIX")){
+          item.recipient.state_code = item.recipient.state_code.split("-")[1];
+        }
+        return {
+          ...item,
+        };
+      });
+    }
+
     const shippingOptions = await finerworksService.SHIPPING_OPTIONS_MULTIPLE(req.body);
 
     if (!shippingOptions || !shippingOptions.orders || shippingOptions.orders.length === 0) {
