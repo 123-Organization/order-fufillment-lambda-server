@@ -10,6 +10,48 @@ const { fetchWixOrderByGuid } = require('./wix-orders');
 
 const log = debug('app:wix-order-create-webhook');
 
+/** FinerWorks .NET API requires a valid GUID; null is rejected. */
+const FINERWORKS_EMPTY_PRODUCT_GUID = '00000000-0000-0000-0000-000000000000';
+
+function pickFinerWorksProductGuid(product) {
+  if (!product || typeof product !== 'object') return null;
+  const productGuid = product.product_guid ?? product.productGuid ?? null;
+  if (productGuid && String(productGuid).trim() && String(productGuid).trim() !== FINERWORKS_EMPTY_PRODUCT_GUID) {
+    return String(productGuid).trim();
+  }
+  const imageGuid = product.image_guid ?? product.imageGuid ?? null;
+  if (imageGuid && String(imageGuid).trim() && String(imageGuid).trim() !== FINERWORKS_EMPTY_PRODUCT_GUID) {
+    return String(imageGuid).trim();
+  }
+  return null;
+}
+
+async function resolveFinerWorksProductGuidBySku(sku, account_key) {
+  const skuStr = sku != null ? String(sku).trim() : '';
+  if (!skuStr || !account_key) return FINERWORKS_EMPTY_PRODUCT_GUID;
+  try {
+    const resp = await finerworksService.LIST_VIRTUAL_INVENTORY({
+      sku_filter: [skuStr],
+      account_key
+    });
+    const guid = pickFinerWorksProductGuid(resp?.products?.[0]);
+    return guid || FINERWORKS_EMPTY_PRODUCT_GUID;
+  } catch (err) {
+    log('LIST_VIRTUAL_INVENTORY failed sku=%s: %s', skuStr, err?.message);
+    return FINERWORKS_EMPTY_PRODUCT_GUID;
+  }
+}
+
+async function enrichOrderItemsWithProductGuids(orderItems, account_key) {
+  if (!Array.isArray(orderItems) || !orderItems.length) return orderItems;
+  return Promise.all(
+    orderItems.map(async (item) => {
+      const guid = await resolveFinerWorksProductGuidBySku(item?.product_sku, account_key);
+      return { ...item, product_guid: guid };
+    })
+  );
+}
+
 function parseMaybeJsonString(v) {
   if (v == null) return null;
   if (typeof v === 'object') return v;
@@ -102,6 +144,35 @@ function parseIncomingWixWebhookBody(req) {
   return null;
 }
 
+/** Read instanceId from JWT payload fields without calling unwrapWixWebhookEvent (avoids recursion). */
+function readWixInstanceIdDirect(payload) {
+  if (!payload || typeof payload !== 'object') return null;
+
+  const direct =
+    payload.instanceId ||
+    payload.instance_id ||
+    payload.metadata?.instanceId ||
+    payload.metadata?.instance_id ||
+    null;
+  if (direct) return String(direct).trim();
+
+  const dataObj = parseMaybeJsonString(payload.data) || (typeof payload.data === 'object' ? payload.data : null);
+  if (dataObj) {
+    const fromData =
+      dataObj.instanceId ||
+      dataObj.instance_id ||
+      dataObj.metadata?.instanceId ||
+      dataObj.metadata?.instance_id ||
+      null;
+    if (fromData) return String(fromData).trim();
+
+    const innerMeta = parseMaybeJsonString(dataObj.metadata) || dataObj.metadata;
+    if (innerMeta?.instanceId) return String(innerMeta.instanceId).trim();
+  }
+
+  return null;
+}
+
 /**
  * Wix JWT webhooks wrap the real event in payload.data (JSON string) with nested data (JSON string).
  * @see https://dev.wix.com/docs/rest/articles/getting-started/webhook-structure
@@ -127,7 +198,7 @@ function unwrapWixWebhookEvent(jwtPayload) {
 
   if (!inner || typeof inner !== 'object') {
     return {
-      instanceId: instanceId ? String(instanceId).trim() : extractWixInstanceId(jwtPayload),
+      instanceId: instanceId ? String(instanceId).trim() : readWixInstanceIdDirect(jwtPayload),
       eventType: eventType ? String(eventType).trim() : null,
       slug: null,
       entityFqdn: null,
@@ -142,7 +213,7 @@ function unwrapWixWebhookEvent(jwtPayload) {
   const storesOrderSnapshot = inner.orderId ? inner : null;
 
   return {
-    instanceId: instanceId ? String(instanceId).trim() : extractWixInstanceId(jwtPayload),
+    instanceId: instanceId ? String(instanceId).trim() : readWixInstanceIdDirect(jwtPayload),
     eventType: eventType ? String(eventType).trim() : null,
     slug: inner.slug != null ? String(inner.slug) : null,
     entityFqdn: inner.entityFqdn != null ? String(inner.entityFqdn) : null,
@@ -165,29 +236,7 @@ function extractWixInstanceId(payload) {
   const unwrapped = unwrapWixWebhookEvent(payload);
   if (unwrapped?.instanceId) return unwrapped.instanceId;
 
-  const direct =
-    payload.instanceId ||
-    payload.instance_id ||
-    payload.metadata?.instanceId ||
-    payload.metadata?.instance_id ||
-    null;
-  if (direct) return String(direct).trim();
-
-  const dataObj = parseMaybeJsonString(payload.data) || (typeof payload.data === 'object' ? payload.data : null);
-  if (dataObj) {
-    const fromData =
-      dataObj.instanceId ||
-      dataObj.instance_id ||
-      dataObj.metadata?.instanceId ||
-      dataObj.metadata?.instance_id ||
-      null;
-    if (fromData) return String(fromData).trim();
-
-    const innerMeta = parseMaybeJsonString(dataObj.metadata) || dataObj.metadata;
-    if (innerMeta?.instanceId) return String(innerMeta.instanceId).trim();
-  }
-
-  return null;
+  return readWixInstanceIdDirect(payload);
 }
 
 function isWixEcomOrderEvent(unwrapped) {
@@ -402,33 +451,49 @@ function pickTranslatedString(v) {
   return null;
 }
 
+function looksLikeUuid(value) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-/i.test(String(value || '').trim());
+}
+
 function matchShippingOptionId(title, options, carrierCode = null) {
   if (!Array.isArray(options) || !options.length) return null;
   const code = carrierCode != null ? String(carrierCode).trim() : '';
-  if (code) {
+  // Wix shippingInfo.code is a Wix GUID, not a FinerWorks shipping_code — skip UUID carrier matching.
+  if (code && !looksLikeUuid(code)) {
     const byCode = options.find((o) => String(o?.shipping_code || '').trim() === code);
-    if (byCode) return byCode.id;
+    if (byCode) return byCode.id ?? byCode.shipping_code ?? null;
     const byId = options.find((o) => String(o?.id || '').trim() === code);
-    if (byId) return byId.id;
+    if (byId) return byId.id ?? byId.shipping_code ?? null;
   }
   const t = title != null ? String(title).trim() : '';
   if (!t) return null;
   const exact = options.find((o) => o?.shipping_method === t);
-  if (exact) return exact.id;
+  if (exact) return exact.id ?? exact.shipping_code ?? null;
   const contains = options.find((o) =>
     String(o?.shipping_method || '')
       .toLowerCase()
       .includes(t.toLowerCase())
   );
-  return contains ? contains.id : null;
+  return contains ? contains.id ?? contains.shipping_code ?? null : null;
 }
 
 function resolveDefaultShippingCode(shippingOptions) {
   const fromEnv = process.env.WIX_DEFAULT_SHIPPING_CODE;
   if (fromEnv != null && String(fromEnv).trim()) return String(fromEnv).trim();
-  const first = Array.isArray(shippingOptions) ? shippingOptions[0] : null;
+  const opts = shippingOptions?.shipping_options ?? shippingOptions;
+  const first = Array.isArray(opts) ? opts[0] : null;
   if (first?.id != null) return String(first.id);
+  if (first?.shipping_code != null) return String(first.shipping_code);
   return '01';
+}
+
+function resolveFinerWorksShippingCode(order, shippingOptions) {
+  const opts = shippingOptions?.shipping_options ?? shippingOptions;
+  const shippingTitle = order?.shippingInfo?.title ?? order?.shippingInfo?.logistics?.title ?? null;
+  const shippingCodeRaw = order?.shippingInfo?.code ?? null;
+  const matched = matchShippingOptionId(shippingTitle, opts, shippingCodeRaw);
+  if (matched != null) return String(matched);
+  return resolveDefaultShippingCode(shippingOptions);
 }
 
 function normalizeZipForFinerWorks(zip) {
@@ -555,7 +620,7 @@ async function transformWixPricingPlanOrderToFinerWorksPayload(entity, { wixAuth
         },
         product_title: planTitle,
         template: null,
-        product_guid: entity?.planId ? String(entity.planId) : null,
+        product_guid: entity?.planId ? String(entity.planId) : FINERWORKS_EMPTY_PRODUCT_GUID,
         custom_data_1: entity?.type ? String(entity.type) : null,
         custom_data_2: entity?.status ? String(entity.status) : null,
         custom_data_3: null
@@ -577,7 +642,7 @@ async function transformWixPricingPlanOrderToFinerWorksPayload(entity, { wixAuth
   };
 }
 
-function transformWixOrderToFinerWorksPayload(order, { shippingOptions = null }) {
+function buildRecipientFromWixOrder(order, orderPoDisplay) {
   const shipBlock =
     order?.recipientInfo ||
     order?.shippingInfo?.logistics?.shippingDestination ||
@@ -586,31 +651,38 @@ function transformWixOrderToFinerWorksPayload(order, { shippingOptions = null })
   const addr = shipBlock?.address || {};
   const contact = shipBlock?.contactDetails || order?.buyerInfo || {};
 
-  const orderNumber = order?.number != null ? String(order.number) : '';
-  const orderPoDisplay = orderNumber.replace(/\D/g, '') || (order?.id ? String(order.id).replace(/[^A-Za-z0-9]/g, '') : null);
-
   const subdivision = addr.subdivision || addr.subdivisionFullname || null;
   const stateCode =
     subdivision && String(subdivision).includes('-')
       ? String(subdivision).split('-').pop()
       : subdivision;
 
-  const recipient = {
-    first_name: contact.firstName ?? null,
-    last_name: contact.lastName ?? null,
-    company_name: contact.company ?? null,
-    address_1: addr.addressLine ?? addr.addressLine1 ?? null,
+  const country = (addr.country || 'US').toLowerCase();
+  const isUs = country === 'us';
+
+  return {
+    first_name: contact.firstName || contact.first || 'Wix',
+    last_name: contact.lastName || contact.last || 'Customer',
+    company_name: contact.company || null,
+    address_1: addr.addressLine ?? addr.addressLine1 ?? 'Address pending',
     address_2: addr.addressLine2 ?? null,
     address_3: null,
-    city: addr.city ?? null,
-    state_code: stateCode ? String(stateCode).toLowerCase() : null,
-    province: subdivision ?? null,
+    city: addr.city || 'N/A',
+    state_code: isUs ? (stateCode ? String(stateCode).toLowerCase().slice(0, 2) : 'na') : 'na',
+    province: !isUs ? subdivision || 'N/A' : '',
     zip_postal_code: normalizeZipForFinerWorks(addr.postalCode),
-    country_code: (addr.country || '').toLowerCase() || null,
+    country_code: country.length === 2 ? country : 'us',
     phone: contact.phone ?? null,
     email: order?.buyerInfo?.email ?? contact.email ?? null,
     address_order_po: orderPoDisplay
   };
+}
+
+function transformWixOrderToFinerWorksPayload(order, { shippingOptions = null }) {
+  const orderNumber = order?.number != null ? String(order.number) : '';
+  const orderPoDisplay = orderNumber.replace(/\D/g, '') || (order?.id ? String(order.id).replace(/[^A-Za-z0-9]/g, '') : null);
+
+  const recipient = buildRecipientFromWixOrder(order, orderPoDisplay);
 
   const lineItems = Array.isArray(order?.lineItems) ? order.lineItems : [];
   const orderItems = lineItems
@@ -636,22 +708,14 @@ function transformWixOrderToFinerWorksPayload(order, { shippingOptions = null })
             },
         product_title: pickTranslatedString(li?.productName) ?? pickTranslatedString(li?.name) ?? null,
         template: null,
-        product_guid: null,
+        product_guid: FINERWORKS_EMPTY_PRODUCT_GUID,
         custom_data_1: null,
         custom_data_2: null,
         custom_data_3: null
       };
     });
 
-  const shippingTitle = order?.shippingInfo?.title ?? order?.shippingInfo?.logistics?.title ?? null;
-  const shippingCodeRaw = order?.shippingInfo?.code ?? null;
-  const matchedShippingId = matchShippingOptionId(shippingTitle, shippingOptions, shippingCodeRaw);
-  const shippingCodeStr =
-    matchedShippingId != null
-      ? String(matchedShippingId)
-      : shippingCodeRaw != null
-        ? String(shippingCodeRaw)
-        : null;
+  const shippingCodeStr = resolveFinerWorksShippingCode(order, shippingOptions);
 
   return {
     order_po: orderPoDisplay || null,
@@ -861,10 +925,12 @@ exports.handleWixOrderCreateWebhook = async (req, res) => {
         shippingOptions: shippingOptsList
       });
       log('Wix pricing plan order mapped for FinerWorks order_po=%s', transformedOrder.order_po);
+      console.log('Wix pricing plan order mapped for FinerWorks: ', transformedOrder);
     } else {
       transformedOrder = transformWixOrderToFinerWorksPayload(order, {
         shippingOptions: shippingOptsList
       });
+      console.log('Wix eCommerce order mapped for FinerWorks: ', transformedOrder);
       if (!transformedOrder.order_items?.length) {
         return res.status(200).json({
           success: true,
@@ -875,6 +941,11 @@ exports.handleWixOrderCreateWebhook = async (req, res) => {
         });
       }
     }
+
+    transformedOrder.order_items = await enrichOrderItemsWithProductGuids(
+      transformedOrder.order_items,
+      account_key
+    );
 
     const apiBase = String(process.env.OFA_PUBLIC_API_BASE_URL || '').trim().replace(/\/$/, '');
     if (apiBase) {
@@ -895,14 +966,18 @@ exports.handleWixOrderCreateWebhook = async (req, res) => {
     let submitData = null;
     try {
       log('Submitting Wix order to FinerWorks: order_po=%s', transformedOrder.order_po);
+      console.log('Submitting Wix order to FinerWorks: ', finalPayload);
       submitData = await finerworksService.SUBMIT_ORDERS(finalPayload);
     } catch (submitErr) {
+      const fwError = submitErr?.response?.data;
       log('SUBMIT_ORDERS failed: %s', submitErr?.message);
-      return res.status(502).json({
+      console.log('SUBMIT_ORDERS failed: ', fwError || submitErr?.message || submitErr);
+      return res.status(submitErr?.response?.status === 400 ? 400 : 502).json({
         success: false,
         message: 'Failed to submit order to FinerWorks',
         orderId: order.id || orderId,
-        error: submitErr?.message || submitErr?.response?.data || 'Unknown error'
+        error: submitErr?.message || 'Unknown error',
+        ...(fwError && typeof fwError === 'object' ? { finerworksError: fwError } : {})
       });
     }
 
@@ -918,6 +993,7 @@ exports.handleWixOrderCreateWebhook = async (req, res) => {
       submitData
     });
   } catch (err) {
+    console.log("handleWixOrderCreateWebhook error: ", err);
     log('handleWixOrderCreateWebhook error: %s', err?.message);
     return res.status(500).json({
       success: false,
