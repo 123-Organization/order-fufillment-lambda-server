@@ -39,11 +39,22 @@ function findConnectionIndex(connections, connectionName) {
   return connections.findIndex((c) => c && c.name === connectionName);
 }
 
+/** Reads `order_sync` from stringified connection.data (legacy root flag supported). */
+function isOrderSyncEnabled(conn, connectionName = null) {
+  if (!conn) return false;
+  if (connectionName && conn.name !== connectionName) return false;
+  const data = parseConnectionData(conn);
+  if (data.order_sync === true) return true;
+  if (data.order_sync === false) return false;
+  return conn.order_sync === true;
+}
+
 module.exports = {
   PLATFORM_TO_CONNECTION_NAME,
   normalizePlatform,
   connectionNameFromPlatform,
   parseConnectionData,
   cloneConnections,
-  findConnectionIndex
+  findConnectionIndex,
+  isOrderSyncEnabled
 };

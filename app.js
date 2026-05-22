@@ -5,6 +5,7 @@ require('dotenv').config();
 const http = require('http');
 const { handleWixAppInstanceInstalled } = require('./src/controllers/wix-webhooks');
 const { handleWixOAuthCallback } = require('./src/controllers/wix-auth');
+const { handleWixOrderCreateWebhook } = require('./src/controllers/wix-order-create-webhook');
 
 app.use(cors({
     origin: '*', // Allow requests from this origin
@@ -20,6 +21,7 @@ const wixJwtBodyRouter = express.Router();
 const wixJwtText = express.text({ type: '*/*', limit: '512kb' });
 wixJwtBodyRouter.post('/wix/webhooks/app-instance-installed', wixJwtText, handleWixAppInstanceInstalled);
 wixJwtBodyRouter.post('/wix/oauth/callback', wixJwtText, handleWixOAuthCallback);
+wixJwtBodyRouter.post('/webhooks/wix/order-create', wixJwtText, handleWixOrderCreateWebhook);
 app.use('/api', wixJwtBodyRouter);
 
 app.use(express.json());

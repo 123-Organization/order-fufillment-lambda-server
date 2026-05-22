@@ -121,24 +121,4 @@ app.post('/webhooks/product-delete', shopifyProductDeleteWebhook);
 app.post('/webhooks/orders-create', shopifyOrdersCreateWebhook);
 app.post('/webhooks/squarespace/order-create', squarespaceOrderCreateWebhook);
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 module.exports = app;

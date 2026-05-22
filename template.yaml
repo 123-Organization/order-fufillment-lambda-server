@@ -339,6 +339,24 @@ Resources:
             RestApiId: !Ref MyApiGateway
             Method: POST
             Path: "/api/stores/disconnect"
+        storeOrderAutoSync:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Method: POST
+            Path: "/api/stores/order-sync"
+        SquareSpaceOrderCreateWebhook:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Method: POST
+            Path: "/api/webhooks/squarespace/order-create"
+        WixOrderCreateWebhook:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Method: POST
+            Path: "/api/webhooks/wix/order-create"
   OrderFullFillmentServerLessDevServerV2Again:
     Type: AWS::Serverless::Function
     Properties:

@@ -338,6 +338,8 @@ async function fetchWixOrdersByNumberList(res, wixAuth, orderNumberList) {
  *
  * Requires app permission: READ-ORDERS.
  */
+exports.fetchWixOrderByGuid = fetchWixOrderByGuid;
+
 exports.getWixOrders = async (req, res) => {
   try {
     const account_key =
