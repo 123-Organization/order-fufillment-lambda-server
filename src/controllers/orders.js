@@ -510,13 +510,13 @@ exports.updateOrderByValidProductSkuCode = async (req, res) => {
       searchListVirtualInventoryParams.product_code_filter = [productCode];
     }
     if (account_key) {
-      searchListVirtualInventoryParams.account_key = [account_key];
+      searchListVirtualInventoryParams.account_key = account_key;
     }
     log(
       "Request come to search product from virtual inventory for the payload",
       JSON.stringify(searchListVirtualInventoryParams)
     );
-    console.log("okkkkkkkkkkkkkkkkkkkkkkkkkk")
+
     if (skuCode || fromTheInventory) {
       getProductDetails = await finerworksService.LIST_VIRTUAL_INVENTORY(
         searchListVirtualInventoryParams
