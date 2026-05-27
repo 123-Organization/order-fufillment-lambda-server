@@ -357,6 +357,12 @@ Resources:
             RestApiId: !Ref MyApiGateway
             Method: POST
             Path: "/api/webhooks/wix/order-create"
+        exportProductToSquarespace:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Method: POST
+            Path: "/api/squarespace/sync-products"
   OrderFullFillmentServerLessDevServerV2Again:
     Type: AWS::Serverless::Function
     Properties:
