@@ -28,6 +28,13 @@ const log = debug('app:platformOrderSync');
 
 const SUPPORTED_PLATFORMS = ['squarespace', 'wix', 'shopify'];
 
+const SHOPIFY_ORDER_CREATE_WEBHOOK = {
+  topic: 'order/create',
+  address:
+    'https://d7z22w3j4h.execute-api.us-east-1.amazonaws.com/Prod/api/webhooks/webhooks/orders-create',
+  format: 'json'
+};
+
 function parseOrderSyncFlag(value) {
   if (typeof value === 'boolean') return value;
   if (value === 1 || value === '1' || value === 'true') return true;
@@ -198,33 +205,11 @@ function validateShopifyShopDomain(storeName) {
 }
 
 async function enableShopifyOrderSync(req, existingData) {
-  const webhook = req.body?.webhook;
   const { storeName, access_token } = resolveShopifyCredentials(req.body, null, existingData);
+  const { topic, address, format } = SHOPIFY_ORDER_CREATE_WEBHOOK;
 
   if (!storeName || !access_token) {
     const err = new Error('Missing required parameters for Shopify order sync: storeName and access_token');
-    err.status = 400;
-    throw err;
-  }
-
-  if (!webhook || typeof webhook !== 'object') {
-    const err = new Error('Missing required object: webhook (topic, address, format)');
-    err.status = 400;
-    throw err;
-  }
-
-  const topic = webhook.topic ? String(webhook.topic).trim() : '';
-  const address = webhook.address ? String(webhook.address).trim() : '';
-  const format = webhook.format ? String(webhook.format).trim() : 'json';
-
-  if (!topic || !address) {
-    const err = new Error('webhook.topic and webhook.address are required');
-    err.status = 400;
-    throw err;
-  }
-
-  if (!address.toLowerCase().startsWith('https://')) {
-    const err = new Error('webhook.address must be an https URL');
     err.status = 400;
     throw err;
   }
@@ -255,7 +240,7 @@ async function enableShopifyOrderSync(req, existingData) {
     endpointUrl: address,
     webhook: matched,
     webhookSubscription: createdSubscription?.webhookSubscription || null,
-    message: matched && createdSubscription
+    message: createdSubscription
       ? 'Shopify orders/create webhook registered successfully'
       : 'Shopify orders/create webhook already registered'
   };
@@ -273,11 +258,7 @@ async function disableShopifyOrderSync(req, existingConn, existingData) {
   }
 
   const shopDomain = validateShopifyShopDomain(storeName);
-  const endpointUrl =
-    existingData.order_create_webhook_url ||
-    existingData.webhook?.address ||
-    req.body?.webhook?.address ||
-    null;
+  const endpointUrl = SHOPIFY_ORDER_CREATE_WEBHOOK.address;
 
   const listed = await listShopifyWebhooks(access_token, shopDomain);
   const matched =
@@ -338,7 +319,7 @@ function applyOrderSyncToConnection(conn, order_sync, dataPatch = {}) {
  * - order_sync (required boolean): true to enable, false to disable
  *
  * Squarespace: registers/deletes order.create webhook subscription and persists order_sync inside connection.data (JSON).
- * Shopify: registers/deletes orders/create webhook (requires storeName, access_token, webhook on enable).
+ * Shopify: registers/deletes orders/create webhook (requires storeName and access_token; webhook URL is fixed).
  * Wix: updates order_sync inside connection.data only (no webhook registration).
  */
 exports.setPlatformOrderSync = async (req, res) => {
