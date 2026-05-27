@@ -15,10 +15,18 @@ const {
   deleteSquarespaceWebhookSubscription,
   findOrderCreateSubscription
 } = require('../helpers/squarespace-webhook-api');
+const {
+  listShopifyWebhooks,
+  createShopifyWebhookSubscription,
+  deleteShopifyWebhook,
+  findOrdersCreateWebhook,
+  resolveShopifyCredentials,
+  normalizeShopDomain
+} = require('../helpers/shopify-webhook-api');
 const debug = require('debug');
 const log = debug('app:platformOrderSync');
 
-const SUPPORTED_PLATFORMS = ['squarespace', 'wix'];
+const SUPPORTED_PLATFORMS = ['squarespace', 'wix', 'shopify'];
 
 function parseOrderSyncFlag(value) {
   if (typeof value === 'boolean') return value;
@@ -179,6 +187,120 @@ async function disableSquarespaceOrderSync(account_key, subscriptionId) {
   });
 }
 
+function validateShopifyShopDomain(storeName) {
+  const shopDomain = normalizeShopDomain(storeName);
+  if (!shopDomain || !shopDomain.match(/^[a-z0-9][a-z0-9-]*\.myshopify\.com$/)) {
+    const err = new Error('Invalid storeName. Expected shopname or shopname.myshopify.com');
+    err.status = 400;
+    throw err;
+  }
+  return shopDomain;
+}
+
+async function enableShopifyOrderSync(req, existingData) {
+  const webhook = req.body?.webhook;
+  const { storeName, access_token } = resolveShopifyCredentials(req.body, null, existingData);
+
+  if (!storeName || !access_token) {
+    const err = new Error('Missing required parameters for Shopify order sync: storeName and access_token');
+    err.status = 400;
+    throw err;
+  }
+
+  if (!webhook || typeof webhook !== 'object') {
+    const err = new Error('Missing required object: webhook (topic, address, format)');
+    err.status = 400;
+    throw err;
+  }
+
+  const topic = webhook.topic ? String(webhook.topic).trim() : '';
+  const address = webhook.address ? String(webhook.address).trim() : '';
+  const format = webhook.format ? String(webhook.format).trim() : 'json';
+
+  if (!topic || !address) {
+    const err = new Error('webhook.topic and webhook.address are required');
+    err.status = 400;
+    throw err;
+  }
+
+  if (!address.toLowerCase().startsWith('https://')) {
+    const err = new Error('webhook.address must be an https URL');
+    err.status = 400;
+    throw err;
+  }
+
+  const shopDomain = validateShopifyShopDomain(storeName);
+  const listed = await listShopifyWebhooks(access_token, shopDomain);
+  let matched = findOrdersCreateWebhook(listed.webhooks, address);
+  let createdSubscription = null;
+
+  if (!matched) {
+    createdSubscription = await createShopifyWebhookSubscription(access_token, shopDomain, {
+      topic,
+      address,
+      format
+    });
+    const relisted = await listShopifyWebhooks(access_token, shopDomain);
+    matched = findOrdersCreateWebhook(relisted.webhooks, address);
+  }
+
+  if (!matched?.id) {
+    const err = new Error('Shopify order create webhook was registered but could not be found in webhook list');
+    err.status = 502;
+    throw err;
+  }
+
+  return {
+    shopDomain,
+    endpointUrl: address,
+    webhook: matched,
+    webhookSubscription: createdSubscription?.webhookSubscription || null,
+    message: matched && createdSubscription
+      ? 'Shopify orders/create webhook registered successfully'
+      : 'Shopify orders/create webhook already registered'
+  };
+}
+
+async function disableShopifyOrderSync(req, existingConn, existingData) {
+  const { storeName, access_token } = resolveShopifyCredentials(req.body, existingConn, existingData);
+
+  if (!storeName || !access_token) {
+    const err = new Error(
+      'Missing Shopify credentials. Provide storeName and access_token, or ensure they are stored on the Shopify connection.'
+    );
+    err.status = 400;
+    throw err;
+  }
+
+  const shopDomain = validateShopifyShopDomain(storeName);
+  const endpointUrl =
+    existingData.order_create_webhook_url ||
+    existingData.webhook?.address ||
+    req.body?.webhook?.address ||
+    null;
+
+  const listed = await listShopifyWebhooks(access_token, shopDomain);
+  const matched =
+    findOrdersCreateWebhook(listed.webhooks, endpointUrl) ||
+    findOrdersCreateWebhook(listed.webhooks, null);
+
+  if (!matched?.id) {
+    const err = new Error('No Shopify orders/create webhook found to delete');
+    err.status = 404;
+    throw err;
+  }
+
+  await deleteShopifyWebhook(access_token, shopDomain, matched.id);
+
+  return {
+    shopDomain,
+    deletedWebhookId: String(matched.id),
+    topic: matched.topic,
+    address: matched.address,
+    message: 'Shopify orders/create webhook deleted successfully'
+  };
+}
+
 function applyOrderSyncToConnection(conn, order_sync, dataPatch = {}) {
   const existingData = parseConnectionData(conn);
   // Support legacy connections that stored order_sync on the connection root.
@@ -192,6 +314,10 @@ function applyOrderSyncToConnection(conn, order_sync, dataPatch = {}) {
     delete nextData.webhook_subscription_id;
     delete nextData.webhook_subscription_secret;
     delete nextData.order_create_webhook_url;
+    delete nextData.webhook_id;
+    delete nextData.shopify_webhook_id;
+    delete nextData.shop_domain;
+    delete nextData.storeName;
   }
 
   const { order_sync: _removed, ...connWithoutRootFlag } = conn;
@@ -208,10 +334,11 @@ function applyOrderSyncToConnection(conn, order_sync, dataPatch = {}) {
  *
  * Body:
  * - account_key (required, uuid)
- * - platform (required): squarespace | wix
+ * - platform (required): squarespace | wix | shopify
  * - order_sync (required boolean): true to enable, false to disable
  *
  * Squarespace: registers/deletes order.create webhook subscription and persists order_sync inside connection.data (JSON).
+ * Shopify: registers/deletes orders/create webhook (requires storeName, access_token, webhook on enable).
  * Wix: updates order_sync inside connection.data only (no webhook registration).
  */
 exports.setPlatformOrderSync = async (req, res) => {
@@ -259,11 +386,14 @@ exports.setPlatformOrderSync = async (req, res) => {
     const existingConn = connections[idx];
     const existingData = parseConnectionData(existingConn);
     let webhookSubscription = null;
+    let shopifyWebhookResult = null;
+    let syncMessage = null;
 
     if (connectionName === 'Squarespace') {
       if (order_sync) {
         const result = await enableSquarespaceOrderSync(trimmedKey);
         webhookSubscription = result.webhookSubscription;
+        syncMessage = 'Squarespace order.create webhook registered successfully';
         connections[idx] = applyOrderSyncToConnection(existingConn, true, {
           webhook_subscription_id: webhookSubscription?.id || existingData.webhook_subscription_id || null,
           webhook_subscription_secret:
@@ -273,10 +403,36 @@ exports.setPlatformOrderSync = async (req, res) => {
       } else {
         const subscriptionId = existingData.webhook_subscription_id || null;
         await disableSquarespaceOrderSync(trimmedKey, subscriptionId);
+        syncMessage = 'Squarespace order.create webhook removed and order sync disabled';
+        connections[idx] = applyOrderSyncToConnection(existingConn, false);
+      }
+    } else if (connectionName === 'Shopify') {
+      if (order_sync) {
+        shopifyWebhookResult = await enableShopifyOrderSync(req, existingData);
+        syncMessage = shopifyWebhookResult.message;
+        const { access_token } = resolveShopifyCredentials(req.body, existingConn, existingData);
+        connections[idx] = applyOrderSyncToConnection(existingConn, true, {
+          shop_domain: shopifyWebhookResult.shopDomain,
+          storeName: shopifyWebhookResult.shopDomain,
+          order_create_webhook_url: shopifyWebhookResult.endpointUrl,
+          webhook_id: shopifyWebhookResult.webhook?.id || null,
+          shopify_webhook_id: shopifyWebhookResult.webhook?.id || null,
+          ...(access_token ? { access_token } : {})
+        });
+        if (access_token) {
+          connections[idx].id = access_token;
+        }
+        webhookSubscription = shopifyWebhookResult.webhookSubscription;
+      } else {
+        shopifyWebhookResult = await disableShopifyOrderSync(req, existingConn, existingData);
+        syncMessage = shopifyWebhookResult.message;
         connections[idx] = applyOrderSyncToConnection(existingConn, false);
       }
     } else {
       connections[idx] = applyOrderSyncToConnection(existingConn, order_sync);
+      syncMessage = order_sync
+        ? `${connectionName} order sync enabled`
+        : `${connectionName} order sync disabled`;
     }
 
     await finerworksService.UPDATE_INFO({
@@ -286,23 +442,30 @@ exports.setPlatformOrderSync = async (req, res) => {
 
     return res.status(200).json({
       success: true,
+      message: syncMessage,
       platform: platformNorm,
       order_sync,
       connection: connections[idx],
-      ...(webhookSubscription ? { webhookSubscription } : {})
+      ...(webhookSubscription ? { webhookSubscription } : {}),
+      ...(shopifyWebhookResult?.webhook ? { shopifyWebhook: shopifyWebhookResult.webhook } : {}),
+      ...(shopifyWebhookResult?.deletedWebhookId
+        ? { deletedWebhookId: shopifyWebhookResult.deletedWebhookId }
+        : {})
     });
   } catch (err) {
     const status = err?.status || err?.response?.status || 500;
     const data = err?.response?.data;
+    const errorDetail =
+      (typeof data?.message === 'string' && data.message) ||
+      (typeof data?.error === 'string' && data.error) ||
+      err?.message ||
+      'Unknown error';
+
     return res.status(status).json({
       success: false,
-      message: 'Failed to update platform order sync',
-      error:
-        (typeof data?.message === 'string' && data.message) ||
-        (typeof data?.error === 'string' && data.error) ||
-        err?.message ||
-        'Unknown error',
-      ...(data && typeof data === 'object' ? { details: data } : {})
+      message: err?.status ? errorDetail : 'Failed to update platform order sync',
+      ...(err?.status ? {} : { error: errorDetail }),
+      ...(data && typeof data === 'object' && !err?.status ? { details: data } : {})
     });
   }
 };
