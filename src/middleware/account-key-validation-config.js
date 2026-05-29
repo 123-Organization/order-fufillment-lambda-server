@@ -21,7 +21,6 @@ const SKIP_ACCOUNT_KEY_VALIDATION = [
   { method: 'POST', path: '/webhooks/orders-create' },
   { method: 'POST', path: '/webhooks/product-delete' },
   { method: 'POST', path: '/webhooks/wix/order-create' },
-  { method: 'ALL', pathPrefix: '/wix/webhooks/' },
 
   // Shopify carrier rate callback
   { method: 'POST', path: '/shopify/carrier-service/callback' }
