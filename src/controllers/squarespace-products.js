@@ -53,14 +53,19 @@ function buildVariantLabel(product) {
 }
 
 function getPrice(product) {
-  return (
-    product?.asking_price ||
-    product?.per_item_price ||
-    product?.price_details?.product_price ||
-    product?.price_details?.total_price ||
-    product?.total_price ||
-    0
-  );
+  const asking = Number(product?.asking_price);
+  if (Number.isFinite(asking) && asking > 0) return asking;
+
+  const perItem = Number(product?.per_item_price);
+  if (Number.isFinite(perItem) && perItem > 0) return perItem;
+
+  const fromDetails = Number(product?.price_details?.product_price ?? product?.price_details?.total_price);
+  if (Number.isFinite(fromDetails) && fromDetails > 0) return fromDetails;
+
+  const total = Number(product?.total_price);
+  if (Number.isFinite(total) && total > 0) return total;
+
+  return 0;
 }
 
 function getQuantity(product) {
@@ -95,12 +100,94 @@ function firstHttpUrlFromPayload(item) {
   return null;
 }
 
+function parseGroupByImageGuidFlag(value) {
+  if (value === false || value === 0 || value === '0' || value === 'false') return false;
+  if (value === true || value === 1 || value === '1' || value === 'true') return true;
+  return true;
+}
+
+function squarespaceErrorMessage(data, fallback = 'Squarespace API request failed') {
+  if (!data || typeof data !== 'object') return fallback;
+  if (typeof data.message === 'string' && data.message.trim()) return data.message.trim();
+  if (typeof data.error === 'string' && data.error.trim()) return data.error.trim();
+  return fallback;
+}
+
+function authorizationHint(data) {
+  if (data?.type !== 'AUTHORIZATION_ERROR') return null;
+  return (
+    'Squarespace token lacks write permission or is invalid. Reconnect the store via OAuth with ' +
+    'website.products and website.inventory scopes, or use a token with Products Read and Write access.'
+  );
+}
+
+function buildVariantRow(src, currency, { includeAttributes = false } = {}) {
+  const sku = normalizeSku(src?.sku);
+  if (!sku) return null;
+
+  const row = {
+    sku,
+    pricing: { basePrice: buildBasePrice(currency, getPrice(src)) },
+    stock: {
+      quantity: Math.max(0, Math.round(Number(getQuantity(src) || 0))),
+      unlimited: false
+    }
+  };
+
+  if (includeAttributes) {
+    row.attributes = { Configuration: buildVariantLabel(src) };
+  }
+
+  return row;
+}
+
+/** Each group becomes one Squarespace product. simpleProduct => single variant, no Configuration attribute. */
+function buildSyncGroups(rawProducts, groupByImageGuid) {
+  if (!groupByImageGuid) {
+    return rawProducts
+      .map((p) => {
+        const image_guid = String(p?.image_guid || '').trim();
+        const sku = normalizeSku(p?.sku);
+        if (!image_guid || !sku) return null;
+        return {
+          key: `${image_guid}:${sku}`,
+          image_guid,
+          items: [p],
+          simpleProduct: true
+        };
+      })
+      .filter(Boolean);
+  }
+
+  const byGuid = new Map();
+  for (const p of rawProducts) {
+    const image_guid = String(p?.image_guid || '').trim();
+    if (!image_guid) continue;
+    if (!byGuid.has(image_guid)) byGuid.set(image_guid, []);
+    byGuid.get(image_guid).push(p);
+  }
+
+  return Array.from(byGuid.entries()).map(([image_guid, items]) => ({
+    key: image_guid,
+    image_guid,
+    items,
+    simpleProduct: items.length === 1
+  }));
+}
+
 async function fetchStorePageId(headers, explicitStorePageId) {
   let cursor = null;
   const pages = [];
   for (let i = 0; i < 25; i++) {
     const url = cursor ? `${STORE_PAGES_URL}?cursor=${encodeURIComponent(cursor)}` : STORE_PAGES_URL;
-    const r = await axios.get(url, { headers });
+    const r = await axios.get(url, { headers, validateStatus: () => true });
+    if (r.status < 200 || r.status >= 300) {
+      const err = new Error(squarespaceErrorMessage(r.data, 'Failed to list Squarespace store pages'));
+      err.status = r.status || 502;
+      err.response = { data: r.data, status: r.status };
+      err.step = 'fetch_store_pages';
+      throw err;
+    }
     const data = r?.data || {};
     pages.push(...(Array.isArray(data.storePages) ? data.storePages : []));
     const p = data.pagination || {};
@@ -180,6 +267,9 @@ const syncSquarespaceProducts = async (req, res) => {
     const currency = req.body?.currency || 'USD';
     const rawProducts = Array.isArray(req.body?.productsList) ? req.body.productsList : [];
     const explicitStorePageId = req.body?.storePageId || req.body?.store_page_id || null;
+    const groupByImageGuid = parseGroupByImageGuidFlag(
+      req.body?.groupByImageGuid ?? req.body?.group_by_image_guid ?? true
+    );
 
     if (!accessToken) return res.status(400).json({ success: false, message: 'access_token is required' });
     if (!accountKey || !String(accountKey).trim()) {
@@ -193,14 +283,34 @@ const syncSquarespaceProducts = async (req, res) => {
     }
 
     const uniqueImageGuids = [...new Set(rawProducts.map((p) => String(p?.image_guid || '').trim()).filter(Boolean))];
+    const syncGroups = buildSyncGroups(rawProducts, groupByImageGuid);
 
-    const fwData = await finerworksService.LIST_IMAGES({
-      library: {
-        account_key: String(accountKey).trim(),
-        site_id: Number(siteId),
-        session_id: String(sessionId).trim()
-      }
-    });
+    if (!syncGroups.length) {
+      return res.status(400).json({
+        success: false,
+        message: 'No valid products to sync (each item needs image_guid and sku)'
+      });
+    }
+
+    let fwData;
+    try {
+      fwData = await finerworksService.LIST_IMAGES({
+        library: {
+          account_key: String(accountKey).trim(),
+          site_id: Number(siteId),
+          session_id: String(sessionId).trim()
+        }
+      });
+    } catch (err) {
+      const status = err?.response?.status || 502;
+      return res.status(status).json({
+        success: false,
+        message: 'Failed to load FinerWorks images for product sync',
+        step: 'finerworks_list_images',
+        error: err?.message || 'Unknown error',
+        ...(err?.response?.data ? { finerworksError: err.response.data } : {})
+      });
+    }
     const allImages = extractImages(fwData);
     const guidSet = new Set(uniqueImageGuids);
     const matchedImages = allImages.filter((img) => guidSet.has(imageGuidFromImage(img)));
@@ -210,20 +320,28 @@ const syncSquarespaceProducts = async (req, res) => {
       if (g && !matchedByGuid.has(g)) matchedByGuid.set(g, img);
     }
 
-    const productsByGuid = new Map();
-    for (const p of rawProducts) {
-      const g = String(p?.image_guid || '').trim();
-      if (!g) continue;
-      if (!productsByGuid.has(g)) productsByGuid.set(g, []);
-      productsByGuid.get(g).push(p);
-    }
-
     const headers = {
       Authorization: `Bearer ${accessToken}`,
       'Content-Type': 'application/json',
       'User-Agent': process.env.SQUARESPACE_USER_AGENT || 'ofa-node'
     };
-    const storePageId = await fetchStorePageId(headers, explicitStorePageId);
+
+    let storePageId;
+    try {
+      storePageId = await fetchStorePageId(headers, explicitStorePageId);
+    } catch (err) {
+      const data = err?.response?.data;
+      const status = err?.status || err?.response?.status || 502;
+      return res.status(status).json({
+        success: false,
+        message: 'Failed to access Squarespace store pages',
+        step: err?.step || 'fetch_store_pages',
+        error: squarespaceErrorMessage(data, err?.message || 'Unknown error'),
+        ...(authorizationHint(data) ? { hint: authorizationHint(data) } : {}),
+        ...(data && typeof data === 'object' ? { squarespaceError: data } : {})
+      });
+    }
+
     if (!storePageId) {
       return res.status(400).json({ success: false, message: 'No valid Squarespace store page id found' });
     }
@@ -233,8 +351,8 @@ const syncSquarespaceProducts = async (req, res) => {
     let variantsAdded = 0;
     const unmatchedImageGuids = uniqueImageGuids.filter((g) => !matchedByGuid.has(g));
 
-    for (const guid of uniqueImageGuids) {
-      const srcVariants = productsByGuid.get(guid) || [];
+    for (const group of syncGroups) {
+      const { key, image_guid: guid, items: srcVariants, simpleProduct } = group;
       if (!srcVariants.length) continue;
 
       const matched = matchedByGuid.get(guid) || null;
@@ -249,26 +367,24 @@ const syncSquarespaceProducts = async (req, res) => {
         first?.description_short ||
         '';
 
+      const useVariantAttributes = !simpleProduct && srcVariants.length > 1;
       const variantRows = srcVariants
-        .map((src) => {
-          const sku = normalizeSku(src?.sku);
-          if (!sku) return null;
-          return {
-            sku,
-            pricing: { basePrice: buildBasePrice(currency, getPrice(src)) },
-            attributes: { Configuration: buildVariantLabel(src) },
-            stock: {
-              quantity: Math.max(0, Math.round(Number(getQuantity(src) || 0))),
-              unlimited: false
-            }
-          };
-        })
+        .map((src) => buildVariantRow(src, currency, { includeAttributes: useVariantAttributes }))
         .filter(Boolean);
 
       if (!variantRows.length) {
-        results.push({ success: false, image_guid: guid, error: 'No valid variants (missing SKU)' });
+        results.push({
+          success: false,
+          image_guid: guid,
+          groupKey: key,
+          error: 'No valid variants (missing SKU)'
+        });
         continue;
       }
+
+      const slugSeed = simpleProduct
+        ? `${productName}-${normalizeSku(first?.sku) || guid}`
+        : `${productName}-${guid}`;
 
       try {
         const createPayload = {
@@ -277,11 +393,28 @@ const syncSquarespaceProducts = async (req, res) => {
           type: 'PHYSICAL',
           isVisible: true,
           storePageId,
-          urlSlug: slugify(`${productName}-${guid}`) || `product-${Date.now()}`,
-          ...(variantRows.length > 1 ? { variantAttributes: ['Configuration'] } : {}),
+          urlSlug: slugify(slugSeed) || `product-${Date.now()}`,
+          ...(useVariantAttributes ? { variantAttributes: ['Configuration'] } : {}),
           variants: variantRows
         };
-        const createResp = await axios.post(`${API_BASE}/products`, createPayload, { headers });
+        const createResp = await axios.post(`${API_BASE}/products`, createPayload, {
+          headers,
+          validateStatus: () => true
+        });
+        if (createResp.status < 200 || createResp.status >= 300) {
+          const data = createResp.data;
+          results.push({
+            success: false,
+            image_guid: guid,
+            groupKey: key,
+            productMode: simpleProduct ? 'simple' : useVariantAttributes ? 'multi_variant' : 'simple',
+            error: squarespaceErrorMessage(data, 'Failed to create Squarespace product'),
+            ...(authorizationHint(data) ? { hint: authorizationHint(data) } : {}),
+            ...(data && typeof data === 'object' ? { squarespaceError: data } : {})
+          });
+          continue;
+        }
+
         const productId = createResp?.data?.id || null;
         if (!productId) {
           results.push({ success: false, image_guid: guid, error: 'Squarespace product id missing in response' });
@@ -345,6 +478,8 @@ const syncSquarespaceProducts = async (req, res) => {
         results.push({
           success: true,
           image_guid: guid,
+          groupKey: key,
+          productMode: simpleProduct ? 'simple' : useVariantAttributes ? 'multi_variant' : 'simple',
           squarespaceProductId: productId,
           variantCount: variantRows.length,
           variantImageAssociations
@@ -354,11 +489,9 @@ const syncSquarespaceProducts = async (req, res) => {
         results.push({
           success: false,
           image_guid: guid,
-          error:
-            (typeof data?.message === 'string' && data.message) ||
-            (typeof data?.error === 'string' && data.error) ||
-            err?.message ||
-            'Failed to create Squarespace product',
+          groupKey: key,
+          error: squarespaceErrorMessage(data, err?.message || 'Failed to create Squarespace product'),
+          ...(authorizationHint(data) ? { hint: authorizationHint(data) } : {}),
           ...(data && typeof data === 'object' ? { squarespaceError: data } : {})
         });
       }
@@ -366,6 +499,7 @@ const syncSquarespaceProducts = async (req, res) => {
 
     return res.status(200).json({
       success: results.every((r) => r.success),
+      groupByImageGuid,
       uniqueImageGuidCount: uniqueImageGuids.length,
       uniqueImageGuids,
       totalImages: allImages.length,
@@ -378,16 +512,14 @@ const syncSquarespaceProducts = async (req, res) => {
       results
     });
   } catch (err) {
-    const status = err?.response?.status || 500;
+    const status = err?.response?.status || err?.status || 500;
     const data = err?.response?.data;
     return res.status(status).json({
       success: false,
       message: 'Failed to sync Squarespace products',
-      error:
-        (typeof data?.message === 'string' && data.message) ||
-        (typeof data?.error === 'string' && data.error) ||
-        err?.message ||
-        'Unknown error',
+      step: err?.step || 'unknown',
+      error: squarespaceErrorMessage(data, err?.message || 'Unknown error'),
+      ...(authorizationHint(data) ? { hint: authorizationHint(data) } : {}),
       ...(data && typeof data === 'object' ? { details: data } : {})
     });
   }
