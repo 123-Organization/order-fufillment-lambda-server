@@ -6,6 +6,7 @@ const http = require('http');
 const { handleWixAppInstanceInstalled } = require('./src/controllers/wix-webhooks');
 const { handleWixOAuthCallback } = require('./src/controllers/wix-auth');
 const { handleWixOrderCreateWebhook } = require('./src/controllers/wix-order-create-webhook');
+const optionalAccountKeyValidator = require('./src/middleware/optional-account-key-validator');
 
 app.use(cors({
     origin: '*', // Allow requests from this origin
@@ -19,6 +20,7 @@ app.options('*', cors());
 // signed JWT as the raw body (not JSON). If express.json() runs first, parsing fails. Use text first.
 const wixJwtBodyRouter = express.Router();
 const wixJwtText = express.text({ type: '*/*', limit: '512kb' });
+wixJwtBodyRouter.use(optionalAccountKeyValidator);
 wixJwtBodyRouter.post('/wix/webhooks/app-instance-installed', wixJwtText, handleWixAppInstanceInstalled);
 wixJwtBodyRouter.post('/wix/oauth/callback', wixJwtText, handleWixOAuthCallback);
 wixJwtBodyRouter.post('/webhooks/wix/order-create', wixJwtText, handleWixOrderCreateWebhook);
@@ -28,6 +30,7 @@ app.use(express.json());
 app.use(express.urlencoded({extended: true}));
 const apiRoutes = require('./src/controllers/routes');
 const server = http.createServer(app);
+app.use('/api', optionalAccountKeyValidator);
 app.use('/api', apiRoutes);
 const debug = require('debug');
 const log = debug('app:appIndex');
