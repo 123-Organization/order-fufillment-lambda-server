@@ -232,7 +232,7 @@ function transformSquarespaceOrderToFinerWorksPayload(order, { shippingOptions =
     ship_by_date: null,
     customs_tax_info: null,
     gift_message: null,
-    test_mode: Boolean(order?.testmode),
+    test_mode: true,
     webhook_order_status_url: null,
     document_url: null,
     acct_number_ups: null,
