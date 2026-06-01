@@ -25,34 +25,58 @@ function squarespaceLineItemSkuStartsWithAP(lineItem) {
   return String(sku).trim().toUpperCase().startsWith('AP');
 }
 
+function looksLikeUuid(value) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-/i.test(String(value || '').trim());
+}
+
+function isValidFinerWorksShippingCode(value) {
+  const code = value != null ? String(value).trim() : '';
+  return Boolean(code && code.length <= 2 && !looksLikeUuid(code));
+}
+
+function finerWorksShippingCodeFromOption(option) {
+  if (!option || typeof option !== 'object') return null;
+  const shippingCode = option.shipping_code != null ? String(option.shipping_code).trim() : '';
+  if (isValidFinerWorksShippingCode(shippingCode)) return shippingCode;
+  const id = option.id != null ? String(option.id).trim() : '';
+  if (isValidFinerWorksShippingCode(id)) return id;
+  return null;
+}
+
 function matchShippingOptionId(title, options, carrierCode = null) {
   if (!Array.isArray(options) || !options.length) return null;
   const code = carrierCode != null ? String(carrierCode).trim() : '';
-  if (code) {
+  // Squarespace shippingOptionServiceType may be a platform id, not a FinerWorks shipping_code.
+  if (code && !looksLikeUuid(code)) {
     const byCode = options.find((o) => String(o?.shipping_code || '').trim() === code);
-    if (byCode) return byCode.id ?? byCode.shipping_code ?? null;
+    if (byCode) return finerWorksShippingCodeFromOption(byCode);
     const byId = options.find((o) => String(o?.id || '').trim() === code);
-    if (byId) return byId.id ?? byId.shipping_code ?? null;
+    if (byId) return finerWorksShippingCodeFromOption(byId);
   }
   const t = title != null ? String(title).trim() : '';
   if (!t) return null;
   const exact = options.find((o) => o?.shipping_method === t);
-  if (exact) return exact.id ?? exact.shipping_code ?? null;
+  if (exact) return finerWorksShippingCodeFromOption(exact);
   const contains = options.find((o) =>
     String(o?.shipping_method || '')
       .toLowerCase()
       .includes(t.toLowerCase())
   );
-  return contains ? contains.id ?? contains.shipping_code ?? null : null;
+  return contains ? finerWorksShippingCodeFromOption(contains) : null;
 }
 
 function resolveDefaultShippingCode(shippingOptions) {
   const fromEnv = process.env.SQUARESPACE_DEFAULT_SHIPPING_CODE || process.env.WIX_DEFAULT_SHIPPING_CODE;
-  if (fromEnv != null && String(fromEnv).trim()) return String(fromEnv).trim();
+  if (fromEnv != null && String(fromEnv).trim()) {
+    const envCode = String(fromEnv).trim();
+    if (isValidFinerWorksShippingCode(envCode)) return envCode;
+  }
   const opts = shippingOptions?.shipping_options ?? shippingOptions;
-  const first = Array.isArray(opts) ? opts[0] : null;
-  if (first?.id != null) return String(first.id);
-  if (first?.shipping_code != null) return String(first.shipping_code);
+  if (!Array.isArray(opts)) return '01';
+  for (const opt of opts) {
+    const code = finerWorksShippingCodeFromOption(opt);
+    if (code) return code;
+  }
   return '01';
 }
 
@@ -84,7 +108,7 @@ function buildRecipientFromSquarespaceOrder(order, orderPoDisplay) {
     province: !isUs ? stateRaw || 'N/A' : '',
     zip_postal_code: normalizeZipForFinerWorks(addr.postalCode),
     country_code: country.length === 2 ? country : 'us',
-    phone: addr.phone || null,
+    phone: addr.phone != null ? String(addr.phone) : '',
     email: order?.customerEmail || null,
     address_order_po: orderPoDisplay
   };
@@ -118,12 +142,55 @@ async function resolveFinerWorksProductGuidBySku(sku, account_key) {
   }
 }
 
+function placeholderProductImage() {
+  return {
+    pixel_width: 600,
+    pixel_height: 600,
+    product_url_file: 'https://via.placeholder.com/150',
+    product_url_thumbnail: 'https://via.placeholder.com/150'
+  };
+}
+
 async function enrichOrderItemsWithProductGuids(orderItems, account_key) {
   if (!Array.isArray(orderItems) || !orderItems.length) return orderItems;
   return Promise.all(
     orderItems.map(async (item) => {
-      const guid = await resolveFinerWorksProductGuidBySku(item?.product_sku, account_key);
-      return { ...item, product_guid: guid };
+      const skuStr = item?.product_sku != null ? String(item.product_sku).trim() : '';
+      if (!skuStr || !account_key) {
+        return {
+          ...item,
+          product_guid: FINERWORKS_EMPTY_PRODUCT_GUID,
+          product_image: placeholderProductImage()
+        };
+      }
+      try {
+        const resp = await finerworksService.LIST_VIRTUAL_INVENTORY({
+          sku_filter: [skuStr],
+          account_key
+        });
+        const product = resp?.products?.[0];
+        const guid = pickFinerWorksProductGuid(product) || FINERWORKS_EMPTY_PRODUCT_GUID;
+        const imageUrl = product?.image_url_1 || product?.image_url || null;
+        return {
+          ...item,
+          product_guid: guid,
+          product_image: imageUrl
+            ? {
+                pixel_width: 600,
+                pixel_height: 600,
+                product_url_file: imageUrl,
+                product_url_thumbnail: imageUrl
+              }
+            : placeholderProductImage()
+        };
+      } catch (_) {
+        const guid = await resolveFinerWorksProductGuidBySku(skuStr, account_key);
+        return {
+          ...item,
+          product_guid: guid,
+          product_image: placeholderProductImage()
+        };
+      }
     })
   );
 }
@@ -143,33 +210,18 @@ function transformSquarespaceOrderToFinerWorksPayload(order, { shippingOptions =
   const lineItems = Array.isArray(order?.lineItems) ? order.lineItems : [];
   const orderItems = lineItems
     .filter(squarespaceLineItemSkuStartsWithAP)
-    .map((li) => {
-      const imageUrl = li?.imageUrl ?? null;
-      return {
-        product_order_po: orderPoDisplay || null,
-        product_qty: li.quantity ?? 0,
-        product_sku: li?.sku ?? null,
-        product_image: imageUrl
-          ? {
-              pixel_width: 600,
-              pixel_height: 600,
-              product_url_file: imageUrl,
-              product_url_thumbnail: imageUrl
-            }
-          : {
-              pixel_width: 600,
-              pixel_height: 600,
-              product_url_file: 'https://via.placeholder.com/150',
-              product_url_thumbnail: 'https://via.placeholder.com/150'
-            },
-        product_title: li?.productName ?? null,
-        template: null,
-        product_guid: FINERWORKS_EMPTY_PRODUCT_GUID,
-        custom_data_1: li?.productId ? String(li.productId) : null,
-        custom_data_2: li?.variantId ? String(li.variantId) : null,
-        custom_data_3: null
-      };
-    });
+    .map((li) => ({
+      product_order_po: orderPoDisplay || null,
+      product_qty: li.quantity ?? 0,
+      product_sku: li?.sku ?? null,
+      product_image: placeholderProductImage(),
+      product_title: li?.productName ?? null,
+      template: null,
+      product_guid: FINERWORKS_EMPTY_PRODUCT_GUID,
+      custom_data_1: li?.productId ? String(li.productId) : null,
+      custom_data_2: li?.variantId ? String(li.variantId) : null,
+      custom_data_3: null
+    }));
 
   return {
     order_po: orderPoDisplay || null,
@@ -180,7 +232,7 @@ function transformSquarespaceOrderToFinerWorksPayload(order, { shippingOptions =
     ship_by_date: null,
     customs_tax_info: null,
     gift_message: null,
-    test_mode: true,
+    test_mode: Boolean(order?.testmode),
     webhook_order_status_url: null,
     document_url: null,
     acct_number_ups: null,
