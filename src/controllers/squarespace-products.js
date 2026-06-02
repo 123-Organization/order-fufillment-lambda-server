@@ -258,6 +258,62 @@ async function associateVariantImage(productId, variantId, imageId, headers) {
   return false;
 }
 
+function pickVirtualInventoryName(src, fallback = 'Untitled') {
+  return (
+    (src?.name && String(src.name).trim()) ||
+    (src?.title && String(src.title).trim()) ||
+    (src?.product_name && String(src.product_name).trim()) ||
+    normalizeSku(src?.sku) ||
+    fallback
+  );
+}
+
+async function updateVirtualInventoryWithSquarespaceIds(accountKey, srcVariants, productId, variantIdBySku) {
+  const virtualInventoryUpdates = [];
+  const virtualInventoryUpdateErrors = [];
+
+  if (!productId || !accountKey || !String(accountKey).trim()) {
+    return { virtualInventoryUpdates, virtualInventoryUpdateErrors };
+  }
+
+  const squarespaceProductId = String(productId);
+
+  for (const src of srcVariants) {
+    const srcSku = normalizeSku(src?.sku);
+    if (!srcSku) continue;
+
+    const squarespaceVariantId = variantIdBySku.get(srcSku) || null;
+    const viItem = {
+      sku: srcSku,
+      asking_price: getPrice(src),
+      name: pickVirtualInventoryName(src),
+      description: src?.description_long ?? src?.description_short ?? '',
+      quantity_in_stock: Math.max(0, Math.round(Number(getQuantity(src) || 0))),
+      track_inventory: true,
+      third_party_integrations: {
+        ...(src?.third_party_integrations || {}),
+        squarespace_product_id: squarespaceProductId,
+        ...(squarespaceVariantId ? { squarespace_variant_id: String(squarespaceVariantId) } : {})
+      }
+    };
+
+    try {
+      const updateResult = await finerworksService.UPDATE_VIRTUAL_INVENTORY({
+        virtual_inventory: [viItem],
+        account_key: String(accountKey).trim()
+      });
+      virtualInventoryUpdates.push({ sku: srcSku, result: updateResult });
+    } catch (singleErr) {
+      virtualInventoryUpdateErrors.push({
+        sku: srcSku,
+        error: singleErr?.message || 'Unknown virtual inventory update error'
+      });
+    }
+  }
+
+  return { virtualInventoryUpdates, virtualInventoryUpdateErrors };
+}
+
 const syncSquarespaceProducts = async (req, res) => {
   try {
     const accessToken = req.body?.access_token || req.headers['x-squarespace-access-token'];
@@ -475,7 +531,7 @@ const syncSquarespaceProducts = async (req, res) => {
           variantImageAssociations.push({ sku, variantId, imageId, associated: ok });
         }
 
-        results.push({
+        const resultEntry = {
           success: true,
           image_guid: guid,
           groupKey: key,
@@ -483,7 +539,28 @@ const syncSquarespaceProducts = async (req, res) => {
           squarespaceProductId: productId,
           variantCount: variantRows.length,
           variantImageAssociations
-        });
+        };
+
+        try {
+          const { virtualInventoryUpdates, virtualInventoryUpdateErrors } =
+            await updateVirtualInventoryWithSquarespaceIds(
+              accountKey,
+              srcVariants,
+              productId,
+              variantIdBySku
+            );
+          if (virtualInventoryUpdates.length) {
+            resultEntry.virtualInventoryUpdates = virtualInventoryUpdates;
+          }
+          if (virtualInventoryUpdateErrors.length) {
+            resultEntry.virtualInventoryUpdateErrors = virtualInventoryUpdateErrors;
+          }
+        } catch (fwErr) {
+          resultEntry.virtualInventoryUpdateError =
+            fwErr?.message || 'Unknown virtual inventory update error';
+        }
+
+        results.push(resultEntry);
       } catch (err) {
         const data = err?.response?.data;
         results.push({
