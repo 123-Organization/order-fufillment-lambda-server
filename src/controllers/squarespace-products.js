@@ -52,20 +52,12 @@ function buildVariantLabel(product) {
   return normalizeSku(product?.sku) || 'Variant';
 }
 
-function getPrice(product) {
-  const asking = Number(product?.asking_price);
-  if (Number.isFinite(asking) && asking > 0) return asking;
-
-  const perItem = Number(product?.per_item_price);
-  if (Number.isFinite(perItem) && perItem > 0) return perItem;
-
-  const fromDetails = Number(product?.price_details?.product_price ?? product?.price_details?.total_price);
-  if (Number.isFinite(fromDetails) && fromDetails > 0) return fromDetails;
-
-  const total = Number(product?.total_price);
-  if (Number.isFinite(total) && total > 0) return total;
-
-  return 0;
+/** Squarespace catalog price: only price_details.product_price (SS-SYNC-E02). */
+function getSquarespaceSyncPrice(product) {
+  const raw = product?.price_details?.product_price;
+  if (raw == null || raw === '') return 0;
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 ? n : 0;
 }
 
 function getQuantity(product) {
@@ -127,7 +119,7 @@ function buildVariantRow(src, currency, { includeAttributes = false } = {}) {
 
   const row = {
     sku,
-    pricing: { basePrice: buildBasePrice(currency, getPrice(src)) },
+    pricing: { basePrice: buildBasePrice(currency, getSquarespaceSyncPrice(src)) },
     stock: {
       quantity: Math.max(0, Math.round(Number(getQuantity(src) || 0))),
       unlimited: false
@@ -258,6 +250,497 @@ async function associateVariantImage(productId, variantId, imageId, headers) {
   return false;
 }
 
+function getSquarespaceLinkFromItem(src) {
+  const tpi = src?.third_party_integrations || {};
+  const productId = tpi.squarespace_product_id != null ? String(tpi.squarespace_product_id).trim() : '';
+  const variantId = tpi.squarespace_variant_id != null ? String(tpi.squarespace_variant_id).trim() : '';
+  return {
+    squarespace_product_id: productId || null,
+    squarespace_variant_id: variantId || null
+  };
+}
+
+function resolveGroupProductId(items) {
+  if (!Array.isArray(items)) return null;
+  for (const item of items) {
+    const { squarespace_product_id } = getSquarespaceLinkFromItem(item);
+    if (squarespace_product_id) return squarespace_product_id;
+  }
+  return null;
+}
+
+/**
+ * @returns {'fully_linked'|'needs_vi_only'|'needs_squarespace_and_vi'}
+ */
+function classifySkuSyncState(item, groupProductId, simpleProduct) {
+  const link = getSquarespaceLinkFromItem(item);
+  const productId = link.squarespace_product_id || groupProductId || null;
+
+  if (simpleProduct) {
+    return productId ? 'needs_vi_only' : 'needs_squarespace_and_vi';
+  }
+
+  if (link.squarespace_variant_id) return 'needs_vi_only';
+  if (productId && !link.squarespace_variant_id) return 'needs_squarespace_and_vi';
+  return 'needs_squarespace_and_vi';
+}
+
+function shouldVerifySquarespaceProduct() {
+  const v = process.env.SQUARESPACE_SYNC_VERIFY_PRODUCT;
+  return v === 'true' || v === '1';
+}
+
+function shouldCompensateOnViFailure() {
+  const v = process.env.SQUARESPACE_SYNC_COMPENSATE_ON_VI_FAILURE;
+  return v === 'true' || v === '1';
+}
+
+async function verifySquarespaceProductExists(productId, headers) {
+  const id = String(productId || '').trim();
+  if (!id) return false;
+  const r = await axios.get(`${API_BASE}/products/${encodeURIComponent(id)}`, {
+    headers,
+    timeout: 60000,
+    validateStatus: () => true
+  });
+  return r.status >= 200 && r.status < 300;
+}
+
+async function fetchVariantIdBySku(productId, headers) {
+  const variantIdBySku = new Map();
+  const id = String(productId || '').trim();
+  if (!id) return variantIdBySku;
+
+  try {
+    const pr = await axios.get(`${API_BASE}/products/${encodeURIComponent(id)}`, {
+      headers,
+      timeout: 60000,
+      validateStatus: () => true
+    });
+    if (pr.status < 200 || pr.status >= 300) return variantIdBySku;
+    const sqVariants = Array.isArray(pr?.data?.variants) ? pr.data.variants : [];
+    for (const v of sqVariants) {
+      const sku = normalizeSku(v?.sku);
+      if (sku) variantIdBySku.set(sku, v?.id || null);
+    }
+  } catch (_) {
+    // non-fatal
+  }
+  return variantIdBySku;
+}
+
+async function deleteSquarespaceProduct(productId, headers) {
+  const id = String(productId || '').trim();
+  if (!id) return { deleted: false };
+  const r = await axios.delete(`${API_BASE}/products/${encodeURIComponent(id)}`, {
+    headers: {
+      Authorization: headers.Authorization,
+      'User-Agent': headers['User-Agent']
+    },
+    timeout: 60000,
+    validateStatus: (status) => status === 204 || status === 404
+  });
+  return { deleted: r.status === 204 || r.status === 404, status: r.status };
+}
+
+async function createSquarespaceVariant(productId, variantRow, headers) {
+  const r = await axios.post(
+    `${API_BASE}/products/${encodeURIComponent(productId)}/variants`,
+    variantRow,
+    { headers, timeout: 120000, validateStatus: () => true }
+  );
+  if (r.status < 200 || r.status >= 300) {
+    const err = new Error(squarespaceErrorMessage(r.data, 'Failed to create Squarespace variant'));
+    err.response = { data: r.data, status: r.status };
+    throw err;
+  }
+  const variantId = r?.data?.id ?? r?.data?.variant?.id ?? null;
+  const sku = normalizeSku(variantRow?.sku);
+  return { variantId, sku };
+}
+
+function applyViResultToEntry(resultEntry, viResult) {
+  const { virtualInventoryUpdates = [], virtualInventoryUpdateErrors = [] } = viResult || {};
+  if (virtualInventoryUpdates.length) {
+    resultEntry.virtualInventoryUpdates = virtualInventoryUpdates;
+  }
+  if (virtualInventoryUpdateErrors.length) {
+    resultEntry.virtualInventoryUpdateErrors = virtualInventoryUpdateErrors;
+  }
+  if (virtualInventoryUpdateErrors.length) {
+    resultEntry.success = false;
+    if (!resultEntry.action || resultEntry.action === 'created' || resultEntry.action === 'variants_added') {
+      resultEntry.action = 'partial';
+    }
+  }
+  return resultEntry;
+}
+
+function buildSyncSummary(results) {
+  const summary = {
+    total: results.length,
+    uploaded: 0,
+    repaired: 0,
+    variantsAdded: 0,
+    failed: 0,
+    partial: 0,
+    skipped: 0
+  };
+
+  for (const r of results) {
+    if (!r.success) {
+      summary.failed += 1;
+      continue;
+    }
+    const action = r.action || '';
+    if (action === 'created') summary.uploaded += 1;
+    else if (action === 'repaired_vi' || action === 'skipped_vi_only') {
+      summary.repaired += 1;
+      if (action === 'skipped_vi_only') summary.skipped += 1;
+    } else if (action === 'variants_added') {
+      summary.uploaded += 1;
+      summary.variantsAdded += Number(r.variantsCreatedOnSquarespace || 0);
+    } else if (action === 'partial') summary.partial += 1;
+  }
+
+  return summary;
+}
+
+async function uploadAndAssociateImages({
+  productId,
+  srcVariants,
+  matched,
+  first,
+  headers,
+  skusForImages = null
+}) {
+  const skuFilter = skusForImages ? new Set(skusForImages) : null;
+  const mainImageUrl = previewUrlFromMatchedImage(matched) || firstHttpUrlFromPayload(first);
+  const uploadedByUrl = new Map();
+  const variantImageAssociations = [];
+
+  if (mainImageUrl) {
+    try {
+      const imageId = await uploadImageToProduct(productId, mainImageUrl, headers);
+      if (imageId) uploadedByUrl.set(mainImageUrl, imageId);
+    } catch (_) {
+      // non-fatal
+    }
+  }
+
+  const variantImageUrlBySku = new Map();
+  for (const src of srcVariants) {
+    const sku = normalizeSku(src?.sku);
+    if (!sku || (skuFilter && !skuFilter.has(sku))) continue;
+    const vUrl = firstHttpUrlFromPayload(src);
+    if (vUrl) variantImageUrlBySku.set(sku, vUrl);
+  }
+
+  for (const vUrl of new Set(Array.from(variantImageUrlBySku.values()))) {
+    if (uploadedByUrl.has(vUrl)) continue;
+    try {
+      const imageId = await uploadImageToProduct(productId, vUrl, headers);
+      if (imageId) uploadedByUrl.set(vUrl, imageId);
+    } catch (_) {
+      // non-fatal
+    }
+  }
+
+  const variantIdBySku = await fetchVariantIdBySku(productId, headers);
+  for (const [sku, vUrl] of variantImageUrlBySku.entries()) {
+    const variantId = variantIdBySku.get(sku);
+    const imageId = uploadedByUrl.get(vUrl);
+    if (!variantId || !imageId) continue;
+    await waitImageReady(productId, imageId, headers);
+    const ok = await associateVariantImage(productId, variantId, imageId, headers);
+    variantImageAssociations.push({ sku, variantId, imageId, associated: ok });
+  }
+
+  return { variantIdBySku, variantImageAssociations, uploadedByUrl };
+}
+
+async function processSyncGroup({
+  group,
+  accountKey,
+  currency,
+  storePageId,
+  headers,
+  matchedByGuid,
+  counters
+}) {
+  const { key, image_guid: guid, items: srcVariants, simpleProduct } = group;
+  const matched = matchedByGuid.get(guid) || null;
+  const first = srcVariants[0];
+  const productName =
+    (matched?.title && String(matched.title).trim()) ||
+    (first?.name && String(first.name).trim()) ||
+    'Untitled';
+  const description =
+    (matched?.description && String(matched.description).trim()) ||
+    first?.description_long ||
+    first?.description_short ||
+    '';
+
+  const useVariantAttributes = !simpleProduct && srcVariants.length > 1;
+  const variantRows = srcVariants
+    .map((src) => buildVariantRow(src, currency, { includeAttributes: useVariantAttributes }))
+    .filter(Boolean);
+
+  if (!variantRows.length) {
+    return {
+      success: false,
+      action: 'failed',
+      image_guid: guid,
+      groupKey: key,
+      error: 'No valid variants (missing SKU)'
+    };
+  }
+
+  const productMode = simpleProduct ? 'simple' : useVariantAttributes ? 'multi_variant' : 'simple';
+  const groupProductId = resolveGroupProductId(srcVariants);
+
+  // --- Simple product: VI-only when already linked on Squarespace ---
+  if (simpleProduct) {
+    let productId = groupProductId;
+    if (productId && shouldVerifySquarespaceProduct()) {
+      const exists = await verifySquarespaceProductExists(productId, headers);
+      if (!exists) productId = null;
+    }
+
+    if (productId) {
+      const variantIdBySku = await fetchVariantIdBySku(productId, headers);
+      const resultEntry = {
+        success: true,
+        action: 'repaired_vi',
+        image_guid: guid,
+        groupKey: key,
+        productMode,
+        squarespaceProductId: productId,
+        variantCount: variantRows.length,
+        skusSynced: srcVariants.map((s) => normalizeSku(s?.sku)).filter(Boolean)
+      };
+
+      const viResult = await updateVirtualInventoryWithSquarespaceIds(
+        accountKey,
+        srcVariants,
+        productId,
+        variantIdBySku
+      );
+      applyViResultToEntry(resultEntry, viResult);
+      if (resultEntry.success) counters.repaired += 1;
+      else counters.partial += 1;
+      return resultEntry;
+    }
+  }
+
+  // --- Multi-variant: partial per-SKU sync on existing product ---
+  if (!simpleProduct && groupProductId) {
+    let productId = groupProductId;
+    if (shouldVerifySquarespaceProduct()) {
+      const exists = await verifySquarespaceProductExists(productId, headers);
+      if (!exists) productId = null;
+    }
+
+    if (productId) {
+      let variantIdBySku = await fetchVariantIdBySku(productId, headers);
+      const skusNeedingSquarespace = [];
+      const skusViOnly = [];
+
+      for (const src of srcVariants) {
+        const sku = normalizeSku(src?.sku);
+        if (!sku) continue;
+        const state = classifySkuSyncState(src, productId, false);
+        const existingVariantId =
+          getSquarespaceLinkFromItem(src).squarespace_variant_id || variantIdBySku.get(sku);
+
+        if (state === 'needs_vi_only' && existingVariantId) {
+          variantIdBySku.set(sku, existingVariantId);
+          skusViOnly.push(src);
+        } else if (variantIdBySku.has(sku) && variantIdBySku.get(sku)) {
+          skusViOnly.push(src);
+        } else {
+          skusNeedingSquarespace.push(src);
+        }
+      }
+
+      let variantsCreatedOnSquarespace = 0;
+      const variantCreateErrors = [];
+
+      for (const src of skusNeedingSquarespace) {
+        const row = buildVariantRow(src, currency, { includeAttributes: true });
+        if (!row) continue;
+        try {
+          const { variantId, sku } = await createSquarespaceVariant(productId, row, headers);
+          if (sku && variantId) {
+            variantIdBySku.set(sku, variantId);
+            variantsCreatedOnSquarespace += 1;
+            counters.variantsAdded += 1;
+          }
+        } catch (err) {
+          variantCreateErrors.push({
+            sku: normalizeSku(src?.sku),
+            error: err?.message || 'Failed to create variant'
+          });
+        }
+      }
+
+      const skusForImages = skusNeedingSquarespace.map((s) => normalizeSku(s?.sku)).filter(Boolean);
+      let variantImageAssociations = [];
+      if (skusForImages.length) {
+        const img = await uploadAndAssociateImages({
+          productId,
+          srcVariants,
+          matched,
+          first,
+          headers,
+          skusForImages
+        });
+        variantImageAssociations = img.variantImageAssociations;
+        for (const [sku, vid] of img.variantIdBySku.entries()) {
+          if (vid) variantIdBySku.set(sku, vid);
+        }
+      }
+
+      const allForVi = srcVariants;
+      const resultEntry = {
+        success: true,
+        action: variantsCreatedOnSquarespace > 0 ? 'variants_added' : 'repaired_vi',
+        image_guid: guid,
+        groupKey: key,
+        productMode,
+        squarespaceProductId: productId,
+        variantCount: variantRows.length,
+        variantsCreatedOnSquarespace,
+        skusViOnly: skusViOnly.map((s) => normalizeSku(s?.sku)).filter(Boolean),
+        skusAddedOnSquarespace: skusNeedingSquarespace.map((s) => normalizeSku(s?.sku)).filter(Boolean),
+        variantImageAssociations,
+        ...(variantCreateErrors.length ? { variantCreateErrors } : {})
+      };
+
+      const viResult = await updateVirtualInventoryWithSquarespaceIds(
+        accountKey,
+        allForVi,
+        productId,
+        variantIdBySku
+      );
+      applyViResultToEntry(resultEntry, viResult);
+
+      if (variantCreateErrors.length && resultEntry.success) {
+        resultEntry.action = 'partial';
+        resultEntry.success = false;
+      }
+
+      if (resultEntry.success) {
+        if (variantsCreatedOnSquarespace > 0) counters.uploaded += 1;
+        else counters.repaired += 1;
+      } else {
+        counters.partial += 1;
+      }
+      return resultEntry;
+    }
+  }
+
+  // --- Full create: new Squarespace product (simple unlinked or multi without product id) ---
+  const slugSeed = simpleProduct
+    ? `${productName}-${normalizeSku(first?.sku) || guid}`
+    : `${productName}-${guid}`;
+
+  const createPayload = {
+    name: productName,
+    description,
+    type: 'PHYSICAL',
+    isVisible: true,
+    storePageId,
+    urlSlug: slugify(slugSeed) || `product-${Date.now()}`,
+    ...(useVariantAttributes ? { variantAttributes: ['Configuration'] } : {}),
+    variants: variantRows
+  };
+
+  const createResp = await axios.post(`${API_BASE}/products`, createPayload, {
+    headers,
+    validateStatus: () => true
+  });
+
+  if (createResp.status < 200 || createResp.status >= 300) {
+    const data = createResp.data;
+    counters.failed += 1;
+    return {
+      success: false,
+      action: 'failed',
+      image_guid: guid,
+      groupKey: key,
+      productMode,
+      error: squarespaceErrorMessage(data, 'Failed to create Squarespace product'),
+      ...(authorizationHint(data) ? { hint: authorizationHint(data) } : {}),
+      ...(data && typeof data === 'object' ? { squarespaceError: data } : {})
+    };
+  }
+
+  const productId = createResp?.data?.id || null;
+  if (!productId) {
+    counters.failed += 1;
+    return {
+      success: false,
+      action: 'failed',
+      image_guid: guid,
+      error: 'Squarespace product id missing in response'
+    };
+  }
+
+  const newlyCreatedThisRequest = true;
+  counters.mainProductsCreated += 1;
+  counters.variantsAdded += variantRows.length;
+
+  const { variantIdBySku, variantImageAssociations } = await uploadAndAssociateImages({
+    productId,
+    srcVariants,
+    matched,
+    first,
+    headers
+  });
+
+  const resultEntry = {
+    success: true,
+    action: 'created',
+    image_guid: guid,
+    groupKey: key,
+    productMode,
+    squarespaceProductId: productId,
+    variantCount: variantRows.length,
+    variantImageAssociations
+  };
+
+  const viResult = await updateVirtualInventoryWithSquarespaceIds(
+    accountKey,
+    srcVariants,
+    productId,
+    variantIdBySku
+  );
+  applyViResultToEntry(resultEntry, viResult);
+
+  if (!resultEntry.success && newlyCreatedThisRequest && shouldCompensateOnViFailure()) {
+    const allViFailed =
+      viResult.virtualInventoryUpdateErrors.length > 0 &&
+      viResult.virtualInventoryUpdates.length === 0;
+    if (allViFailed) {
+      try {
+        resultEntry.compensation = await deleteSquarespaceProduct(productId, headers);
+      } catch (compErr) {
+        resultEntry.compensation = {
+          deleted: false,
+          error: compErr?.message || 'Compensation delete failed'
+        };
+      }
+      resultEntry.action = 'failed';
+    }
+  }
+
+  if (resultEntry.success) counters.uploaded += 1;
+  else counters.partial += 1;
+
+  return resultEntry;
+}
+
 function pickVirtualInventoryName(src, fallback = 'Untitled') {
   return (
     (src?.name && String(src.name).trim()) ||
@@ -285,7 +768,10 @@ async function updateVirtualInventoryWithSquarespaceIds(accountKey, srcVariants,
     const squarespaceVariantId = variantIdBySku.get(srcSku) || null;
     const viItem = {
       sku: srcSku,
-      asking_price: getPrice(src),
+      asking_price:
+        typeof src?.asking_price === 'number' && Number.isFinite(src.asking_price)
+          ? src.asking_price
+          : getSquarespaceSyncPrice(src),
       name: pickVirtualInventoryName(src),
       description: src?.description_long ?? src?.description_short ?? '',
       quantity_in_stock: Math.max(0, Math.round(Number(getQuantity(src) || 0))),
@@ -403,179 +889,51 @@ const syncSquarespaceProducts = async (req, res) => {
     }
 
     const results = [];
-    let mainProductsCreated = 0;
-    let variantsAdded = 0;
+    const counters = {
+      mainProductsCreated: 0,
+      variantsAdded: 0,
+      uploaded: 0,
+      repaired: 0,
+      failed: 0,
+      partial: 0
+    };
     const unmatchedImageGuids = uniqueImageGuids.filter((g) => !matchedByGuid.has(g));
 
     for (const group of syncGroups) {
-      const { key, image_guid: guid, items: srcVariants, simpleProduct } = group;
-      if (!srcVariants.length) continue;
-
-      const matched = matchedByGuid.get(guid) || null;
-      const first = srcVariants[0];
-      const productName =
-        (matched?.title && String(matched.title).trim()) ||
-        (first?.name && String(first.name).trim()) ||
-        'Untitled';
-      const description =
-        (matched?.description && String(matched.description).trim()) ||
-        first?.description_long ||
-        first?.description_short ||
-        '';
-
-      const useVariantAttributes = !simpleProduct && srcVariants.length > 1;
-      const variantRows = srcVariants
-        .map((src) => buildVariantRow(src, currency, { includeAttributes: useVariantAttributes }))
-        .filter(Boolean);
-
-      if (!variantRows.length) {
-        results.push({
-          success: false,
-          image_guid: guid,
-          groupKey: key,
-          error: 'No valid variants (missing SKU)'
-        });
-        continue;
-      }
-
-      const slugSeed = simpleProduct
-        ? `${productName}-${normalizeSku(first?.sku) || guid}`
-        : `${productName}-${guid}`;
-
+      if (!group.items?.length) continue;
       try {
-        const createPayload = {
-          name: productName,
-          description,
-          type: 'PHYSICAL',
-          isVisible: true,
+        const resultEntry = await processSyncGroup({
+          group,
+          accountKey,
+          currency,
           storePageId,
-          urlSlug: slugify(slugSeed) || `product-${Date.now()}`,
-          ...(useVariantAttributes ? { variantAttributes: ['Configuration'] } : {}),
-          variants: variantRows
-        };
-        const createResp = await axios.post(`${API_BASE}/products`, createPayload, {
           headers,
-          validateStatus: () => true
+          matchedByGuid,
+          counters
         });
-        if (createResp.status < 200 || createResp.status >= 300) {
-          const data = createResp.data;
-          results.push({
-            success: false,
-            image_guid: guid,
-            groupKey: key,
-            productMode: simpleProduct ? 'simple' : useVariantAttributes ? 'multi_variant' : 'simple',
-            error: squarespaceErrorMessage(data, 'Failed to create Squarespace product'),
-            ...(authorizationHint(data) ? { hint: authorizationHint(data) } : {}),
-            ...(data && typeof data === 'object' ? { squarespaceError: data } : {})
-          });
-          continue;
-        }
-
-        const productId = createResp?.data?.id || null;
-        if (!productId) {
-          results.push({ success: false, image_guid: guid, error: 'Squarespace product id missing in response' });
-          continue;
-        }
-        mainProductsCreated += 1;
-        variantsAdded += variantRows.length;
-
-        // Upload main image from matchedImages.public_preview_uri first.
-        const mainImageUrl = previewUrlFromMatchedImage(matched) || firstHttpUrlFromPayload(first);
-        const uploadedByUrl = new Map();
-        if (mainImageUrl) {
-          try {
-            const imageId = await uploadImageToProduct(productId, mainImageUrl, headers);
-            if (imageId) uploadedByUrl.set(mainImageUrl, imageId);
-          } catch (_) {
-            // non-fatal
-          }
-        }
-
-        // Upload each variant image URL once and associate by SKU.
-        const variantImageUrlBySku = new Map();
-        for (const src of srcVariants) {
-          const sku = normalizeSku(src?.sku);
-          const vUrl = firstHttpUrlFromPayload(src);
-          if (sku && vUrl) variantImageUrlBySku.set(sku, vUrl);
-        }
-        for (const vUrl of new Set(Array.from(variantImageUrlBySku.values()))) {
-          if (uploadedByUrl.has(vUrl)) continue;
-          try {
-            const imageId = await uploadImageToProduct(productId, vUrl, headers);
-            if (imageId) uploadedByUrl.set(vUrl, imageId);
-          } catch (_) {
-            // non-fatal
-          }
-        }
-
-        // Load product variants to map sku -> variantId.
-        const variantIdBySku = new Map();
-        try {
-          const pr = await axios.get(`${API_BASE}/products/${encodeURIComponent(productId)}`, { headers });
-          const sqVariants = Array.isArray(pr?.data?.variants) ? pr.data.variants : [];
-          for (const v of sqVariants) {
-            const sku = normalizeSku(v?.sku);
-            if (sku) variantIdBySku.set(sku, v?.id || null);
-          }
-        } catch (_) {
-          // non-fatal
-        }
-
-        const variantImageAssociations = [];
-        for (const [sku, vUrl] of variantImageUrlBySku.entries()) {
-          const variantId = variantIdBySku.get(sku);
-          const imageId = uploadedByUrl.get(vUrl);
-          if (!variantId || !imageId) continue;
-          await waitImageReady(productId, imageId, headers);
-          const ok = await associateVariantImage(productId, variantId, imageId, headers);
-          variantImageAssociations.push({ sku, variantId, imageId, associated: ok });
-        }
-
-        const resultEntry = {
-          success: true,
-          image_guid: guid,
-          groupKey: key,
-          productMode: simpleProduct ? 'simple' : useVariantAttributes ? 'multi_variant' : 'simple',
-          squarespaceProductId: productId,
-          variantCount: variantRows.length,
-          variantImageAssociations
-        };
-
-        try {
-          const { virtualInventoryUpdates, virtualInventoryUpdateErrors } =
-            await updateVirtualInventoryWithSquarespaceIds(
-              accountKey,
-              srcVariants,
-              productId,
-              variantIdBySku
-            );
-          if (virtualInventoryUpdates.length) {
-            resultEntry.virtualInventoryUpdates = virtualInventoryUpdates;
-          }
-          if (virtualInventoryUpdateErrors.length) {
-            resultEntry.virtualInventoryUpdateErrors = virtualInventoryUpdateErrors;
-          }
-        } catch (fwErr) {
-          resultEntry.virtualInventoryUpdateError =
-            fwErr?.message || 'Unknown virtual inventory update error';
-        }
-
         results.push(resultEntry);
       } catch (err) {
+        counters.failed += 1;
         const data = err?.response?.data;
         results.push({
           success: false,
-          image_guid: guid,
-          groupKey: key,
-          error: squarespaceErrorMessage(data, err?.message || 'Failed to create Squarespace product'),
+          action: 'failed',
+          image_guid: group.image_guid,
+          groupKey: group.key,
+          error: squarespaceErrorMessage(data, err?.message || 'Failed to sync Squarespace product'),
           ...(authorizationHint(data) ? { hint: authorizationHint(data) } : {}),
           ...(data && typeof data === 'object' ? { squarespaceError: data } : {})
         });
       }
     }
 
+    const summary = buildSyncSummary(results);
+    const allSuccess = results.every(
+      (r) => r.success && !(r.virtualInventoryUpdateErrors && r.virtualInventoryUpdateErrors.length)
+    );
+
     return res.status(200).json({
-      success: results.every((r) => r.success),
+      success: allSuccess,
       groupByImageGuid,
       uniqueImageGuidCount: uniqueImageGuids.length,
       uniqueImageGuids,
@@ -584,8 +942,17 @@ const syncSquarespaceProducts = async (req, res) => {
       matchedImages,
       unmatchedImageGuidCount: unmatchedImageGuids.length,
       unmatchedImageGuids,
-      mainProductsCreated,
-      variantsAdded,
+      mainProductsCreated: counters.mainProductsCreated,
+      variantsAdded: counters.variantsAdded,
+      report: {
+        total: summary.total,
+        uploaded: summary.uploaded,
+        repaired: summary.repaired,
+        variantsAdded: summary.variantsAdded,
+        failed: summary.failed,
+        partial: summary.partial,
+        skipped: summary.skipped
+      },
       results
     });
   } catch (err) {
