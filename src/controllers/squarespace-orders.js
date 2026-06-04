@@ -60,6 +60,21 @@ const getSquarespaceOrders = async (req, res) => {
       req.body?.fulfillmentStatus || req.body?.fulfillment_status || req.query?.fulfillmentStatus;
     const customerId = req.body?.customerId || req.body?.customer_id || req.query?.customerId;
 
+    // validate the required parameters
+    if (!startDate && !endDate) {
+      return res.status(400).json({
+        success: false,
+        message: 'Missing required parameter: startDate or endDate'
+      });
+    }
+
+    if (!fulfillmentStatus) {
+      return res.status(400).json({
+        success: false,
+        message: 'Missing required parameter: fulfillmentStatus'
+      });
+    }
+
     if (!accessToken) {
       return res.status(400).json({
         success: false,
