@@ -4,9 +4,8 @@ const {
   resolveWixAuth,
   buildAuthHeaders,
   summarizeWixHttpError,
-  maybePersistDiscoveredWixSiteId
+  maybePersistDiscoveredWixSiteId,
 } = require('./wix-products');
-const { validateAccountKey } = require('../validators/accountKey.validator');
 
 const WIX_SEARCH_ORDERS_URL = 'https://www.wixapis.com/ecom/v1/orders/search';
 const WIX_CREATE_FULFILLMENT_BASE = 'https://www.wixapis.com/ecom/v1/fulfillments/orders';
@@ -27,7 +26,7 @@ function toIsoOrNull(v) {
  */
 function createdDateRangeFilter(startIso, endIso) {
   return {
-    $and: [{ createdDate: { $gte: startIso } }, { createdDate: { $lte: endIso } }]
+    $and: [{ createdDate: { $gte: startIso } }, { createdDate: { $lte: endIso } }],
   };
 }
 
@@ -54,7 +53,6 @@ function parseDateRangeInputs(startRaw, endRaw) {
 
   return { startIso, endIso };
 }
-
 
 /** UUID-ish order id used for GET order by path. */
 function looksLikeOrderGuid(raw) {
@@ -120,9 +118,11 @@ function resolveWixShippingProvider(carrierRaw) {
   if (!c) return { shippingProvider: 'Custom', predefined: false };
   if (/\bfedex\b|federal\s*express/.test(c)) return { shippingProvider: 'fedex', predefined: true };
   if (/\bups\b|united\s*parcel/.test(c)) return { shippingProvider: 'ups', predefined: true };
-  if (/\busps\b|u\.?s\.?\s*postal|post\s*office/.test(c)) return { shippingProvider: 'usps', predefined: true };
+  if (/\busps\b|u\.?s\.?\s*postal|post\s*office/.test(c))
+    return { shippingProvider: 'usps', predefined: true };
   if (/\bdhl\b/.test(c)) return { shippingProvider: 'dhl', predefined: true };
-  if (/\bcanada\s*post\b|canadapost/.test(c)) return { shippingProvider: 'canadaPost', predefined: true };
+  if (/\bcanada\s*post\b|canadapost/.test(c))
+    return { shippingProvider: 'canadaPost', predefined: true };
   return { shippingProvider: raw.slice(0, 200), predefined: false };
 }
 
@@ -164,7 +164,7 @@ async function searchWixOrdersPage(wixAuth, body) {
   return axios.post(WIX_SEARCH_ORDERS_URL, body, {
     headers,
     timeout: 120000,
-    validateStatus: () => true
+    validateStatus: () => true,
   });
 }
 
@@ -179,9 +179,9 @@ async function fetchAllOrdersBySearch({ wixAuth, buildFirstBodyFn }) {
             search: {
               cursorPaging: {
                 limit: 100,
-                cursor
-              }
-            }
+                cursor,
+              },
+            },
           };
 
     const r = await searchWixOrdersPage(wixAuth, searchPayload);
@@ -212,7 +212,9 @@ function sendSingleGuidOrderLookupResponse(res, fetchResult, notFoundMessage) {
   const { ok, order, status, wixPayload } = fetchResult;
   if (ok) {
     if (!order) {
-      return res.status(502).json({ success: false, message: 'Wix returned an empty order payload' });
+      return res
+        .status(502)
+        .json({ success: false, message: 'Wix returned an empty order payload' });
     }
     return res.status(200).json({ success: true, order });
   }
@@ -220,13 +222,13 @@ function sendSingleGuidOrderLookupResponse(res, fetchResult, notFoundMessage) {
     return res.status(404).json({
       success: false,
       message: notFoundMessage,
-      wixError: wixPayload
+      wixError: wixPayload,
     });
   }
   return res.status(status).json({
     success: false,
     message: 'Failed to retrieve Wix order by id',
-    wixError: wixPayload
+    wixError: wixPayload,
   });
 }
 
@@ -238,7 +240,7 @@ function jsonSearchOrdersError(res, err, clientMessage) {
     success: false,
     message: clientMessage,
     ...(wixPayload ? { wixError: wixPayload } : {}),
-    error: wixPayload?.message || err?.message || 'Unknown error'
+    error: wixPayload?.message || err?.message || 'Unknown error',
   });
 }
 
@@ -251,7 +253,7 @@ async function fetchWixOrdersByNumberList(res, wixAuth, orderNumberList) {
     if (parseOrderNumber(item) === null) {
       res.status(400).json({
         success: false,
-        message: `order_number entries must be numeric or a Wix order GUID (UUID); invalid: ${item}`
+        message: `order_number entries must be numeric or a Wix order GUID (UUID); invalid: ${item}`,
       });
       return;
     }
@@ -264,7 +266,7 @@ async function fetchWixOrdersByNumberList(res, wixAuth, orderNumberList) {
         .filter((x) => !looksLikeOrderGuid(x))
         .map((x) => parseOrderNumber(x))
         .filter((n) => n !== null)
-    )
+    ),
   ];
 
   const guidToOrder = new Map();
@@ -278,7 +280,7 @@ async function fetchWixOrdersByNumberList(res, wixAuth, orderNumberList) {
           res.status(502).json({
             success: false,
             message: 'Wix returned an empty order payload',
-            order_id: guid
+            order_id: guid,
           });
           return;
         }
@@ -287,7 +289,7 @@ async function fetchWixOrdersByNumberList(res, wixAuth, orderNumberList) {
         res.status(r.status).json({
           success: false,
           message: 'Failed to retrieve Wix order by id',
-          wixError: r.wixPayload
+          wixError: r.wixPayload,
         });
         return;
       }
@@ -303,9 +305,9 @@ async function fetchWixOrdersByNumberList(res, wixAuth, orderNumberList) {
           search: {
             filter: { number: { $in: numericKeys } },
             cursorPaging: { limit: 100 },
-            sort: [{ fieldName: 'createdDate', order: 'DESC' }]
-          }
-        })
+            sort: [{ fieldName: 'createdDate', order: 'DESC' }],
+          },
+        }),
       });
       for (const o of searched) {
         const n = Number(o?.number);
@@ -349,9 +351,7 @@ exports.getWixOrders = async (req, res) => {
       req.query?.accountKey;
 
     const access_token =
-      req.body?.access_token ||
-      req.query?.access_token ||
-      req.headers['x-wix-access-token'];
+      req.body?.access_token || req.query?.access_token || req.headers['x-wix-access-token'];
 
     if (!account_key || !String(account_key).trim()) {
       return res.status(400).json({ success: false, message: 'account_key is required' });
@@ -360,13 +360,13 @@ exports.getWixOrders = async (req, res) => {
     const wixAuth = await resolveWixAuth({
       account_key: String(account_key).trim(),
       access_token,
-      ignoreRequestToken: false
+      ignoreRequestToken: false,
     });
 
     if (!wixAuth?.accessToken) {
       return res.status(401).json({
         success: false,
-        message: 'Wix credentials not configured. Connect Wix / pass access_token or set env vars.'
+        message: 'Wix credentials not configured. Connect Wix / pass access_token or set env vars.',
       });
     }
 
@@ -384,7 +384,7 @@ exports.getWixOrders = async (req, res) => {
     if ((startIso && !endIso) || (!startIso && endIso)) {
       return res.status(400).json({
         success: false,
-        message: 'Provide both startDate and endDate or omit both.'
+        message: 'Provide both startDate and endDate or omit both.',
       });
     }
 
@@ -399,15 +399,15 @@ exports.getWixOrders = async (req, res) => {
         search: {
           ...(Object.keys(filter).length ? { filter } : {}),
           cursorPaging: { limit: 100 },
-          sort: [{ fieldName: 'createdDate', order: 'DESC' }]
-        }
-      })
+          sort: [{ fieldName: 'createdDate', order: 'DESC' }],
+        },
+      }),
     });
 
     return res.status(200).json({
       success: true,
       count: orders.length,
-      orders
+      orders,
     });
   } catch (err) {
     const r = err?.response;
@@ -417,7 +417,7 @@ exports.getWixOrders = async (req, res) => {
       success: false,
       message: 'Failed to retrieve Wix orders',
       error: wixPayload?.message || err?.message || 'Unknown error',
-      ...(wixPayload ? { wixError: wixPayload } : {})
+      ...(wixPayload ? { wixError: wixPayload } : {}),
     });
   }
 };
@@ -439,16 +439,10 @@ exports.getWixOrderByNumber = async (req, res) => {
       req.query?.accountKey;
 
     const access_token =
-      req.body?.access_token ||
-      req.query?.access_token ||
-      req.headers['x-wix-access-token'];
+      req.body?.access_token || req.query?.access_token || req.headers['x-wix-access-token'];
 
     const orderIdRaw =
-      req.body?.order_id ||
-      req.body?.orderId ||
-      req.query?.order_id ||
-      req.query?.orderId ||
-      null;
+      req.body?.order_id || req.body?.orderId || req.query?.order_id || req.query?.orderId || null;
 
     const orderNumRaw = coerceOrderNumberRaw(
       req.body?.order_number ??
@@ -465,7 +459,8 @@ exports.getWixOrderByNumber = async (req, res) => {
       return res.status(400).json({ success: false, message: 'account_key is required' });
     }
 
-    const orderIdTrim = orderIdRaw != null && String(orderIdRaw).trim() ? String(orderIdRaw).trim() : null;
+    const orderIdTrim =
+      orderIdRaw != null && String(orderIdRaw).trim() ? String(orderIdRaw).trim() : null;
     const isOrderNumArray = Array.isArray(orderNumRaw);
     const orderNumberList = isOrderNumArray ? normalizeOrderNumberArray(orderNumRaw) : null;
     const orderNumStrTrim =
@@ -479,34 +474,34 @@ exports.getWixOrderByNumber = async (req, res) => {
     if (orderIdTrim && (orderNumStrTrim || (isOrderNumArray && orderNumberList.length > 0))) {
       return res.status(400).json({
         success: false,
-        message: 'Provide only one of order_id or order_number (order_number / orderName)'
+        message: 'Provide only one of order_id or order_number (order_number / orderName)',
       });
     }
 
     if (!orderIdTrim && !orderNumStrTrim && !(isOrderNumArray && orderNumberList.length > 0)) {
       return res.status(400).json({
         success: false,
-        message: 'Missing required parameter: order_id or order_number'
+        message: 'Missing required parameter: order_id or order_number',
       });
     }
 
     if (isOrderNumArray && orderNumberList.length > MAX_WIX_ORDER_BY_NUMBER_BATCH) {
       return res.status(400).json({
         success: false,
-        message: `order_number array must have at most ${MAX_WIX_ORDER_BY_NUMBER_BATCH} entries`
+        message: `order_number array must have at most ${MAX_WIX_ORDER_BY_NUMBER_BATCH} entries`,
       });
     }
 
     const wixAuth = await resolveWixAuth({
       account_key: String(account_key).trim(),
       access_token,
-      ignoreRequestToken: false
+      ignoreRequestToken: false,
     });
 
     if (!wixAuth?.accessToken) {
       return res.status(401).json({
         success: false,
-        message: 'Wix credentials not configured. Connect Wix / pass access_token or set env vars.'
+        message: 'Wix credentials not configured. Connect Wix / pass access_token or set env vars.',
       });
     }
 
@@ -525,7 +520,7 @@ exports.getWixOrderByNumber = async (req, res) => {
       if (!looksLikeOrderGuid(orderIdTrim)) {
         return res.status(400).json({
           success: false,
-          message: 'order_id must be a Wix order GUID (UUID)'
+          message: 'order_id must be a Wix order GUID (UUID)',
         });
       }
       guid = orderIdTrim;
@@ -544,15 +539,15 @@ exports.getWixOrderByNumber = async (req, res) => {
     if (orderNum === null) {
       return res.status(400).json({
         success: false,
-        message: 'order_number must be numeric or a Wix order GUID (UUID)'
+        message: 'order_number must be numeric or a Wix order GUID (UUID)',
       });
     }
 
     const r = await searchWixOrdersPage(wixAuth, {
       search: {
         filter: { number: orderNum },
-        cursorPaging: { limit: 5 }
-      }
+        cursorPaging: { limit: 5 },
+      },
     });
 
     if (r.status < 200 || r.status >= 300) {
@@ -560,7 +555,7 @@ exports.getWixOrderByNumber = async (req, res) => {
       return res.status(r.status >= 400 ? r.status : 502).json({
         success: false,
         message: 'Failed to search Wix order by number',
-        wixError: wixPayload
+        wixError: wixPayload,
       });
     }
 
@@ -570,7 +565,7 @@ exports.getWixOrderByNumber = async (req, res) => {
     if (!found) {
       return res.status(404).json({
         success: false,
-        message: `Order not found for order_number: ${orderNumStrTrim}`
+        message: `Order not found for order_number: ${orderNumStrTrim}`,
       });
     }
 
@@ -583,7 +578,7 @@ exports.getWixOrderByNumber = async (req, res) => {
       success: false,
       message: 'Failed to retrieve Wix order',
       error: wixPayload?.message || err?.message || 'Unknown error',
-      ...(wixPayload ? { wixError: wixPayload } : {})
+      ...(wixPayload ? { wixError: wixPayload } : {}),
     });
   }
 };
@@ -608,11 +603,7 @@ exports.fulfillWixOrderWithTrackingInfo = async (req, res) => {
     let access_token =
       req.body?.access_token || req.query?.access_token || req.headers['x-wix-access-token'];
     const authHeader = req.headers?.authorization || req.headers?.Authorization;
-    if (
-      !access_token &&
-      typeof authHeader === 'string' &&
-      /^Bearer\s+/i.test(authHeader.trim())
-    ) {
+    if (!access_token && typeof authHeader === 'string' && /^Bearer\s+/i.test(authHeader.trim())) {
       access_token = authHeader.replace(/^Bearer\s+/i, '').trim();
     }
 
@@ -633,13 +624,13 @@ exports.fulfillWixOrderWithTrackingInfo = async (req, res) => {
     if (!orderIdRaw || !String(orderIdRaw).trim()) {
       return res.status(400).json({
         success: false,
-        message: 'Missing required parameter: order_id (Wix order GUID)'
+        message: 'Missing required parameter: order_id (Wix order GUID)',
       });
     }
     if (!orderNumberRaw || !String(orderNumberRaw).trim()) {
       return res.status(400).json({
         success: false,
-        message: 'Missing required parameter: order_number (used for FinerWorks GET_ORDER_STATUS)'
+        message: 'Missing required parameter: order_number (used for FinerWorks GET_ORDER_STATUS)',
       });
     }
 
@@ -649,20 +640,20 @@ exports.fulfillWixOrderWithTrackingInfo = async (req, res) => {
     if (!looksLikeOrderGuid(orderId)) {
       return res.status(400).json({
         success: false,
-        message: 'order_id must be a Wix order GUID (UUID)'
+        message: 'order_id must be a Wix order GUID (UUID)',
       });
     }
 
     const wixAuth = await resolveWixAuth({
       account_key: String(account_key).trim(),
       access_token,
-      ignoreRequestToken: false
+      ignoreRequestToken: false,
     });
 
     if (!wixAuth?.accessToken) {
       return res.status(401).json({
         success: false,
-        message: 'Wix credentials not configured. Connect Wix / pass access_token or set env vars.'
+        message: 'Wix credentials not configured. Connect Wix / pass access_token or set env vars.',
       });
     }
 
@@ -676,13 +667,13 @@ exports.fulfillWixOrderWithTrackingInfo = async (req, res) => {
         return res.status(404).json({
           success: false,
           message: `Wix order not found for order_id: ${orderId}`,
-          ...(orderFetch.wixPayload ? { wixError: orderFetch.wixPayload } : {})
+          ...(orderFetch.wixPayload ? { wixError: orderFetch.wixPayload } : {}),
         });
       }
       return res.status(orderFetch.status >= 400 ? orderFetch.status : 502).json({
         success: false,
         message: 'Failed to load Wix order before fulfillment',
-        ...(orderFetch.wixPayload ? { wixError: orderFetch.wixPayload } : {})
+        ...(orderFetch.wixPayload ? { wixError: orderFetch.wixPayload } : {}),
       });
     }
 
@@ -695,7 +686,7 @@ exports.fulfillWixOrderWithTrackingInfo = async (req, res) => {
         if (!id) {
           return res.status(400).json({
             success: false,
-            message: 'line_items entries must include id (Wix line item GUID)'
+            message: 'line_items entries must include id (Wix line item GUID)',
           });
         }
         const ent = { id };
@@ -711,13 +702,13 @@ exports.fulfillWixOrderWithTrackingInfo = async (req, res) => {
       return res.status(400).json({
         success: false,
         message:
-          'No fulfillable line items on this Wix order (or none match filters). Pass line_items with Wix line item GUIDs.'
+          'No fulfillable line items on this Wix order (or none match filters). Pass line_items with Wix line item GUIDs.',
       });
     }
 
     const selectOrderId = {
       order_pos: [orderNumber],
-      account_key: String(account_key).trim()
+      account_key: String(account_key).trim(),
     };
 
     let orderStatusData = null;
@@ -727,7 +718,7 @@ exports.fulfillWixOrderWithTrackingInfo = async (req, res) => {
       return res.status(502).json({
         success: false,
         message: 'Failed to get order status data',
-        error: error?.message || 'Unknown error'
+        error: error?.message || 'Unknown error',
       });
     }
 
@@ -741,14 +732,14 @@ exports.fulfillWixOrderWithTrackingInfo = async (req, res) => {
     if (!trackingNumber) {
       return res.status(400).json({
         success: false,
-        message: 'Missing tracking number in FinerWorks shipment data'
+        message: 'Missing tracking number in FinerWorks shipment data',
       });
     }
 
     const { shippingProvider, predefined } = resolveWixShippingProvider(carrierName);
     const trackingInfo = {
       trackingNumber,
-      shippingProvider
+      shippingProvider,
     };
 
     if (!predefined) {
@@ -756,7 +747,7 @@ exports.fulfillWixOrderWithTrackingInfo = async (req, res) => {
         return res.status(400).json({
           success: false,
           message:
-            'Carrier is not a Wix predefined provider; provide a valid http(s) tracking_url from FinerWorks for trackingLink.'
+            'Carrier is not a Wix predefined provider; provide a valid http(s) tracking_url from FinerWorks for trackingLink.',
         });
       }
       trackingInfo.trackingLink = trackingUrlRaw;
@@ -768,22 +759,22 @@ exports.fulfillWixOrderWithTrackingInfo = async (req, res) => {
     const createBody = {
       fulfillment: {
         lineItems,
-        trackingInfo
-      }
+        trackingInfo,
+      },
     };
 
     const headers = buildAuthHeaders(wixAuth);
     const resp = await axios.post(createUrl, createBody, {
       headers,
       timeout: 120000,
-      validateStatus: () => true
+      validateStatus: () => true,
     });
 
     if (resp.status >= 200 && resp.status < 300) {
       return res.status(200).json({
         success: true,
         message: 'Wix order fulfillment created',
-        data: resp.data
+        data: resp.data,
       });
     }
 
@@ -791,7 +782,7 @@ exports.fulfillWixOrderWithTrackingInfo = async (req, res) => {
     return res.status(resp.status >= 400 ? resp.status : 502).json({
       success: false,
       message: 'Failed to create Wix fulfillment',
-      wixError: wixPayload
+      wixError: wixPayload,
     });
   } catch (err) {
     const r = err?.response;
@@ -801,7 +792,7 @@ exports.fulfillWixOrderWithTrackingInfo = async (req, res) => {
       success: false,
       message: 'Failed to fulfill Wix order with tracking info',
       error: wixPayload?.message || err?.message || 'Unknown error',
-      ...(wixPayload ? { wixError: wixPayload } : {})
+      ...(wixPayload ? { wixError: wixPayload } : {}),
     });
   }
 };

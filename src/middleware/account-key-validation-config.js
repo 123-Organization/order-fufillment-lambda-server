@@ -12,7 +12,6 @@ const SKIP_ACCOUNT_KEY_VALIDATION = [
   { method: 'POST', path: '/shopify/callback' },
   { method: 'GET', path: '/squarespace/auth' },
   { method: 'GET', path: '/squarespace/callback' },
-  { method: 'GET', path: '/wix/oauth/start' },
   { method: 'GET', path: '/wix/oauth/install-return' },
   { method: 'POST', path: '/wix/oauth/callback' },
   { method: 'GET', path: '/wix/instance/connect' },

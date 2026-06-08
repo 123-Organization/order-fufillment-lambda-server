@@ -3,7 +3,7 @@ const axios = require('axios');
 const debug = require('debug');
 const finerworksService = require('../helpers/finerworks-service');
 const { validateAccountKey } = require('../validators/accountKey.validator');
-const { parseConnectionData, isOrderSyncEnabled } = require('../helpers/platform-connections');
+const { isOrderSyncEnabled } = require('../helpers/platform-connections');
 const { fetchAccountKeyByWixInstanceId } = require('../helpers/wix-account-lookup');
 const { resolveWixAuth, buildAuthHeaders } = require('./wix-products');
 const { fetchWixOrderByGuid } = require('./wix-orders');
@@ -16,11 +16,19 @@ const FINERWORKS_EMPTY_PRODUCT_GUID = '00000000-0000-0000-0000-000000000000';
 function pickFinerWorksProductGuid(product) {
   if (!product || typeof product !== 'object') return null;
   const productGuid = product.product_guid ?? product.productGuid ?? null;
-  if (productGuid && String(productGuid).trim() && String(productGuid).trim() !== FINERWORKS_EMPTY_PRODUCT_GUID) {
+  if (
+    productGuid &&
+    String(productGuid).trim() &&
+    String(productGuid).trim() !== FINERWORKS_EMPTY_PRODUCT_GUID
+  ) {
     return String(productGuid).trim();
   }
   const imageGuid = product.image_guid ?? product.imageGuid ?? null;
-  if (imageGuid && String(imageGuid).trim() && String(imageGuid).trim() !== FINERWORKS_EMPTY_PRODUCT_GUID) {
+  if (
+    imageGuid &&
+    String(imageGuid).trim() &&
+    String(imageGuid).trim() !== FINERWORKS_EMPTY_PRODUCT_GUID
+  ) {
     return String(imageGuid).trim();
   }
   return null;
@@ -32,7 +40,7 @@ async function resolveFinerWorksProductGuidBySku(sku, account_key) {
   try {
     const resp = await finerworksService.LIST_VIRTUAL_INVENTORY({
       sku_filter: [skuStr],
-      account_key
+      account_key,
     });
     const guid = pickFinerWorksProductGuid(resp?.products?.[0]);
     return guid || FINERWORKS_EMPTY_PRODUCT_GUID;
@@ -102,7 +110,7 @@ function formatWixWebhookForLog(req) {
     orderNumber: unwrapped?.storesOrderSnapshot?.number ?? null,
     slug: unwrapped?.slug ?? null,
     eventType: unwrapped?.eventType ?? null,
-    entityFqdn: unwrapped?.entityFqdn ?? null
+    entityFqdn: unwrapped?.entityFqdn ?? null,
   };
 
   if (raw.startsWith('eyJ')) {
@@ -124,7 +132,7 @@ function formatWixWebhookForLog(req) {
 }
 
 function parseIncomingWixWebhookBody(req) {
-  let raw = getRawWixWebhookBodyString(req);
+  const raw = getRawWixWebhookBodyString(req);
   if (typeof raw === 'string') {
     const token = raw.trim();
     if (!token) return null;
@@ -156,7 +164,8 @@ function readWixInstanceIdDirect(payload) {
     null;
   if (direct) return String(direct).trim();
 
-  const dataObj = parseMaybeJsonString(payload.data) || (typeof payload.data === 'object' ? payload.data : null);
+  const dataObj =
+    parseMaybeJsonString(payload.data) || (typeof payload.data === 'object' ? payload.data : null);
   if (dataObj) {
     const fromData =
       dataObj.instanceId ||
@@ -184,10 +193,7 @@ function unwrapWixWebhookEvent(jwtPayload) {
   if (!envelope || typeof envelope !== 'object') return null;
 
   const instanceId =
-    envelope.instanceId ||
-    envelope.instance_id ||
-    envelope.metadata?.instanceId ||
-    null;
+    envelope.instanceId || envelope.instance_id || envelope.metadata?.instanceId || null;
 
   const eventType = envelope.eventType || envelope.event_type || null;
 
@@ -204,7 +210,7 @@ function unwrapWixWebhookEvent(jwtPayload) {
       entityFqdn: null,
       entityId: null,
       event: null,
-      entity: null
+      entity: null,
     };
   }
 
@@ -226,7 +232,9 @@ function unwrapWixWebhookEvent(jwtPayload) {
     event: inner,
     entity: entity && typeof entity === 'object' ? entity : null,
     storesOrderSnapshot,
-    orderIdFromEvent: storesOrderSnapshot?.orderId ? String(storesOrderSnapshot.orderId).trim() : null
+    orderIdFromEvent: storesOrderSnapshot?.orderId
+      ? String(storesOrderSnapshot.orderId).trim()
+      : null,
   };
 }
 
@@ -264,24 +272,30 @@ function extractWixOrderFromUnwrapped(unwrapped) {
   if (!unwrapped) return { order: null, orderId: null, kind: null, storesSnapshot: null };
 
   const entity = unwrapped.entity;
-  const storesSnapshot = unwrapped.storesOrderSnapshot || (unwrapped.event?.orderId ? unwrapped.event : null);
+  const storesSnapshot =
+    unwrapped.storesOrderSnapshot || (unwrapped.event?.orderId ? unwrapped.event : null);
 
   if (isWixPricingPlanOrderEvent(unwrapped) && entity && typeof entity === 'object') {
     return {
       kind: 'pricing_plans',
       order: entity,
       orderId: entity.id ? String(entity.id).trim() : unwrapped.entityId,
-      storesSnapshot: null
+      storesSnapshot: null,
     };
   }
 
   if (isWixEcomOrderEvent(unwrapped)) {
-    if (entity && typeof entity === 'object' && Array.isArray(entity.lineItems) && entity.lineItems.length) {
+    if (
+      entity &&
+      typeof entity === 'object' &&
+      Array.isArray(entity.lineItems) &&
+      entity.lineItems.length
+    ) {
       return {
         kind: 'ecom',
         order: entity,
         orderId: entity.id ? String(entity.id).trim() : unwrapped.entityId,
-        storesSnapshot
+        storesSnapshot,
       };
     }
 
@@ -297,7 +311,7 @@ function extractWixOrderFromUnwrapped(unwrapped) {
         kind: 'ecom',
         order: entity?.lineItems?.length ? entity : null,
         orderId: String(orderId).trim(),
-        storesSnapshot
+        storesSnapshot,
       };
     }
   }
@@ -306,7 +320,7 @@ function extractWixOrderFromUnwrapped(unwrapped) {
     kind: null,
     order: null,
     orderId: unwrapped.entityId || unwrapped.orderIdFromEvent || null,
-    storesSnapshot: null
+    storesSnapshot: null,
   };
 }
 
@@ -332,7 +346,7 @@ function extractWixOrderFromPayload(payload) {
     parseMaybeJsonString(payload?.data)?.createdEvent?.entity,
     payload?.data?.order,
     payload?.order,
-    payload?.entity
+    payload?.entity,
   ];
 
   for (const c of candidates) {
@@ -341,7 +355,7 @@ function extractWixOrderFromPayload(payload) {
         kind: 'ecom',
         order: c,
         orderId: c.id ? String(c.id).trim() : null,
-        storesSnapshot: null
+        storesSnapshot: null,
       };
     }
   }
@@ -358,7 +372,7 @@ function extractWixOrderFromPayload(payload) {
     order: null,
     orderId: orderId ? String(orderId).trim() : null,
     kind: null,
-    storesSnapshot: null
+    storesSnapshot: null,
   };
 }
 
@@ -374,7 +388,7 @@ function mergeStoresSnapshotIntoOrder(order, snapshot) {
     firstName: merged.buyerInfo?.firstName || buyer.firstName || null,
     lastName: merged.buyerInfo?.lastName || buyer.lastName || null,
     phone: merged.buyerInfo?.phone || buyer.phone || null,
-    contactId: merged.buyerInfo?.contactId || buyer.id || null
+    contactId: merged.buyerInfo?.contactId || buyer.id || null,
   };
 
   if (merged.number == null && snapshot.number != null) {
@@ -396,8 +410,8 @@ async function fetchWixOrderByNumber(wixAuth, orderNumber) {
     {
       search: {
         filter: { number: { $in: [n] } },
-        cursorPaging: { limit: 1 }
-      }
+        cursorPaging: { limit: 1 },
+      },
     },
     { headers, timeout: 120000, validateStatus: () => true }
   );
@@ -474,7 +488,7 @@ function matchShippingOptionId(title, options, carrierCode = null) {
       .toLowerCase()
       .includes(t.toLowerCase())
   );
-  return contains ? contains.id ?? contains.shipping_code ?? null : null;
+  return contains ? (contains.id ?? contains.shipping_code ?? null) : null;
 }
 
 function resolveDefaultShippingCode(shippingOptions) {
@@ -512,7 +526,7 @@ async function fetchWixContactById(wixAuth, contactId) {
     headers,
     params: { fieldsets: ['FULL'] },
     timeout: 60000,
-    validateStatus: () => true
+    validateStatus: () => true,
   });
   if (r.status < 200 || r.status >= 300) {
     log('fetchWixContactById failed status=%s contactId=%s', r.status, id);
@@ -547,7 +561,8 @@ function buildRecipientFromWixContact(contact, orderPoDisplay, fallbackEmail = n
     first_name: name.first || name.firstName || 'Wix',
     last_name: name.last || name.lastName || 'Customer',
     company_name: addr.company || null,
-    address_1: addr.addressLine || addr.addressLine1 || addr.streetAddress?.name || 'Address pending',
+    address_1:
+      addr.addressLine || addr.addressLine1 || addr.streetAddress?.name || 'Address pending',
     address_2: addr.addressLine2 || null,
     address_3: null,
     city: addr.city || 'N/A',
@@ -557,18 +572,25 @@ function buildRecipientFromWixContact(contact, orderPoDisplay, fallbackEmail = n
     country_code: country.length === 2 ? country : 'us',
     phone: phone || null,
     email,
-    address_order_po: orderPoDisplay
+    address_order_po: orderPoDisplay,
   };
 }
 
 function buildPricingPlanProductSku(entity) {
   const fromEnv = process.env.WIX_PRICING_PLAN_PRODUCT_SKU;
   if (fromEnv && String(fromEnv).trim()) return String(fromEnv).trim();
-  const planId = entity?.planId ? String(entity.planId).replace(/[^A-Za-z0-9]/g, '').slice(0, 20) : 'PLAN';
+  const planId = entity?.planId
+    ? String(entity.planId)
+        .replace(/[^A-Za-z0-9]/g, '')
+        .slice(0, 20)
+    : 'PLAN';
   return `AP-WIX-${planId}`;
 }
 
-async function transformWixPricingPlanOrderToFinerWorksPayload(entity, { wixAuth, shippingOptions = null }) {
+async function transformWixPricingPlanOrderToFinerWorksPayload(
+  entity,
+  { wixAuth, shippingOptions = null }
+) {
   const orderPoDisplay =
     (entity?.id ? String(entity.id).replace(/[^A-Za-z0-9]/g, '') : null) ||
     (entity?.subscriptionId ? String(entity.subscriptionId).replace(/[^A-Za-z0-9]/g, '') : null);
@@ -595,7 +617,7 @@ async function transformWixPricingPlanOrderToFinerWorksPayload(entity, { wixAuth
       country_code: (process.env.WIX_WEBHOOK_DEFAULT_COUNTRY_CODE || 'us').toLowerCase(),
       phone: null,
       email: null,
-      address_order_po: orderPoDisplay
+      address_order_po: orderPoDisplay,
     };
   }
 
@@ -616,15 +638,15 @@ async function transformWixPricingPlanOrderToFinerWorksPayload(entity, { wixAuth
           pixel_width: 600,
           pixel_height: 600,
           product_url_file: 'https://via.placeholder.com/150',
-          product_url_thumbnail: 'https://via.placeholder.com/150'
+          product_url_thumbnail: 'https://via.placeholder.com/150',
         },
         product_title: planTitle,
         template: null,
         product_guid: entity?.planId ? String(entity.planId) : FINERWORKS_EMPTY_PRODUCT_GUID,
         custom_data_1: entity?.type ? String(entity.type) : null,
         custom_data_2: entity?.status ? String(entity.status) : null,
-        custom_data_3: null
-      }
+        custom_data_3: null,
+      },
     ],
     shipping_code: resolveDefaultShippingCode(shippingOptions),
     ship_by_date: null,
@@ -638,7 +660,7 @@ async function transformWixPricingPlanOrderToFinerWorksPayload(entity, { wixAuth
     custom_data_1: 'wix_pricing_plans',
     custom_data_2: entity?.planId ? String(entity.planId) : null,
     custom_data_3: null,
-    source: 'wix_pricing_plans'
+    source: 'wix_pricing_plans',
   };
 }
 
@@ -674,46 +696,47 @@ function buildRecipientFromWixOrder(order, orderPoDisplay) {
     country_code: country.length === 2 ? country : 'us',
     phone: contact.phone ?? null,
     email: order?.buyerInfo?.email ?? contact.email ?? null,
-    address_order_po: orderPoDisplay
+    address_order_po: orderPoDisplay,
   };
 }
 
 function transformWixOrderToFinerWorksPayload(order, { shippingOptions = null }) {
   const orderNumber = order?.number != null ? String(order.number) : '';
-  const orderPoDisplay = orderNumber.replace(/\D/g, '') || (order?.id ? String(order.id).replace(/[^A-Za-z0-9]/g, '') : null);
+  const orderPoDisplay =
+    orderNumber.replace(/\D/g, '') ||
+    (order?.id ? String(order.id).replace(/[^A-Za-z0-9]/g, '') : null);
 
   const recipient = buildRecipientFromWixOrder(order, orderPoDisplay);
 
   const lineItems = Array.isArray(order?.lineItems) ? order.lineItems : [];
-  const orderItems = lineItems
-    .filter(wixLineItemSkuStartsWithAP)
-    .map((li) => {
-      const imageUrl = li?.image?.url ?? null;
-      return {
-        product_order_po: orderPoDisplay || null,
-        product_qty: li.quantity ?? 0,
-        product_sku: li?.physicalProperties?.sku ?? li?.sku ?? null,
-        product_image: imageUrl
-          ? {
-              pixel_width: li?.image?.width ?? 600,
-              pixel_height: li?.image?.height ?? 600,
-              product_url_file: imageUrl,
-              product_url_thumbnail: imageUrl
-            }
-          : {
-              pixel_width: 600,
-              pixel_height: 600,
-              product_url_file: 'https://via.placeholder.com/150',
-              product_url_thumbnail: 'https://via.placeholder.com/150'
-            },
-        product_title: pickTranslatedString(li?.productName) ?? pickTranslatedString(li?.name) ?? null,
-        template: null,
-        product_guid: FINERWORKS_EMPTY_PRODUCT_GUID,
-        custom_data_1: null,
-        custom_data_2: null,
-        custom_data_3: null
-      };
-    });
+  const orderItems = lineItems.filter(wixLineItemSkuStartsWithAP).map((li) => {
+    const imageUrl = li?.image?.url ?? null;
+    return {
+      product_order_po: orderPoDisplay || null,
+      product_qty: li.quantity ?? 0,
+      product_sku: li?.physicalProperties?.sku ?? li?.sku ?? null,
+      product_image: imageUrl
+        ? {
+            pixel_width: li?.image?.width ?? 600,
+            pixel_height: li?.image?.height ?? 600,
+            product_url_file: imageUrl,
+            product_url_thumbnail: imageUrl,
+          }
+        : {
+            pixel_width: 600,
+            pixel_height: 600,
+            product_url_file: 'https://via.placeholder.com/150',
+            product_url_thumbnail: 'https://via.placeholder.com/150',
+          },
+      product_title:
+        pickTranslatedString(li?.productName) ?? pickTranslatedString(li?.name) ?? null,
+      template: null,
+      product_guid: FINERWORKS_EMPTY_PRODUCT_GUID,
+      custom_data_1: null,
+      custom_data_2: null,
+      custom_data_3: null,
+    };
+  });
 
   const shippingCodeStr = resolveFinerWorksShippingCode(order, shippingOptions);
 
@@ -734,12 +757,12 @@ function transformWixOrderToFinerWorksPayload(order, { shippingOptions = null })
     custom_data_1: null,
     custom_data_2: null,
     custom_data_3: null,
-    source: 'wix'
+    source: 'wix',
   };
 }
 
 async function resolveAccountKeyForWebhook(req, payload) {
-  let account_key =
+  const account_key =
     req.query?.account_key ||
     req.query?.accountKey ||
     req.headers['x-account-key'] ||
@@ -774,7 +797,11 @@ async function findAccountKeyByInstanceInConnections(instanceId) {
     const resp = await axios.post(
       lookupUrl,
       { instance_id: String(instanceId).trim() },
-      { headers: { 'Content-Type': 'application/json' }, timeout: 10000, validateStatus: () => true }
+      {
+        headers: { 'Content-Type': 'application/json' },
+        timeout: 10000,
+        validateStatus: () => true,
+      }
     );
     if (resp.status < 200 || resp.status >= 300) return null;
     const key = resp?.data?.account_key || resp?.data?.accountKey;
@@ -803,7 +830,7 @@ exports.handleWixOrderCreateWebhook = async (req, res) => {
     if (!payload) {
       return res.status(400).json({
         success: false,
-        message: 'Invalid webhook body (expected JSON or JWT string)'
+        message: 'Invalid webhook body (expected JSON or JWT string)',
       });
     }
 
@@ -813,7 +840,7 @@ exports.handleWixOrderCreateWebhook = async (req, res) => {
         success: true,
         ignored: true,
         message:
-          'Could not resolve account_key. Pass ?account_key= on the webhook URL or map instanceId via account-info.'
+          'Could not resolve account_key. Pass ?account_key= on the webhook URL or map instanceId via account-info.',
       });
     }
 
@@ -829,7 +856,7 @@ exports.handleWixOrderCreateWebhook = async (req, res) => {
       return res.status(200).json({
         success: true,
         ignored: true,
-        message: 'No Wix connection for this account'
+        message: 'No Wix connection for this account',
       });
     }
 
@@ -837,23 +864,25 @@ exports.handleWixOrderCreateWebhook = async (req, res) => {
       return res.status(200).json({
         success: true,
         ignored: true,
-        message: 'Order sync is disabled for this Wix connection'
+        message: 'Order sync is disabled for this Wix connection',
       });
     }
 
     const unwrapped = unwrapWixWebhookEvent(payload);
-    let { order, orderId, kind, storesSnapshot } = extractWixOrderFromPayload(payload);
+    const extracted = extractWixOrderFromPayload(payload);
+    let { order, kind } = extracted;
+    const { orderId, storesSnapshot } = extracted;
 
     const wixAuth = await resolveWixAuth({
       account_key,
       access_token: null,
-      ignoreRequestToken: true
+      ignoreRequestToken: true,
     });
 
     if (!wixAuth?.accessToken) {
       return res.status(401).json({
         success: false,
-        message: 'Wix credentials not configured for this account'
+        message: 'Wix credentials not configured for this account',
       });
     }
 
@@ -866,10 +895,11 @@ exports.handleWixOrderCreateWebhook = async (req, res) => {
       return res.status(200).json({
         success: true,
         ignored: true,
-        message: 'Unsupported Wix webhook event (expected store/eCommerce or Pricing Plans order created)',
+        message:
+          'Unsupported Wix webhook event (expected store/eCommerce or Pricing Plans order created)',
         eventType: unwrapped?.eventType ?? null,
         entityFqdn: unwrapped?.entityFqdn ?? null,
-        orderIdFromEvent: unwrapped?.orderIdFromEvent ?? null
+        orderIdFromEvent: unwrapped?.orderIdFromEvent ?? null,
       });
     }
 
@@ -891,7 +921,7 @@ exports.handleWixOrderCreateWebhook = async (req, res) => {
             orderNumber: storesSnapshot?.number ?? null,
             eventType: unwrapped?.eventType ?? null,
             ...(fetchResult.wixPayload ? { wixError: fetchResult.wixPayload } : {}),
-            ...(fetchResult.message ? { detail: fetchResult.message } : {})
+            ...(fetchResult.message ? { detail: fetchResult.message } : {}),
           });
         }
         order = fetchResult.order;
@@ -905,7 +935,7 @@ exports.handleWixOrderCreateWebhook = async (req, res) => {
         success: false,
         message: 'Missing order entity in webhook payload',
         eventType: unwrapped?.eventType ?? null,
-        entityFqdn: unwrapped?.entityFqdn ?? null
+        entityFqdn: unwrapped?.entityFqdn ?? null,
       });
     }
 
@@ -922,13 +952,13 @@ exports.handleWixOrderCreateWebhook = async (req, res) => {
     if (kind === 'pricing_plans') {
       transformedOrder = await transformWixPricingPlanOrderToFinerWorksPayload(order, {
         wixAuth,
-        shippingOptions: shippingOptsList
+        shippingOptions: shippingOptsList,
       });
       log('Wix pricing plan order mapped for FinerWorks order_po=%s', transformedOrder.order_po);
       console.log('Wix pricing plan order mapped for FinerWorks: ', transformedOrder);
     } else {
       transformedOrder = transformWixOrderToFinerWorksPayload(order, {
-        shippingOptions: shippingOptsList
+        shippingOptions: shippingOptsList,
       });
       console.log('Wix eCommerce order mapped for FinerWorks: ', transformedOrder);
       if (!transformedOrder.order_items?.length) {
@@ -937,7 +967,7 @@ exports.handleWixOrderCreateWebhook = async (req, res) => {
           ignored: true,
           message: 'No FinerWorks line items (eCommerce SKU must start with AP)',
           orderId: order.id || orderId,
-          eventType: unwrapped?.eventType ?? null
+          eventType: unwrapped?.eventType ?? null,
         });
       }
     }
@@ -947,7 +977,9 @@ exports.handleWixOrderCreateWebhook = async (req, res) => {
       account_key
     );
 
-    const apiBase = String(process.env.OFA_PUBLIC_API_BASE_URL || '').trim().replace(/\/$/, '');
+    const apiBase = String(process.env.OFA_PUBLIC_API_BASE_URL || '')
+      .trim()
+      .replace(/\/$/, '');
     if (apiBase) {
       transformedOrder.webhook_order_status_url = `${apiBase}/api/wix/fulfill-order?account_key=${encodeURIComponent(
         account_key
@@ -960,7 +992,7 @@ exports.handleWixOrderCreateWebhook = async (req, res) => {
       orders: [transformedOrder],
       validate_only: false,
       payment_token: process.env.WIX_WEBHOOK_PAYMENT_TOKEN || 'xxxx',
-      account_key
+      account_key,
     };
 
     let submitData = null;
@@ -977,7 +1009,7 @@ exports.handleWixOrderCreateWebhook = async (req, res) => {
         message: 'Failed to submit order to FinerWorks',
         orderId: order.id || orderId,
         error: submitErr?.message || 'Unknown error',
-        ...(fwError && typeof fwError === 'object' ? { finerworksError: fwError } : {})
+        ...(fwError && typeof fwError === 'object' ? { finerworksError: fwError } : {}),
       });
     }
 
@@ -990,15 +1022,15 @@ exports.handleWixOrderCreateWebhook = async (req, res) => {
       orderId: order.id || orderId,
       order_po: transformedOrder.order_po,
       account_key,
-      submitData
+      submitData,
     });
   } catch (err) {
-    console.log("handleWixOrderCreateWebhook error: ", err);
+    console.log('handleWixOrderCreateWebhook error: ', err);
     log('handleWixOrderCreateWebhook error: %s', err?.message);
     return res.status(500).json({
       success: false,
       message: 'Wix order create webhook handler failed',
-      error: err?.message || 'Unknown error'
+      error: err?.message || 'Unknown error',
     });
   }
 };

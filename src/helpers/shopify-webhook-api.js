@@ -54,7 +54,7 @@ function shopifyApiVersion() {
 function shopifyHeaders(accessToken) {
   return {
     'X-Shopify-Access-Token': accessToken,
-    Accept: 'application/json'
+    Accept: 'application/json',
   };
 }
 
@@ -63,15 +63,19 @@ async function listShopifyWebhooks(accessToken, storeName) {
   const endpoint = `https://${shopDomain}/admin/api/${shopifyApiVersion()}/webhooks.json`;
   const resp = await axios.get(endpoint, {
     headers: shopifyHeaders(accessToken),
-    timeout: 60000
+    timeout: 60000,
   });
   return {
     shopDomain,
-    webhooks: Array.isArray(resp?.data?.webhooks) ? resp.data.webhooks : []
+    webhooks: Array.isArray(resp?.data?.webhooks) ? resp.data.webhooks : [],
   };
 }
 
-async function createShopifyWebhookSubscription(accessToken, storeName, { topic, address, format = 'json' }) {
+async function createShopifyWebhookSubscription(
+  accessToken,
+  storeName,
+  { topic, address, format = 'json' }
+) {
   const shopDomain = normalizeShopDomain(storeName);
   const gqlTopic = mapWebhookTopicToGraphql(topic);
   if (!gqlTopic) {
@@ -88,16 +92,16 @@ async function createShopifyWebhookSubscription(accessToken, storeName, { topic,
       variables: {
         topic: gqlTopic,
         webhookSubscription: {
-          uri: String(address).trim()
-        }
-      }
+          uri: String(address).trim(),
+        },
+      },
     },
     {
       headers: {
         ...shopifyHeaders(accessToken),
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
       },
-      timeout: 60000
+      timeout: 60000,
     }
   );
 
@@ -129,7 +133,7 @@ async function createShopifyWebhookSubscription(accessToken, storeName, { topic,
   return {
     shopDomain,
     webhookSubscription: payload.webhookSubscription || null,
-    format: String(format || 'json').toLowerCase()
+    format: String(format || 'json').toLowerCase(),
   };
 }
 
@@ -140,7 +144,7 @@ async function deleteShopifyWebhook(accessToken, storeName, webhookId) {
   await axios.delete(endpoint, {
     headers: shopifyHeaders(accessToken),
     timeout: 60000,
-    validateStatus: (status) => status === 200 || status === 204 || status === 404
+    validateStatus: (status) => status === 200 || status === 204 || status === 404,
   });
   return { shopDomain, deletedWebhookId: id };
 }
@@ -179,7 +183,7 @@ function resolveShopifyCredentials(body, connection, existingData) {
 
   return {
     storeName: storeName ? String(storeName).trim() : null,
-    access_token: access_token ? String(access_token).trim() : null
+    access_token: access_token ? String(access_token).trim() : null,
   };
 }
 
@@ -191,5 +195,5 @@ module.exports = {
   createShopifyWebhookSubscription,
   deleteShopifyWebhook,
   findOrdersCreateWebhook,
-  resolveShopifyCredentials
+  resolveShopifyCredentials,
 };

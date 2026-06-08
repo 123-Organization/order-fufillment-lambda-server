@@ -1,7 +1,7 @@
 const PLATFORM_TO_CONNECTION_NAME = {
   squarespace: 'Squarespace',
   wix: 'Wix',
-  shopify: 'Shopify'
+  shopify: 'Shopify',
 };
 
 function normalizePlatform(input) {
@@ -56,5 +56,5 @@ module.exports = {
   parseConnectionData,
   cloneConnections,
   findConnectionIndex,
-  isOrderSyncEnabled
+  isOrderSyncEnabled,
 };

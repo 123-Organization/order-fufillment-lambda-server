@@ -3,10 +3,10 @@ const crypto = require('crypto');
 const finerworksService = require('../helpers/finerworks-service');
 const {
   putSquarespaceAccount,
-  scanAllSquarespaceAccounts
+  scanAllSquarespaceAccounts,
 } = require('../helpers/squarespace-accounts-dynamo');
-const debug = require("debug");
-const log = debug("app:squarespaceAuth");
+const debug = require('debug');
+const log = debug('app:squarespaceAuth');
 require('dotenv').config();
 const { validateAccountKey } = require('../validators/accountKey.validator');
 
@@ -42,14 +42,13 @@ const buildRedirectUri = (req) => {
  */
 const handleSquarespaceAuth = async (req, res) => {
   try {
-    const account_key =
-      req.query?.account_key || req.body?.account_key || req.query?.accountKey;
+    const account_key = req.query?.account_key || req.body?.account_key || req.query?.accountKey;
 
     const { valid, error } = validateAccountKey(account_key);
     if (!valid) {
       return res.status(400).json({
         success: false,
-        message: error.message
+        message: error.message,
       });
     }
 
@@ -63,14 +62,14 @@ const handleSquarespaceAuth = async (req, res) => {
     if (!clientId) {
       return res.status(500).json({
         success: false,
-        message: 'SQUARESPACE_CLIENT_ID not configured'
+        message: 'SQUARESPACE_CLIENT_ID not configured',
       });
     }
 
     if (!process.env.SQUARESPACE_CLIENT_SECRET) {
       return res.status(500).json({
         success: false,
-        message: 'SQUARESPACE_CLIENT_SECRET not configured'
+        message: 'SQUARESPACE_CLIENT_SECRET not configured',
       });
     }
 
@@ -80,7 +79,7 @@ const handleSquarespaceAuth = async (req, res) => {
     const state = base64UrlEncode(JSON.stringify({ account_key, nonce }));
 
     const redirectUri = buildRedirectUri(req);
-    console.log("redirectUri",redirectUri)
+    console.log('redirectUri', redirectUri);
 
     // Optional: Squarespace will pass website_id to the initiate URL for logged-in users.
     const website_id = req.query?.website_id || req.query?.websiteId || req.body?.website_id;
@@ -92,27 +91,26 @@ const handleSquarespaceAuth = async (req, res) => {
       'offline';
 
     // Required authorize URL
-    const authUrlBase =
-      'https://login.squarespace.com/api/1/login/oauth/provider/authorize';
+    const authUrlBase = 'https://login.squarespace.com/api/1/login/oauth/provider/authorize';
 
     const qs = new URLSearchParams({
       client_id: clientId,
       redirect_uri: redirectUri,
       scope: scopes,
-      state
+      state,
     });
 
     if (website_id) qs.set('website_id', String(website_id));
     if (access_type) qs.set('access_type', String(access_type));
 
     const authUrl = `${authUrlBase}?${qs.toString()}`;
-    console.log("authUrl====>>>",authUrl);
+    console.log('authUrl====>>>', authUrl);
     return res.redirect(authUrl);
   } catch (err) {
     return res.status(500).json({
       success: false,
       message: 'Failed to initiate Squarespace OAuth',
-      error: err?.message || 'Unknown error'
+      error: err?.message || 'Unknown error',
     });
   }
 };
@@ -130,29 +128,29 @@ const handleSquarespaceCallback = async (req, res) => {
     const error = req.query?.error;
     const access_denied = req.query?.access_denied;
     const return_url = req.query?.return_url;
-    log("handleSquarespaceCallback", { code, state, error, access_denied, return_url });
+    log('handleSquarespaceCallback', { code, state, error, access_denied, return_url });
     if (error || access_denied) {
       return res.status(400).json({
         success: false,
-        message: access_denied ? 'access_denied' : (error || 'oauth_error')
+        message: access_denied ? 'access_denied' : error || 'oauth_error',
       });
     }
 
     if (!code || !state) {
       return res.status(400).json({
         success: false,
-        message: 'Missing required parameters: code, state'
+        message: 'Missing required parameters: code, state',
       });
     }
 
     let stateObj = null;
     try {
       stateObj = JSON.parse(base64UrlDecode(state));
-    } catch (e) {
+    } catch (_e) {
       // Not a state we generated; treat as invalid.
       return res.status(400).json({
         success: false,
-        message: 'Invalid state'
+        message: 'Invalid state',
       });
     }
 
@@ -160,7 +158,7 @@ const handleSquarespaceCallback = async (req, res) => {
     if (!account_key) {
       return res.status(400).json({
         success: false,
-        message: 'Invalid state: missing account_key'
+        message: 'Invalid state: missing account_key',
       });
     }
 
@@ -169,14 +167,13 @@ const handleSquarespaceCallback = async (req, res) => {
     if (!clientId || !clientSecret) {
       return res.status(500).json({
         success: false,
-        message: 'Squarespace OAuth credentials not configured'
+        message: 'Squarespace OAuth credentials not configured',
       });
     }
 
     const redirectUri = buildRedirectUri(req);
 
-    const tokenUrl =
-      'https://login.squarespace.com/api/1/login/oauth/provider/tokens';
+    const tokenUrl = 'https://login.squarespace.com/api/1/login/oauth/provider/tokens';
 
     const basicAuth = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
 
@@ -185,16 +182,16 @@ const handleSquarespaceCallback = async (req, res) => {
       {
         grant_type: 'authorization_code',
         code,
-        redirect_uri: redirectUri
+        redirect_uri: redirectUri,
       },
       {
         headers: {
           Authorization: `Basic ${basicAuth}`,
           'Content-Type': 'application/json',
           // Docs: a User-Agent header is required.
-          'User-Agent': 'ofa-node'
+          'User-Agent': 'ofa-node',
         },
-        timeout: 20000
+        timeout: 20000,
       }
     );
 
@@ -203,7 +200,7 @@ const handleSquarespaceCallback = async (req, res) => {
       return res.status(400).json({
         success: false,
         message: 'Token exchange succeeded but access_token missing',
-        data: tokenData
+        data: tokenData,
       });
     }
 
@@ -220,7 +217,9 @@ const handleSquarespaceCallback = async (req, res) => {
           if (previous?.data) {
             try {
               previousData =
-                typeof previous.data === 'string' ? JSON.parse(previous.data) : { ...previous.data };
+                typeof previous.data === 'string'
+                  ? JSON.parse(previous.data)
+                  : { ...previous.data };
             } catch (_) {
               previousData = {};
             }
@@ -231,7 +230,7 @@ const handleSquarespaceCallback = async (req, res) => {
             ...tokenData,
             redirect_uri: redirectUri,
             state_nonce: stateObj?.nonce,
-            needs_reauth: false
+            needs_reauth: false,
           };
           if (previous?.order_sync === true && mergedData.order_sync === undefined) {
             mergedData.order_sync = true;
@@ -241,7 +240,7 @@ const handleSquarespaceCallback = async (req, res) => {
             name: 'Squarespace',
             // Keep the same pattern as Shopify: id stores access token.
             id: tokenData.access_token,
-            data: JSON.stringify(mergedData)
+            data: JSON.stringify(mergedData),
           });
           return copy;
         })()
@@ -251,14 +250,14 @@ const handleSquarespaceCallback = async (req, res) => {
             id: tokenData.access_token,
             data: JSON.stringify({
               ...tokenData,
-              needs_reauth: false
-            })
-          }
+              needs_reauth: false,
+            }),
+          },
         ];
 
     await finerworksService.UPDATE_INFO({
       account_key,
-      connections: nextConnections
+      connections: nextConnections,
     });
 
     try {
@@ -271,7 +270,7 @@ const handleSquarespaceCallback = async (req, res) => {
         token_type: tokenData.token_type ?? null,
         redirect_uri: redirectUri,
         scope: tokenData.scope ?? null,
-        needs_reauth: false
+        needs_reauth: false,
       });
     } catch (dynamoErr) {
       console.error('Failed to write Squarespace account to DynamoDB', dynamoErr);
@@ -284,13 +283,13 @@ const handleSquarespaceCallback = async (req, res) => {
 
     return res.status(200).json({
       success: true,
-      message: 'Squarespace connection added successfully'
+      message: 'Squarespace connection added successfully',
     });
   } catch (err) {
     return res.status(500).json({
       success: false,
       message: 'Failed to process Squarespace callback',
-      error: err?.message || 'Unknown error'
+      error: err?.message || 'Unknown error',
     });
   }
 };
@@ -309,15 +308,15 @@ const exchangeSquarespaceRefreshToken = async (refresh_token) => {
     tokenUrl,
     {
       grant_type: 'refresh_token',
-      refresh_token: String(refresh_token).trim()
+      refresh_token: String(refresh_token).trim(),
     },
     {
       headers: {
         Authorization: `Basic ${basicAuth}`,
         'Content-Type': 'application/json',
-        'User-Agent': process.env.SQUARESPACE_USER_AGENT || 'ofa-node'
+        'User-Agent': process.env.SQUARESPACE_USER_AGENT || 'ofa-node',
       },
-      timeout: 20000
+      timeout: 20000,
     }
   );
 
@@ -355,17 +354,18 @@ async function getFinerworksSquarespaceOAuthSnapshot(account_key) {
   }
 
   const refresh_token = data.refresh_token != null ? String(data.refresh_token).trim() : '';
-  const access_token = data.access_token != null
-    ? String(data.access_token).trim()
-    : conn.id != null
-      ? String(conn.id).trim()
-      : '';
+  const access_token =
+    data.access_token != null
+      ? String(data.access_token).trim()
+      : conn.id != null
+        ? String(conn.id).trim()
+        : '';
 
   return {
     refresh_token: refresh_token || null,
     access_token: access_token || null,
     redirect_uri: data.redirect_uri ?? null,
-    scope: data.scope ?? null
+    scope: data.scope ?? null,
   };
 }
 
@@ -397,13 +397,13 @@ async function markSquarespaceNeedsReauthInFinerworks(account_key, reasonCode) {
     ...existingData,
     needs_reauth: true,
     needs_reauth_reason: reasonCode || 'invalid-refresh-token',
-    needs_reauth_at: new Date().toISOString()
+    needs_reauth_at: new Date().toISOString(),
   };
 
   connections[idx] = {
     name: 'Squarespace',
     id: connections[idx].id,
-    data: JSON.stringify(mergedData)
+    data: JSON.stringify(mergedData),
   };
 
   await finerworksService.UPDATE_INFO({ account_key, connections });
@@ -466,7 +466,7 @@ const saveSquarespaceTokensToFinerworks = async (account_key, tokenData) => {
   const mergedData = {
     ...existingData,
     ...tokenData,
-    needs_reauth: false
+    needs_reauth: false,
   };
   delete mergedData.needs_reauth_reason;
   delete mergedData.needs_reauth_at;
@@ -478,7 +478,7 @@ const saveSquarespaceTokensToFinerworks = async (account_key, tokenData) => {
   const nextConnection = {
     name: 'Squarespace',
     id: tokenData.access_token,
-    data: JSON.stringify(mergedData)
+    data: JSON.stringify(mergedData),
   };
 
   if (idx !== -1) {
@@ -489,7 +489,7 @@ const saveSquarespaceTokensToFinerworks = async (account_key, tokenData) => {
 
   await finerworksService.UPDATE_INFO({
     account_key,
-    connections
+    connections,
   });
 };
 
@@ -528,7 +528,7 @@ const refreshSquarespaceToken = async (req, res) => {
     if (!account_key || !refresh_token) {
       return res.status(400).json({
         success: false,
-        message: 'Missing required parameters: account_key and refresh_token'
+        message: 'Missing required parameters: account_key and refresh_token',
       });
     }
 
@@ -539,20 +539,20 @@ const refreshSquarespaceToken = async (req, res) => {
       message: 'Squarespace token refreshed successfully',
       access_token: tokenData.access_token,
       refresh_token: tokenData.refresh_token || refresh_token,
-      expires_in: tokenData.expires_in ?? null
+      expires_in: tokenData.expires_in ?? null,
     });
   } catch (err) {
     if (err?.tokenData) {
       return res.status(400).json({
         success: false,
         message: err.message,
-        data: err.tokenData
+        data: err.tokenData,
       });
     }
     return res.status(500).json({
       success: false,
       message: 'Failed to refresh Squarespace token',
-      error: err?.response?.data || err?.message || 'Unknown error'
+      error: err?.response?.data || err?.message || 'Unknown error',
     });
   }
 };
@@ -566,13 +566,13 @@ const runSquarespaceTokenRenewalJob = async () => {
   const summary = { renewed: [], skipped: [], errors: [], needs_reauth: [] };
 
   for (const row of rows) {
-    log("runSquarespaceTokenRenewalJob", { row });
+    log('runSquarespaceTokenRenewalJob', { row });
     const account_key = row.account_key;
     const refresh_token = row.refresh_token;
     if (!account_key || !refresh_token) {
       summary.skipped.push({
         account_key: account_key || null,
-        reason: 'missing account_key or refresh_token'
+        reason: 'missing account_key or refresh_token',
       });
       continue;
     }
@@ -580,7 +580,7 @@ const runSquarespaceTokenRenewalJob = async () => {
     if (row.id == null || String(row.id).trim() === '') {
       summary.skipped.push({
         account_key,
-        reason: 'missing id on DynamoDB item'
+        reason: 'missing id on DynamoDB item',
       });
       continue;
     }
@@ -596,7 +596,7 @@ const runSquarespaceTokenRenewalJob = async () => {
         token_type: tokenData.token_type ?? null,
         redirect_uri: row.redirect_uri ?? null,
         scope: tokenData.scope ?? row.scope ?? null,
-        needs_reauth: false
+        needs_reauth: false,
       });
       summary.renewed.push(account_key);
     } catch (err) {
@@ -608,9 +608,7 @@ const runSquarespaceTokenRenewalJob = async () => {
       summary.errors.push({
         account_key,
         message: err?.message || 'Unknown error',
-        ...(isSquarespaceInvalidRefreshTokenError(err)
-          ? { code: 'invalid-refresh-token' }
-          : {})
+        ...(isSquarespaceInvalidRefreshTokenError(err) ? { code: 'invalid-refresh-token' } : {}),
       });
 
       if (isSquarespaceInvalidRefreshTokenError(err)) {
@@ -635,11 +633,15 @@ const runSquarespaceTokenRenewalJob = async () => {
             scope: row.scope ?? null,
             needs_reauth: true,
             needs_reauth_reason: 'invalid-refresh-token',
-            needs_reauth_at: new Date().toISOString()
+            needs_reauth_at: new Date().toISOString(),
           });
           summary.needs_reauth.push(account_key);
         } catch (dynamoErr) {
-          console.error('Failed to write needs_reauth to DynamoDB', account_key, dynamoErr?.message);
+          console.error(
+            'Failed to write needs_reauth to DynamoDB',
+            account_key,
+            dynamoErr?.message
+          );
         }
       }
     }
@@ -652,6 +654,5 @@ module.exports = {
   handleSquarespaceAuth,
   handleSquarespaceCallback,
   refreshSquarespaceToken,
-  runSquarespaceTokenRenewalJob
+  runSquarespaceTokenRenewalJob,
 };
-

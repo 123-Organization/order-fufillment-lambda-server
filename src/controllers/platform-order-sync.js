@@ -7,13 +7,13 @@ const {
   parseConnectionData,
   cloneConnections,
   findConnectionIndex,
-  isOrderSyncEnabled
+  isOrderSyncEnabled,
 } = require('../helpers/platform-connections');
 const {
   listSquarespaceWebhookSubscriptions,
   createSquarespaceWebhookSubscription,
   deleteSquarespaceWebhookSubscription,
-  findOrderCreateSubscription
+  findOrderCreateSubscription,
 } = require('../helpers/squarespace-webhook-api');
 const {
   listShopifyWebhooks,
@@ -21,13 +21,13 @@ const {
   deleteShopifyWebhook,
   findOrdersCreateWebhook,
   resolveShopifyCredentials,
-  normalizeShopDomain
+  normalizeShopDomain,
 } = require('../helpers/shopify-webhook-api');
 const {
   fetchSquarespaceOrderById,
   transformSquarespaceOrderToFinerWorksPayload,
   enrichOrderItemsWithProductGuids,
-  buildSquarespaceFulfillmentWebhookUrl
+  buildSquarespaceFulfillmentWebhookUrl,
 } = require('../helpers/squarespace-order-webhook');
 const debug = require('debug');
 const log = debug('app:platformOrderSync');
@@ -38,7 +38,7 @@ const SHOPIFY_ORDER_CREATE_WEBHOOK = {
   topic: 'order/create',
   address:
     'https://d7z22w3j4h.execute-api.us-east-1.amazonaws.com/Prod/api/webhooks/webhooks/orders-create',
-  format: 'json'
+  format: 'json',
 };
 
 function parseOrderSyncFlag(value) {
@@ -49,7 +49,9 @@ function parseOrderSyncFlag(value) {
 }
 
 function buildSquarespaceOrderWebhookUrl(account_key) {
-  const apiBase = String(process.env.SQUARESPACE_ORDER_CREATE_WEBHOOK_URL || '').trim().replace(/\/$/, '');
+  const apiBase = String(process.env.SQUARESPACE_ORDER_CREATE_WEBHOOK_URL || '')
+    .trim()
+    .replace(/\/$/, '');
   if (!apiBase) {
     return null;
   }
@@ -78,15 +80,15 @@ async function refreshSquarespaceAccessToken(account_key, squarespaceData) {
     tokenUrl,
     {
       grant_type: 'refresh_token',
-      refresh_token: String(refresh_token).trim()
+      refresh_token: String(refresh_token).trim(),
     },
     {
       headers: {
         Authorization: `Basic ${basicAuth}`,
         'Content-Type': 'application/json',
-        'User-Agent': process.env.SQUARESPACE_USER_AGENT || 'ofa-node'
+        'User-Agent': process.env.SQUARESPACE_USER_AGENT || 'ofa-node',
       },
-      timeout: 20000
+      timeout: 20000,
     }
   );
 
@@ -109,14 +111,14 @@ async function refreshSquarespaceAccessToken(account_key, squarespaceData) {
   const merged = {
     ...squarespaceData,
     ...tokenData,
-    refresh_token: tokenData.refresh_token || refresh_token
+    refresh_token: tokenData.refresh_token || refresh_token,
   };
 
   connections[idx] = {
     ...connections[idx],
     name: 'Squarespace',
     id: tokenData.access_token,
-    data: JSON.stringify(merged)
+    data: JSON.stringify(merged),
   };
 
   await finerworksService.UPDATE_INFO({ account_key, connections });
@@ -184,7 +186,7 @@ async function enableSquarespaceOrderSync(account_key) {
     if (!webhookSubscription) {
       webhookSubscription = await createSquarespaceWebhookSubscription(accessToken, {
         endpointUrl,
-        topics: ['order.create']
+        topics: ['order.create'],
       });
     }
   });
@@ -215,7 +217,9 @@ async function enableShopifyOrderSync(req, existingData) {
   const { topic, address, format } = SHOPIFY_ORDER_CREATE_WEBHOOK;
 
   if (!storeName || !access_token) {
-    const err = new Error('Missing required parameters for Shopify order sync: storeName and access_token');
+    const err = new Error(
+      'Missing required parameters for Shopify order sync: storeName and access_token'
+    );
     err.status = 400;
     throw err;
   }
@@ -229,14 +233,16 @@ async function enableShopifyOrderSync(req, existingData) {
     createdSubscription = await createShopifyWebhookSubscription(access_token, shopDomain, {
       topic,
       address,
-      format
+      format,
     });
     const relisted = await listShopifyWebhooks(access_token, shopDomain);
     matched = findOrdersCreateWebhook(relisted.webhooks, address);
   }
 
   if (!matched?.id) {
-    const err = new Error('Shopify order create webhook was registered but could not be found in webhook list');
+    const err = new Error(
+      'Shopify order create webhook was registered but could not be found in webhook list'
+    );
     err.status = 502;
     throw err;
   }
@@ -248,12 +254,16 @@ async function enableShopifyOrderSync(req, existingData) {
     webhookSubscription: createdSubscription?.webhookSubscription || null,
     message: createdSubscription
       ? 'Shopify orders/create webhook registered successfully'
-      : 'Shopify orders/create webhook already registered'
+      : 'Shopify orders/create webhook already registered',
   };
 }
 
 async function disableShopifyOrderSync(req, existingConn, existingData) {
-  const { storeName, access_token } = resolveShopifyCredentials(req.body, existingConn, existingData);
+  const { storeName, access_token } = resolveShopifyCredentials(
+    req.body,
+    existingConn,
+    existingData
+  );
 
   if (!storeName || !access_token) {
     const err = new Error(
@@ -284,7 +294,7 @@ async function disableShopifyOrderSync(req, existingConn, existingData) {
     deletedWebhookId: String(matched.id),
     topic: matched.topic,
     address: matched.address,
-    message: 'Shopify orders/create webhook deleted successfully'
+    message: 'Shopify orders/create webhook deleted successfully',
   };
 }
 
@@ -312,7 +322,7 @@ function applyOrderSyncToConnection(conn, order_sync, dataPatch = {}) {
     ...connWithoutRootFlag,
     name: conn.name,
     id: conn.id,
-    data: JSON.stringify(nextData)
+    data: JSON.stringify(nextData),
   };
 }
 
@@ -331,7 +341,10 @@ function applyOrderSyncToConnection(conn, order_sync, dataPatch = {}) {
 exports.setPlatformOrderSync = async (req, res) => {
   try {
     const account_key =
-      req.body?.account_key || req.body?.accountKey || req.query?.account_key || req.query?.accountKey;
+      req.body?.account_key ||
+      req.body?.accountKey ||
+      req.query?.account_key ||
+      req.query?.accountKey;
     const platform = req.body?.platform || req.query?.platform;
     const order_sync = parseOrderSyncFlag(
       req.body?.order_sync ?? req.body?.orderSync ?? req.query?.order_sync ?? req.query?.orderSync
@@ -348,14 +361,14 @@ exports.setPlatformOrderSync = async (req, res) => {
     if (!connectionName || !SUPPORTED_PLATFORMS.includes(platformNorm)) {
       return res.status(400).json({
         success: false,
-        message: `Invalid platform. Expected one of: ${SUPPORTED_PLATFORMS.join(', ')}`
+        message: `Invalid platform. Expected one of: ${SUPPORTED_PLATFORMS.join(', ')}`,
       });
     }
 
     if (order_sync === null) {
       return res.status(400).json({
         success: false,
-        message: 'Missing or invalid order_sync. Expected boolean true/false.'
+        message: 'Missing or invalid order_sync. Expected boolean true/false.',
       });
     }
 
@@ -366,7 +379,7 @@ exports.setPlatformOrderSync = async (req, res) => {
     if (idx === -1) {
       return res.status(400).json({
         success: false,
-        message: `${connectionName} connection not found for this account`
+        message: `${connectionName} connection not found for this account`,
       });
     }
 
@@ -382,10 +395,11 @@ exports.setPlatformOrderSync = async (req, res) => {
         webhookSubscription = result.webhookSubscription;
         syncMessage = 'Squarespace order.create webhook registered successfully';
         connections[idx] = applyOrderSyncToConnection(existingConn, true, {
-          webhook_subscription_id: webhookSubscription?.id || existingData.webhook_subscription_id || null,
+          webhook_subscription_id:
+            webhookSubscription?.id || existingData.webhook_subscription_id || null,
           webhook_subscription_secret:
             webhookSubscription?.secret || existingData.webhook_subscription_secret || null,
-          order_create_webhook_url: result.endpointUrl
+          order_create_webhook_url: result.endpointUrl,
         });
       } else {
         const subscriptionId = existingData.webhook_subscription_id || null;
@@ -404,7 +418,7 @@ exports.setPlatformOrderSync = async (req, res) => {
           order_create_webhook_url: shopifyWebhookResult.endpointUrl,
           webhook_id: shopifyWebhookResult.webhook?.id || null,
           shopify_webhook_id: shopifyWebhookResult.webhook?.id || null,
-          ...(access_token ? { access_token } : {})
+          ...(access_token ? { access_token } : {}),
         });
         if (access_token) {
           connections[idx].id = access_token;
@@ -424,7 +438,7 @@ exports.setPlatformOrderSync = async (req, res) => {
 
     await finerworksService.UPDATE_INFO({
       account_key: trimmedKey,
-      connections
+      connections,
     });
 
     return res.status(200).json({
@@ -437,7 +451,7 @@ exports.setPlatformOrderSync = async (req, res) => {
       ...(shopifyWebhookResult?.webhook ? { shopifyWebhook: shopifyWebhookResult.webhook } : {}),
       ...(shopifyWebhookResult?.deletedWebhookId
         ? { deletedWebhookId: shopifyWebhookResult.deletedWebhookId }
-        : {})
+        : {}),
     });
   } catch (err) {
     const status = err?.status || err?.response?.status || 500;
@@ -452,7 +466,7 @@ exports.setPlatformOrderSync = async (req, res) => {
       success: false,
       message: err?.status ? errorDetail : 'Failed to update platform order sync',
       ...(err?.status ? {} : { error: errorDetail }),
-      ...(data && typeof data === 'object' && !err?.status ? { details: data } : {})
+      ...(data && typeof data === 'object' && !err?.status ? { details: data } : {}),
     });
   }
 };
@@ -480,7 +494,7 @@ exports.squarespaceOrderCreateWebhook = async (req, res) => {
     if (!squarespaceOrderId || !String(squarespaceOrderId).trim()) {
       return res.status(400).json({
         success: false,
-        message: 'Missing Squarespace order id in webhook payload (data.orderId)'
+        message: 'Missing Squarespace order id in webhook payload (data.orderId)',
       });
     }
 
@@ -494,7 +508,7 @@ exports.squarespaceOrderCreateWebhook = async (req, res) => {
       return res.status(200).json({
         success: true,
         ignored: true,
-        message: 'Order sync is disabled for this Squarespace connection'
+        message: 'Order sync is disabled for this Squarespace connection',
       });
     }
 
@@ -509,7 +523,11 @@ exports.squarespaceOrderCreateWebhook = async (req, res) => {
     } catch (fetchErr) {
       const status = fetchErr?.status || fetchErr?.response?.status || 502;
       const data = fetchErr?.response?.data;
-      log('Failed to fetch Squarespace order orderId=%s: %s', squarespaceOrderId, fetchErr?.message);
+      log(
+        'Failed to fetch Squarespace order orderId=%s: %s',
+        squarespaceOrderId,
+        fetchErr?.message
+      );
       return res.status(status).json({
         success: false,
         message: 'Failed to fetch Squarespace order details',
@@ -518,7 +536,7 @@ exports.squarespaceOrderCreateWebhook = async (req, res) => {
           (typeof data?.message === 'string' && data.message) ||
           fetchErr?.message ||
           'Unknown error',
-        ...(data && typeof data === 'object' ? { squarespaceError: data } : {})
+        ...(data && typeof data === 'object' ? { squarespaceError: data } : {}),
       });
     }
 
@@ -530,8 +548,8 @@ exports.squarespaceOrderCreateWebhook = async (req, res) => {
     }
 
     console.log('squarespaceOrder==============>>>>>>>', squarespaceOrder);
-    let transformedOrder = transformSquarespaceOrderToFinerWorksPayload(squarespaceOrder, {
-      shippingOptions: shippingOptions?.shipping_options ?? shippingOptions
+    const transformedOrder = transformSquarespaceOrderToFinerWorksPayload(squarespaceOrder, {
+      shippingOptions: shippingOptions?.shipping_options ?? shippingOptions,
     });
 
     if (!transformedOrder.order_items?.length) {
@@ -540,7 +558,7 @@ exports.squarespaceOrderCreateWebhook = async (req, res) => {
         ignored: true,
         message: 'No FinerWorks line items (Squarespace SKU must start with AP)',
         orderId: squarespaceOrder.id,
-        order_po: transformedOrder.order_po
+        order_po: transformedOrder.order_po,
       });
     }
 
@@ -553,7 +571,7 @@ exports.squarespaceOrderCreateWebhook = async (req, res) => {
       account_key: trimmedKey,
       accessToken: accessTokenUsed,
       orderNumber: transformedOrder.order_po,
-      orderId: squarespaceOrder.id
+      orderId: squarespaceOrder.id,
     });
     if (fulfillmentUrl) {
       transformedOrder.webhook_order_status_url = fulfillmentUrl;
@@ -563,16 +581,16 @@ exports.squarespaceOrderCreateWebhook = async (req, res) => {
       orders: [transformedOrder],
       validate_only: false,
       payment_token: process.env.SQUARESPACE_WEBHOOK_PAYMENT_TOKEN || 'xxxx',
-      account_key: trimmedKey
+      account_key: trimmedKey,
     };
 
     let submitData = null;
     try {
       log('Submitting Squarespace order to FinerWorks order_po=%s', transformedOrder.order_po);
       console.log('order data', transformedOrder);
-      console.log("finalPayload==============>>>>>>>", finalPayload);
+      console.log('finalPayload==============>>>>>>>', finalPayload);
       submitData = await finerworksService.SUBMIT_ORDERS(finalPayload);
-      console.log("submitData==============>>>>>>>", submitData);
+      console.log('submitData==============>>>>>>>', submitData);
     } catch (submitErr) {
       const fwError = submitErr?.response?.data;
       log('SUBMIT_ORDERS failed: %s', submitErr?.message);
@@ -582,11 +600,15 @@ exports.squarespaceOrderCreateWebhook = async (req, res) => {
         orderId: squarespaceOrder.id,
         order_po: transformedOrder.order_po,
         error: submitErr?.message || 'Unknown error',
-        ...(fwError && typeof fwError === 'object' ? { finerworksError: fwError } : {})
+        ...(fwError && typeof fwError === 'object' ? { finerworksError: fwError } : {}),
       });
     }
 
-    log('Squarespace order create webhook processed orderId=%s order_po=%s', squarespaceOrder.id, transformedOrder.order_po);
+    log(
+      'Squarespace order create webhook processed orderId=%s order_po=%s',
+      squarespaceOrder.id,
+      transformedOrder.order_po
+    );
     return res.status(200).json({
       success: true,
       submitted: true,
@@ -594,14 +616,14 @@ exports.squarespaceOrderCreateWebhook = async (req, res) => {
       orderId: squarespaceOrder.id,
       order_po: transformedOrder.order_po,
       account_key: trimmedKey,
-      submitData
+      submitData,
     });
   } catch (err) {
     log('Squarespace order create webhook failed', err);
     return res.status(500).json({
       success: false,
       message: 'Squarespace webhook handler failed',
-      error: err?.message || 'Unknown error'
+      error: err?.message || 'Unknown error',
     });
   }
 };

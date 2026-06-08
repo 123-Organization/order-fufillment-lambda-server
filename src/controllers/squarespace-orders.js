@@ -9,10 +9,16 @@ function toIsoOrNull(v) {
   return Number.isNaN(d.getTime()) ? null : d.toISOString();
 }
 
-async function fetchAllSquarespaceOrders({ accessToken, startDate, endDate, fulfillmentStatus, customerId }) {
+async function fetchAllSquarespaceOrders({
+  accessToken,
+  startDate,
+  endDate,
+  fulfillmentStatus,
+  customerId,
+}) {
   const headers = {
     Authorization: `Bearer ${accessToken}`,
-    'User-Agent': process.env.SQUARESPACE_USER_AGENT || 'ofa-node'
+    'User-Agent': process.env.SQUARESPACE_USER_AGENT || 'ofa-node',
   };
 
   const orders = [];
@@ -29,7 +35,8 @@ async function fetchAllSquarespaceOrders({ accessToken, startDate, endDate, fulf
         params.modifiedAfter = modifiedAfter;
         params.modifiedBefore = modifiedBefore;
       }
-      if (fulfillmentStatus) params.fulfillmentStatus = String(fulfillmentStatus).trim().toUpperCase();
+      if (fulfillmentStatus)
+        params.fulfillmentStatus = String(fulfillmentStatus).trim().toUpperCase();
       if (customerId) params.customerId = String(customerId).trim();
     }
 
@@ -54,8 +61,10 @@ const getSquarespaceOrders = async (req, res) => {
       accessToken = authHeader.slice(7).trim();
     }
 
-    const startDate = req.body?.startDate || req.body?.start_date || req.query?.startDate || req.query?.start_date;
-    const endDate = req.body?.endDate || req.body?.end_date || req.query?.endDate || req.query?.end_date;
+    const startDate =
+      req.body?.startDate || req.body?.start_date || req.query?.startDate || req.query?.start_date;
+    const endDate =
+      req.body?.endDate || req.body?.end_date || req.query?.endDate || req.query?.end_date;
     const fulfillmentStatus =
       req.body?.fulfillmentStatus || req.body?.fulfillment_status || req.query?.fulfillmentStatus;
     const customerId = req.body?.customerId || req.body?.customer_id || req.query?.customerId;
@@ -64,21 +73,21 @@ const getSquarespaceOrders = async (req, res) => {
     if (!startDate && !endDate) {
       return res.status(400).json({
         success: false,
-        message: 'Missing required parameter: startDate or endDate'
+        message: 'Missing required parameter: startDate or endDate',
       });
     }
 
     if (!fulfillmentStatus) {
       return res.status(400).json({
         success: false,
-        message: 'Missing required parameter: fulfillmentStatus'
+        message: 'Missing required parameter: fulfillmentStatus',
       });
     }
 
     if (!accessToken) {
       return res.status(400).json({
         success: false,
-        message: 'Missing required parameter: access_token'
+        message: 'Missing required parameter: access_token',
       });
     }
 
@@ -87,13 +96,13 @@ const getSquarespaceOrders = async (req, res) => {
       startDate,
       endDate,
       fulfillmentStatus,
-      customerId
+      customerId,
     });
 
     return res.status(200).json({
       success: true,
       count: orders.length,
-      orders
+      orders,
     });
   } catch (err) {
     const status = err?.response?.status || 500;
@@ -106,7 +115,7 @@ const getSquarespaceOrders = async (req, res) => {
         (typeof data?.error === 'string' && data.error) ||
         err?.message ||
         'Unknown error',
-      ...(data && typeof data === 'object' ? { squarespaceError: data } : {})
+      ...(data && typeof data === 'object' ? { squarespaceError: data } : {}),
     });
   }
 };
@@ -130,7 +139,7 @@ const getSquarespaceOrderByNumber = async (req, res) => {
     if (!accessToken || !orderNumberRaw) {
       return res.status(400).json({
         success: false,
-        message: 'Missing required parameters: access_token and orderNumber'
+        message: 'Missing required parameters: access_token and orderNumber',
       });
     }
 
@@ -144,13 +153,13 @@ const getSquarespaceOrderByNumber = async (req, res) => {
     if (!order) {
       return res.status(404).json({
         success: false,
-        message: `Order not found for orderNumber: ${orderNumberRaw}`
+        message: `Order not found for orderNumber: ${orderNumberRaw}`,
       });
     }
 
     return res.status(200).json({
       success: true,
-      order
+      order,
     });
   } catch (err) {
     const status = err?.response?.status || 500;
@@ -163,7 +172,7 @@ const getSquarespaceOrderByNumber = async (req, res) => {
         (typeof data?.error === 'string' && data.error) ||
         err?.message ||
         'Unknown error',
-      ...(data && typeof data === 'object' ? { squarespaceError: data } : {})
+      ...(data && typeof data === 'object' ? { squarespaceError: data } : {}),
     });
   }
 };
@@ -180,26 +189,26 @@ const validateSquarespaceAccessToken = async (req, res) => {
       return res.status(400).json({
         success: false,
         valid: false,
-        message: 'Missing required parameter: access_token'
+        message: 'Missing required parameter: access_token',
       });
     }
 
     const resp = await axios.get('https://api.squarespace.com/1.0/commerce/store_pages', {
       headers: {
         Authorization: `Bearer ${accessToken}`,
-        'User-Agent': process.env.SQUARESPACE_USER_AGENT || 'ofa-node'
+        'User-Agent': process.env.SQUARESPACE_USER_AGENT || 'ofa-node',
       },
       timeout: 60000,
-      validateStatus: () => true
+      validateStatus: () => true,
     });
-    console.log("resp===>>>", resp)
+    console.log('resp===>>>', resp);
 
     if (resp.status >= 200 && resp.status < 300) {
       const pages = Array.isArray(resp?.data?.storePages) ? resp.data.storePages : [];
       return res.status(200).json({
         success: true,
         valid: true,
-        storePageCount: pages.length
+        storePageCount: pages.length,
       });
     }
 
@@ -212,7 +221,7 @@ const validateSquarespaceAccessToken = async (req, res) => {
         (typeof data?.message === 'string' && data.message) ||
         (typeof data?.error === 'string' && data.error) ||
         'Unauthorized',
-      ...(data && typeof data === 'object' ? { squarespaceError: data } : {})
+      ...(data && typeof data === 'object' ? { squarespaceError: data } : {}),
     });
   } catch (err) {
     const status = err?.response?.status || 500;
@@ -225,7 +234,7 @@ const validateSquarespaceAccessToken = async (req, res) => {
         (typeof data?.message === 'string' && data.message) ||
         (typeof data?.error === 'string' && data.error) ||
         err?.message ||
-        'Unknown error'
+        'Unknown error',
     });
   }
 };
@@ -246,18 +255,21 @@ const fulfillSquareSpaceOrderWithTrackingInfo = async (req, res) => {
     if (!access_token || !account_key || !orderNumber || !orderId) {
       return res.status(400).json({
         success: false,
-        message: 'Missing required parameters: access_token or account_key or orderNumber or orderId'
+        message:
+          'Missing required parameters: access_token or account_key or orderNumber or orderId',
       });
     }
     let headers = {
       Authorization: `Bearer ${access_token}`,
       'User-Agent': process.env.SQUARESPACE_USER_AGENT || 'ofa-node',
-      'Content-Type': 'application/json'
+      'Content-Type': 'application/json',
     };
-    let orderResp = null;
     try {
-      orderResp = await axios.get(`https://api.squarespace.com/1.0/commerce/store_pages`, { headers, timeout: 120000 });
-    } catch (error) {
+      await axios.get(`https://api.squarespace.com/1.0/commerce/store_pages`, {
+        headers,
+        timeout: 120000,
+      });
+    } catch (_error) {
       // Major reason for this error block is unauthorized access to the squarespace api.
       const getInformation = await finerworksService.GET_INFO({ account_key });
       const connections = getInformation?.user_account?.connections || [];
@@ -268,9 +280,9 @@ const fulfillSquareSpaceOrderWithTrackingInfo = async (req, res) => {
           squarespaceData =
             typeof squarespaceConnection?.data === 'string'
               ? JSON.parse(squarespaceConnection.data)
-              : (squarespaceConnection?.data && typeof squarespaceConnection.data === 'object'
+              : squarespaceConnection?.data && typeof squarespaceConnection.data === 'object'
                 ? squarespaceConnection.data
-                : {});
+                : {};
         } catch (_) {
           squarespaceData = {};
         }
@@ -282,7 +294,7 @@ const fulfillSquareSpaceOrderWithTrackingInfo = async (req, res) => {
         if (!clientId || !clientSecret) {
           return res.status(500).json({
             success: false,
-            message: 'Squarespace OAuth credentials not configured'
+            message: 'Squarespace OAuth credentials not configured',
           });
         }
         const tokenUrl = 'https://login.squarespace.com/api/1/login/oauth/provider/tokens';
@@ -292,15 +304,15 @@ const fulfillSquareSpaceOrderWithTrackingInfo = async (req, res) => {
           tokenUrl,
           {
             grant_type: 'refresh_token',
-            refresh_token: String(refresh_token).trim()
+            refresh_token: String(refresh_token).trim(),
           },
           {
             headers: {
               Authorization: `Basic ${basicAuth}`,
               'Content-Type': 'application/json',
-              'User-Agent': process.env.SQUARESPACE_USER_AGENT || 'ofa-node'
+              'User-Agent': process.env.SQUARESPACE_USER_AGENT || 'ofa-node',
             },
-            timeout: 20000
+            timeout: 20000,
           }
         );
 
@@ -309,7 +321,7 @@ const fulfillSquareSpaceOrderWithTrackingInfo = async (req, res) => {
           return res.status(400).json({
             success: false,
             message: 'Token refresh succeeded but access_token missing',
-            data: tokenData
+            data: tokenData,
           });
         }
 
@@ -317,21 +329,23 @@ const fulfillSquareSpaceOrderWithTrackingInfo = async (req, res) => {
         // Persist the latest access/refresh token back into the tenant connection,
         // otherwise the next refresh attempt will use an invalidated refresh_token.
         try {
-          const nextConnections = Array.isArray(connections) ? JSON.parse(JSON.stringify(connections)) : [];
+          const nextConnections = Array.isArray(connections)
+            ? JSON.parse(JSON.stringify(connections))
+            : [];
           const idx = nextConnections.findIndex((c) => c && c.name === 'Squarespace');
 
           const merged = {
             ...squarespaceData,
             ...tokenData,
             // Ensure we never lose the refresh token if Squarespace doesn't return it.
-            refresh_token: tokenData.refresh_token || refresh_token
+            refresh_token: tokenData.refresh_token || refresh_token,
           };
 
           const nextConn = {
             ...(idx !== -1 ? nextConnections[idx] : {}),
             name: 'Squarespace',
             id: tokenData.access_token,
-            data: JSON.stringify(merged)
+            data: JSON.stringify(merged),
           };
 
           if (idx !== -1) nextConnections[idx] = nextConn;
@@ -339,11 +353,14 @@ const fulfillSquareSpaceOrderWithTrackingInfo = async (req, res) => {
 
           await finerworksService.UPDATE_INFO({
             account_key,
-            connections: nextConnections
+            connections: nextConnections,
           });
         } catch (persistErr) {
           // Don't fail fulfillment if persistence fails; just continue with refreshed access token.
-          console.log('Failed to persist refreshed Squarespace token', persistErr?.message || persistErr);
+          console.log(
+            'Failed to persist refreshed Squarespace token',
+            persistErr?.message || persistErr
+          );
         }
 
         headers = {
@@ -353,35 +370,31 @@ const fulfillSquareSpaceOrderWithTrackingInfo = async (req, res) => {
       } else {
         return res.status(400).json({
           success: false,
-          message: 'Squarespace connection not found'
+          message: 'Squarespace connection not found',
         });
       }
     }
     // Common code to get the tracking number and tracking url from the order status data. Then we update the squarespace order.
     const selectOrderId = {
-      "order_pos": [
-        orderNumber
-      ],
-      "account_key": account_key
-    }
-    console.log("selectOrderIds", selectOrderId);
+      order_pos: [orderNumber],
+      account_key: account_key,
+    };
+    console.log('selectOrderIds', selectOrderId);
 
     let orderStatusData = null;
     try {
-      orderStatusData = await finerworksService.GET_ORDER_STATUS(
-        selectOrderId
-      );
-      var result = orderNumber.replace("sku_", "");
+      orderStatusData = await finerworksService.GET_ORDER_STATUS(selectOrderId);
+      const result = orderNumber.replace('sku_', '');
       console.log(result); // "1"
     } catch (error) {
-      console.log("error in order status data", error);
+      console.log('error in order status data', error);
       return res.status(500).json({
         success: false,
         message: 'Failed to get order status data',
-        error: error?.message || 'Unknown error'
+        error: error?.message || 'Unknown error',
       });
     }
-    console.log("orderStatusData", orderStatusData);
+    console.log('orderStatusData', orderStatusData);
     const trackingNumber = orderStatusData?.orders[0]?.shipments[0]?.tracking_number;
     const trackingUrl = orderStatusData?.orders[0]?.shipments[0]?.tracking_url;
     const carrierName = orderStatusData?.orders[0]?.shipments[0]?.carrier;
@@ -390,35 +403,36 @@ const fulfillSquareSpaceOrderWithTrackingInfo = async (req, res) => {
 
     const url = `${SQUARESPACE_ORDERS_URL}/${orderId}/fulfillments`;
     const payload = {
-      "shipments": [
+      shipments: [
         {
-          "carrierName": carrierName,
-          "service": service,
-          "shipDate": shipDate,
-          "trackingNumber": trackingNumber,
-          "trackingUrl": trackingUrl
-        }
+          carrierName: carrierName,
+          service: service,
+          shipDate: shipDate,
+          trackingNumber: trackingNumber,
+          trackingUrl: trackingUrl,
+        },
       ],
-      "shouldSendNotification": true
-    }
+      shouldSendNotification: true,
+    };
     if (!carrierName || !service || !shipDate || !trackingNumber) {
       return res.status(400).json({
         success: false,
-        message: 'Missing required parameters: carrier name or service or ship date or tracking number'
+        message:
+          'Missing required parameters: carrier name or service or ship date or tracking number',
       });
     }
     const resp = await axios.post(url, JSON.stringify(payload), { headers });
     return res.status(200).json({
       success: true,
       message: 'Squarespace order fulfilled with tracking info',
-      data: resp.data
+      data: resp.data,
     });
   } catch (err) {
-    console.log("API error", err);
+    console.log('API error', err);
     return res.status(500).json({
       success: false,
       message: 'Failed to fulfill Squarespace order with tracking info',
-      error: err?.message || 'Unknown error'
+      error: err?.message || 'Unknown error',
     });
   }
 };
@@ -427,5 +441,5 @@ module.exports = {
   getSquarespaceOrders,
   getSquarespaceOrderByNumber,
   validateSquarespaceAccessToken,
-  fulfillSquareSpaceOrderWithTrackingInfo
+  fulfillSquareSpaceOrderWithTrackingInfo,
 };

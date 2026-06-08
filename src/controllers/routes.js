@@ -85,7 +85,6 @@ app.post('/wix/connect', connectWix); // This is using the api key to connect to
 app.get('/wix/oauth/start', handleWixAuthStart); // Oauth start api from our end
 app.get('/wix/oauth/install-return', handleWixOAuthInstallReturn); // after install: Wix redirects browser here with ctx + instance
 app.post('/wix/oauth/connect', connectWixOAuth); // using site id and instance id
-// POST /wix/oauth/callback is registered in app.js (before express.json) for Wix JWT webhook body.
 app.get('/wix/instance/connect', connectWixFromInstance);
 app.post('/wix/sync-products', syncWixProducts);
 app.post('/wix/orders', getWixOrders);

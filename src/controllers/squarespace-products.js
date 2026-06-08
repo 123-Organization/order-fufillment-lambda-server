@@ -42,7 +42,10 @@ function normalizeSku(sku) {
 }
 
 function buildVariantLabel(product) {
-  const d = product?.price_details?.debug?.Description || product?.price_details?.debug?.description || null;
+  const d =
+    product?.price_details?.debug?.Description ||
+    product?.price_details?.debug?.description ||
+    null;
   if (d && typeof d === 'object') {
     const parts = [d.Media || d.media, d.Style || d.style, d.Size || d.size]
       .map((x) => String(x || '').trim())
@@ -70,8 +73,10 @@ function buildBasePrice(currency, raw) {
   const n = Number(raw);
   const val = Number.isFinite(n) ? Math.round(n * 100) / 100 : 0;
   return {
-    currency: String(currency || 'USD').trim().toUpperCase(),
-    value: val.toFixed(2)
+    currency: String(currency || 'USD')
+      .trim()
+      .toUpperCase(),
+    value: val.toFixed(2),
   };
 }
 
@@ -122,8 +127,8 @@ function buildVariantRow(src, currency, { includeAttributes = false } = {}) {
     pricing: { basePrice: buildBasePrice(currency, getSquarespaceSyncPrice(src)) },
     stock: {
       quantity: Math.max(0, Math.round(Number(getQuantity(src) || 0))),
-      unlimited: false
-    }
+      unlimited: false,
+    },
   };
 
   if (includeAttributes) {
@@ -145,7 +150,7 @@ function buildSyncGroups(rawProducts, groupByImageGuid) {
           key: `${image_guid}:${sku}`,
           image_guid,
           items: [p],
-          simpleProduct: true
+          simpleProduct: true,
         };
       })
       .filter(Boolean);
@@ -163,7 +168,7 @@ function buildSyncGroups(rawProducts, groupByImageGuid) {
     key: image_guid,
     image_guid,
     items,
-    simpleProduct: items.length === 1
+    simpleProduct: items.length === 1,
   }));
 }
 
@@ -171,10 +176,14 @@ async function fetchStorePageId(headers, explicitStorePageId) {
   let cursor = null;
   const pages = [];
   for (let i = 0; i < 25; i++) {
-    const url = cursor ? `${STORE_PAGES_URL}?cursor=${encodeURIComponent(cursor)}` : STORE_PAGES_URL;
+    const url = cursor
+      ? `${STORE_PAGES_URL}?cursor=${encodeURIComponent(cursor)}`
+      : STORE_PAGES_URL;
     const r = await axios.get(url, { headers, validateStatus: () => true });
     if (r.status < 200 || r.status >= 300) {
-      const err = new Error(squarespaceErrorMessage(r.data, 'Failed to list Squarespace store pages'));
+      const err = new Error(
+        squarespaceErrorMessage(r.data, 'Failed to list Squarespace store pages')
+      );
       err.status = r.status || 502;
       err.response = { data: r.data, status: r.status };
       err.step = 'fetch_store_pages';
@@ -188,7 +197,9 @@ async function fetchStorePageId(headers, explicitStorePageId) {
   }
 
   if (explicitStorePageId) {
-    const found = pages.find((p) => String(p?.id || '').trim() === String(explicitStorePageId).trim());
+    const found = pages.find(
+      (p) => String(p?.id || '').trim() === String(explicitStorePageId).trim()
+    );
     return found?.id ? String(found.id).trim() : null;
   }
 
@@ -200,19 +211,23 @@ async function uploadImageToProduct(productId, imageUrl, headers) {
   const dl = await axios.get(imageUrl, {
     responseType: 'arraybuffer',
     timeout: 120000,
-    validateStatus: (s) => s >= 200 && s < 300
+    validateStatus: (s) => s >= 200 && s < 300,
   });
   const form = new FormData();
   form.append('file', Buffer.from(dl.data), { filename: 'image.jpg', contentType: 'image/jpeg' });
-  const up = await axios.post(`${API_BASE}/products/${encodeURIComponent(productId)}/images`, form, {
-    headers: {
-      ...form.getHeaders(),
-      Authorization: headers.Authorization,
-      'User-Agent': headers['User-Agent']
-    },
-    timeout: 120000,
-    validateStatus: (s) => s === 200 || s === 201 || s === 202
-  });
+  const up = await axios.post(
+    `${API_BASE}/products/${encodeURIComponent(productId)}/images`,
+    form,
+    {
+      headers: {
+        ...form.getHeaders(),
+        Authorization: headers.Authorization,
+        'User-Agent': headers['User-Agent'],
+      },
+      timeout: 120000,
+      validateStatus: (s) => s === 200 || s === 201 || s === 202,
+    }
+  );
   return up?.data?.imageId || null;
 }
 
@@ -240,10 +255,10 @@ async function associateVariantImage(productId, variantId, imageId, headers) {
       headers: {
         Authorization: headers.Authorization,
         'User-Agent': headers['User-Agent'],
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
       },
       timeout: 60000,
-      validateStatus: () => true
+      validateStatus: () => true,
     });
     if (r.status === 200 || r.status === 201 || r.status === 204) return true;
   }
@@ -252,11 +267,13 @@ async function associateVariantImage(productId, variantId, imageId, headers) {
 
 function getSquarespaceLinkFromItem(src) {
   const tpi = src?.third_party_integrations || {};
-  const productId = tpi.squarespace_product_id != null ? String(tpi.squarespace_product_id).trim() : '';
-  const variantId = tpi.squarespace_variant_id != null ? String(tpi.squarespace_variant_id).trim() : '';
+  const productId =
+    tpi.squarespace_product_id != null ? String(tpi.squarespace_product_id).trim() : '';
+  const variantId =
+    tpi.squarespace_variant_id != null ? String(tpi.squarespace_variant_id).trim() : '';
   return {
     squarespace_product_id: productId || null,
-    squarespace_variant_id: variantId || null
+    squarespace_variant_id: variantId || null,
   };
 }
 
@@ -301,7 +318,7 @@ async function verifySquarespaceProductExists(productId, headers) {
   const r = await axios.get(`${API_BASE}/products/${encodeURIComponent(id)}`, {
     headers,
     timeout: 60000,
-    validateStatus: () => true
+    validateStatus: () => true,
   });
   return r.status >= 200 && r.status < 300;
 }
@@ -315,7 +332,7 @@ async function fetchVariantIdBySku(productId, headers) {
     const pr = await axios.get(`${API_BASE}/products/${encodeURIComponent(id)}`, {
       headers,
       timeout: 60000,
-      validateStatus: () => true
+      validateStatus: () => true,
     });
     if (pr.status < 200 || pr.status >= 300) return variantIdBySku;
     const sqVariants = Array.isArray(pr?.data?.variants) ? pr.data.variants : [];
@@ -335,10 +352,10 @@ async function deleteSquarespaceProduct(productId, headers) {
   const r = await axios.delete(`${API_BASE}/products/${encodeURIComponent(id)}`, {
     headers: {
       Authorization: headers.Authorization,
-      'User-Agent': headers['User-Agent']
+      'User-Agent': headers['User-Agent'],
     },
     timeout: 60000,
-    validateStatus: (status) => status === 204 || status === 404
+    validateStatus: (status) => status === 204 || status === 404,
   });
   return { deleted: r.status === 204 || r.status === 404, status: r.status };
 }
@@ -369,7 +386,11 @@ function applyViResultToEntry(resultEntry, viResult) {
   }
   if (virtualInventoryUpdateErrors.length) {
     resultEntry.success = false;
-    if (!resultEntry.action || resultEntry.action === 'created' || resultEntry.action === 'variants_added') {
+    if (
+      !resultEntry.action ||
+      resultEntry.action === 'created' ||
+      resultEntry.action === 'variants_added'
+    ) {
       resultEntry.action = 'partial';
     }
   }
@@ -384,7 +405,7 @@ function buildSyncSummary(results) {
     variantsAdded: 0,
     failed: 0,
     partial: 0,
-    skipped: 0
+    skipped: 0,
   };
 
   for (const r of results) {
@@ -412,7 +433,7 @@ async function uploadAndAssociateImages({
   matched,
   first,
   headers,
-  skusForImages = null
+  skusForImages = null,
 }) {
   const skuFilter = skusForImages ? new Set(skusForImages) : null;
   const mainImageUrl = previewUrlFromMatchedImage(matched) || firstHttpUrlFromPayload(first);
@@ -466,7 +487,7 @@ async function processSyncGroup({
   storePageId,
   headers,
   matchedByGuid,
-  counters
+  counters,
 }) {
   const { key, image_guid: guid, items: srcVariants, simpleProduct } = group;
   const matched = matchedByGuid.get(guid) || null;
@@ -492,7 +513,7 @@ async function processSyncGroup({
       action: 'failed',
       image_guid: guid,
       groupKey: key,
-      error: 'No valid variants (missing SKU)'
+      error: 'No valid variants (missing SKU)',
     };
   }
 
@@ -517,7 +538,7 @@ async function processSyncGroup({
         productMode,
         squarespaceProductId: productId,
         variantCount: variantRows.length,
-        skusSynced: srcVariants.map((s) => normalizeSku(s?.sku)).filter(Boolean)
+        skusSynced: srcVariants.map((s) => normalizeSku(s?.sku)).filter(Boolean),
       };
 
       const viResult = await updateVirtualInventoryWithSquarespaceIds(
@@ -542,7 +563,7 @@ async function processSyncGroup({
     }
 
     if (productId) {
-      let variantIdBySku = await fetchVariantIdBySku(productId, headers);
+      const variantIdBySku = await fetchVariantIdBySku(productId, headers);
       const skusNeedingSquarespace = [];
       const skusViOnly = [];
 
@@ -579,7 +600,7 @@ async function processSyncGroup({
         } catch (err) {
           variantCreateErrors.push({
             sku: normalizeSku(src?.sku),
-            error: err?.message || 'Failed to create variant'
+            error: err?.message || 'Failed to create variant',
           });
         }
       }
@@ -593,7 +614,7 @@ async function processSyncGroup({
           matched,
           first,
           headers,
-          skusForImages
+          skusForImages,
         });
         variantImageAssociations = img.variantImageAssociations;
         for (const [sku, vid] of img.variantIdBySku.entries()) {
@@ -612,9 +633,11 @@ async function processSyncGroup({
         variantCount: variantRows.length,
         variantsCreatedOnSquarespace,
         skusViOnly: skusViOnly.map((s) => normalizeSku(s?.sku)).filter(Boolean),
-        skusAddedOnSquarespace: skusNeedingSquarespace.map((s) => normalizeSku(s?.sku)).filter(Boolean),
+        skusAddedOnSquarespace: skusNeedingSquarespace
+          .map((s) => normalizeSku(s?.sku))
+          .filter(Boolean),
         variantImageAssociations,
-        ...(variantCreateErrors.length ? { variantCreateErrors } : {})
+        ...(variantCreateErrors.length ? { variantCreateErrors } : {}),
       };
 
       const viResult = await updateVirtualInventoryWithSquarespaceIds(
@@ -653,12 +676,12 @@ async function processSyncGroup({
     storePageId,
     urlSlug: slugify(slugSeed) || `product-${Date.now()}`,
     ...(useVariantAttributes ? { variantAttributes: ['Configuration'] } : {}),
-    variants: variantRows
+    variants: variantRows,
   };
 
   const createResp = await axios.post(`${API_BASE}/products`, createPayload, {
     headers,
-    validateStatus: () => true
+    validateStatus: () => true,
   });
 
   if (createResp.status < 200 || createResp.status >= 300) {
@@ -672,7 +695,7 @@ async function processSyncGroup({
       productMode,
       error: squarespaceErrorMessage(data, 'Failed to create Squarespace product'),
       ...(authorizationHint(data) ? { hint: authorizationHint(data) } : {}),
-      ...(data && typeof data === 'object' ? { squarespaceError: data } : {})
+      ...(data && typeof data === 'object' ? { squarespaceError: data } : {}),
     };
   }
 
@@ -683,7 +706,7 @@ async function processSyncGroup({
       success: false,
       action: 'failed',
       image_guid: guid,
-      error: 'Squarespace product id missing in response'
+      error: 'Squarespace product id missing in response',
     };
   }
 
@@ -696,7 +719,7 @@ async function processSyncGroup({
     srcVariants,
     matched,
     first,
-    headers
+    headers,
   });
 
   const resultEntry = {
@@ -707,7 +730,7 @@ async function processSyncGroup({
     productMode,
     squarespaceProductId: productId,
     variantCount: variantRows.length,
-    variantImageAssociations
+    variantImageAssociations,
   };
 
   const viResult = await updateVirtualInventoryWithSquarespaceIds(
@@ -728,7 +751,7 @@ async function processSyncGroup({
       } catch (compErr) {
         resultEntry.compensation = {
           deleted: false,
-          error: compErr?.message || 'Compensation delete failed'
+          error: compErr?.message || 'Compensation delete failed',
         };
       }
       resultEntry.action = 'failed';
@@ -751,7 +774,12 @@ function pickVirtualInventoryName(src, fallback = 'Untitled') {
   );
 }
 
-async function updateVirtualInventoryWithSquarespaceIds(accountKey, srcVariants, productId, variantIdBySku) {
+async function updateVirtualInventoryWithSquarespaceIds(
+  accountKey,
+  srcVariants,
+  productId,
+  variantIdBySku
+) {
   const virtualInventoryUpdates = [];
   const virtualInventoryUpdateErrors = [];
 
@@ -779,20 +807,20 @@ async function updateVirtualInventoryWithSquarespaceIds(accountKey, srcVariants,
       third_party_integrations: {
         ...(src?.third_party_integrations || {}),
         squarespace_product_id: squarespaceProductId,
-        ...(squarespaceVariantId ? { squarespace_variant_id: String(squarespaceVariantId) } : {})
-      }
+        ...(squarespaceVariantId ? { squarespace_variant_id: String(squarespaceVariantId) } : {}),
+      },
     };
 
     try {
       const updateResult = await finerworksService.UPDATE_VIRTUAL_INVENTORY({
         virtual_inventory: [viItem],
-        account_key: String(accountKey).trim()
+        account_key: String(accountKey).trim(),
       });
       virtualInventoryUpdates.push({ sku: srcSku, result: updateResult });
     } catch (singleErr) {
       virtualInventoryUpdateErrors.push({
         sku: srcSku,
-        error: singleErr?.message || 'Unknown virtual inventory update error'
+        error: singleErr?.message || 'Unknown virtual inventory update error',
       });
     }
   }
@@ -805,7 +833,8 @@ const syncSquarespaceProducts = async (req, res) => {
     const accessToken = req.body?.access_token || req.headers['x-squarespace-access-token'];
     const accountKey = req.body?.account_key || req.body?.accountKey;
     const siteId = req.body?.site_id ?? req.body?.siteId ?? process.env.FINERWORKS_SITE_ID ?? 2;
-    const sessionId = req.body?.session_id || req.body?.sessionId || process.env.FINERWORKS_SESSION_ID || null;
+    const sessionId =
+      req.body?.session_id || req.body?.sessionId || process.env.FINERWORKS_SESSION_ID || null;
     const currency = req.body?.currency || 'USD';
     const rawProducts = Array.isArray(req.body?.productsList) ? req.body.productsList : [];
     const explicitStorePageId = req.body?.storePageId || req.body?.store_page_id || null;
@@ -813,7 +842,8 @@ const syncSquarespaceProducts = async (req, res) => {
       req.body?.groupByImageGuid ?? req.body?.group_by_image_guid ?? true
     );
 
-    if (!accessToken) return res.status(400).json({ success: false, message: 'access_token is required' });
+    if (!accessToken)
+      return res.status(400).json({ success: false, message: 'access_token is required' });
     if (!accountKey || !String(accountKey).trim()) {
       return res.status(400).json({ success: false, message: 'account_key is required' });
     }
@@ -821,16 +851,20 @@ const syncSquarespaceProducts = async (req, res) => {
       return res.status(400).json({ success: false, message: 'session_id is required' });
     }
     if (!rawProducts.length) {
-      return res.status(400).json({ success: false, message: 'productsList must be a non-empty array' });
+      return res
+        .status(400)
+        .json({ success: false, message: 'productsList must be a non-empty array' });
     }
 
-    const uniqueImageGuids = [...new Set(rawProducts.map((p) => String(p?.image_guid || '').trim()).filter(Boolean))];
+    const uniqueImageGuids = [
+      ...new Set(rawProducts.map((p) => String(p?.image_guid || '').trim()).filter(Boolean)),
+    ];
     const syncGroups = buildSyncGroups(rawProducts, groupByImageGuid);
 
     if (!syncGroups.length) {
       return res.status(400).json({
         success: false,
-        message: 'No valid products to sync (each item needs image_guid and sku)'
+        message: 'No valid products to sync (each item needs image_guid and sku)',
       });
     }
 
@@ -840,8 +874,8 @@ const syncSquarespaceProducts = async (req, res) => {
         library: {
           account_key: String(accountKey).trim(),
           site_id: Number(siteId),
-          session_id: String(sessionId).trim()
-        }
+          session_id: String(sessionId).trim(),
+        },
       });
     } catch (err) {
       const status = err?.response?.status || 502;
@@ -850,7 +884,7 @@ const syncSquarespaceProducts = async (req, res) => {
         message: 'Failed to load FinerWorks images for product sync',
         step: 'finerworks_list_images',
         error: err?.message || 'Unknown error',
-        ...(err?.response?.data ? { finerworksError: err.response.data } : {})
+        ...(err?.response?.data ? { finerworksError: err.response.data } : {}),
       });
     }
     const allImages = extractImages(fwData);
@@ -865,7 +899,7 @@ const syncSquarespaceProducts = async (req, res) => {
     const headers = {
       Authorization: `Bearer ${accessToken}`,
       'Content-Type': 'application/json',
-      'User-Agent': process.env.SQUARESPACE_USER_AGENT || 'ofa-node'
+      'User-Agent': process.env.SQUARESPACE_USER_AGENT || 'ofa-node',
     };
 
     let storePageId;
@@ -880,12 +914,14 @@ const syncSquarespaceProducts = async (req, res) => {
         step: err?.step || 'fetch_store_pages',
         error: squarespaceErrorMessage(data, err?.message || 'Unknown error'),
         ...(authorizationHint(data) ? { hint: authorizationHint(data) } : {}),
-        ...(data && typeof data === 'object' ? { squarespaceError: data } : {})
+        ...(data && typeof data === 'object' ? { squarespaceError: data } : {}),
       });
     }
 
     if (!storePageId) {
-      return res.status(400).json({ success: false, message: 'No valid Squarespace store page id found' });
+      return res
+        .status(400)
+        .json({ success: false, message: 'No valid Squarespace store page id found' });
     }
 
     const results = [];
@@ -895,7 +931,7 @@ const syncSquarespaceProducts = async (req, res) => {
       uploaded: 0,
       repaired: 0,
       failed: 0,
-      partial: 0
+      partial: 0,
     };
     const unmatchedImageGuids = uniqueImageGuids.filter((g) => !matchedByGuid.has(g));
 
@@ -909,7 +945,7 @@ const syncSquarespaceProducts = async (req, res) => {
           storePageId,
           headers,
           matchedByGuid,
-          counters
+          counters,
         });
         results.push(resultEntry);
       } catch (err) {
@@ -920,9 +956,12 @@ const syncSquarespaceProducts = async (req, res) => {
           action: 'failed',
           image_guid: group.image_guid,
           groupKey: group.key,
-          error: squarespaceErrorMessage(data, err?.message || 'Failed to sync Squarespace product'),
+          error: squarespaceErrorMessage(
+            data,
+            err?.message || 'Failed to sync Squarespace product'
+          ),
           ...(authorizationHint(data) ? { hint: authorizationHint(data) } : {}),
-          ...(data && typeof data === 'object' ? { squarespaceError: data } : {})
+          ...(data && typeof data === 'object' ? { squarespaceError: data } : {}),
         });
       }
     }
@@ -951,9 +990,9 @@ const syncSquarespaceProducts = async (req, res) => {
         variantsAdded: summary.variantsAdded,
         failed: summary.failed,
         partial: summary.partial,
-        skipped: summary.skipped
+        skipped: summary.skipped,
       },
-      results
+      results,
     });
   } catch (err) {
     const status = err?.response?.status || err?.status || 500;
@@ -964,7 +1003,7 @@ const syncSquarespaceProducts = async (req, res) => {
       step: err?.step || 'unknown',
       error: squarespaceErrorMessage(data, err?.message || 'Unknown error'),
       ...(authorizationHint(data) ? { hint: authorizationHint(data) } : {}),
-      ...(data && typeof data === 'object' ? { details: data } : {})
+      ...(data && typeof data === 'object' ? { details: data } : {}),
     });
   }
 };
