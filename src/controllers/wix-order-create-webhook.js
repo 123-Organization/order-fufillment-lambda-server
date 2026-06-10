@@ -8,6 +8,7 @@ const { fetchAccountKeyByWixInstanceId } = require('../helpers/wix-account-looku
 const { resolveWixAuth, buildAuthHeaders } = require('./wix-products');
 const { fetchWixOrderByGuid } = require('./wix-orders');
 
+const { sendApiError, safeWixErrorData } = require('../helpers/api-error');
 const log = debug('app:wix-order-create-webhook');
 
 /** FinerWorks .NET API requires a valid GUID; null is rejected. */
@@ -828,10 +829,7 @@ exports.handleWixOrderCreateWebhook = async (req, res) => {
     log('Wix order create webhook received %s', JSON.stringify(formatWixWebhookForLog(req)));
     const payload = parseIncomingWixWebhookBody(req);
     if (!payload) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid webhook body (expected JSON or JWT string)',
-      });
+      return sendApiError(res, 400, 'Invalid webhook body (expected JSON or JWT string)');
     }
 
     const account_key = await resolveAccountKeyForWebhook(req, payload);
@@ -846,7 +844,7 @@ exports.handleWixOrderCreateWebhook = async (req, res) => {
 
     const { valid, error } = validateAccountKey(account_key);
     if (!valid) {
-      return res.status(400).json({ success: false, message: error.message });
+      return sendApiError(res, 400, error.message);
     }
 
     const getInformation = await finerworksService.GET_INFO({ account_key });
@@ -880,10 +878,7 @@ exports.handleWixOrderCreateWebhook = async (req, res) => {
     });
 
     if (!wixAuth?.accessToken) {
-      return res.status(401).json({
-        success: false,
-        message: 'Wix credentials not configured for this account',
-      });
+      return sendApiError(res, 401, 'Wix credentials not configured for this account');
     }
 
     if (!kind && unwrapped) {
@@ -914,13 +909,11 @@ exports.handleWixOrderCreateWebhook = async (req, res) => {
         const fetchResult = await fetchWixOrderForWebhook(wixAuth, orderId, storesSnapshot);
         if (!fetchResult.ok || !fetchResult.order) {
           const status = fetchResult.status === 404 ? 404 : fetchResult.status || 502;
-          return res.status(status).json({
-            success: false,
-            message: 'Failed to load Wix eCommerce order for webhook',
+          return sendApiError(res, status, 'Failed to load Wix eCommerce order for webhook', {
             orderId,
             orderNumber: storesSnapshot?.number ?? null,
             eventType: unwrapped?.eventType ?? null,
-            ...(fetchResult.wixPayload ? { wixError: fetchResult.wixPayload } : {}),
+            ...(fetchResult.wixPayload ? safeWixErrorData(fetchResult.wixPayload) : {}),
             ...(fetchResult.message ? { detail: fetchResult.message } : {}),
           });
         }
@@ -931,9 +924,7 @@ exports.handleWixOrderCreateWebhook = async (req, res) => {
     }
 
     if (!order) {
-      return res.status(400).json({
-        success: false,
-        message: 'Missing order entity in webhook payload',
+      return sendApiError(res, 400, 'Missing order entity in webhook payload', {
         eventType: unwrapped?.eventType ?? null,
         entityFqdn: unwrapped?.entityFqdn ?? null,
       });
@@ -1004,12 +995,9 @@ exports.handleWixOrderCreateWebhook = async (req, res) => {
       const fwError = submitErr?.response?.data;
       log('SUBMIT_ORDERS failed: %s', submitErr?.message);
       console.log('SUBMIT_ORDERS failed: ', fwError || submitErr?.message || submitErr);
-      return res.status(submitErr?.response?.status === 400 ? 400 : 502).json({
-        success: false,
-        message: 'Failed to submit order to FinerWorks',
+      const status = submitErr?.response?.status === 400 ? 400 : 502;
+      return sendApiError(res, status, 'Failed to submit order to FinerWorks', {
         orderId: order.id || orderId,
-        error: submitErr?.message || 'Unknown error',
-        ...(fwError && typeof fwError === 'object' ? { finerworksError: fwError } : {}),
       });
     }
 
@@ -1027,10 +1015,6 @@ exports.handleWixOrderCreateWebhook = async (req, res) => {
   } catch (err) {
     console.log('handleWixOrderCreateWebhook error: ', err);
     log('handleWixOrderCreateWebhook error: %s', err?.message);
-    return res.status(500).json({
-      success: false,
-      message: 'Wix order create webhook handler failed',
-      error: err?.message || 'Unknown error',
-    });
+    return sendApiError(res, err);
   }
 };

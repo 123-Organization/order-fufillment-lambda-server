@@ -6,6 +6,7 @@ const {
   summarizeWixHttpError,
   maybePersistDiscoveredWixSiteId,
 } = require('./wix-products');
+const { sendApiError, safeWixErrorData } = require('../helpers/api-error');
 
 const WIX_SEARCH_ORDERS_URL = 'https://www.wixapis.com/ecom/v1/orders/search';
 const WIX_CREATE_FULFILLMENT_BASE = 'https://www.wixapis.com/ecom/v1/fulfillments/orders';
@@ -212,36 +213,31 @@ function sendSingleGuidOrderLookupResponse(res, fetchResult, notFoundMessage) {
   const { ok, order, status, wixPayload } = fetchResult;
   if (ok) {
     if (!order) {
-      return res
-        .status(502)
-        .json({ success: false, message: 'Wix returned an empty order payload' });
+      return sendApiError(res, 502, 'Wix returned an empty order payload');
     }
     return res.status(200).json({ success: true, order });
   }
   if (status === 404) {
-    return res.status(404).json({
-      success: false,
-      message: notFoundMessage,
-      wixError: wixPayload,
-    });
+    return sendApiError(res, 404, notFoundMessage, safeWixErrorData(wixPayload));
   }
-  return res.status(status).json({
-    success: false,
-    message: 'Failed to retrieve Wix order by id',
-    wixError: wixPayload,
-  });
+  return sendApiError(
+    res,
+    status,
+    'Failed to retrieve Wix order by id',
+    safeWixErrorData(wixPayload)
+  );
 }
 
 function jsonSearchOrdersError(res, err, clientMessage) {
   const r = err?.response;
   const wixPayload = typeof r?.data !== 'undefined' ? summarizeWixHttpError(r) : null;
   const status = r?.status || err?.response?.status || 502;
-  return res.status(status >= 400 ? status : 502).json({
-    success: false,
-    message: clientMessage,
-    ...(wixPayload ? { wixError: wixPayload } : {}),
-    error: wixPayload?.message || err?.message || 'Unknown error',
-  });
+  return sendApiError(
+    res,
+    status >= 400 ? status : 502,
+    clientMessage,
+    wixPayload ? safeWixErrorData(wixPayload) : {}
+  );
 }
 
 /**
@@ -251,10 +247,11 @@ async function fetchWixOrdersByNumberList(res, wixAuth, orderNumberList) {
   for (const item of orderNumberList) {
     if (looksLikeOrderGuid(item)) continue;
     if (parseOrderNumber(item) === null) {
-      res.status(400).json({
-        success: false,
-        message: `order_number entries must be numeric or a Wix order GUID (UUID); invalid: ${item}`,
-      });
+      sendApiError(
+        res,
+        400,
+        `order_number entries must be numeric or a Wix order GUID (UUID); invalid: ${item}`
+      );
       return;
     }
   }
@@ -277,20 +274,17 @@ async function fetchWixOrdersByNumberList(res, wixAuth, orderNumberList) {
     for (const { guid, r } of guidResults) {
       if (r.ok) {
         if (!r.order) {
-          res.status(502).json({
-            success: false,
-            message: 'Wix returned an empty order payload',
-            order_id: guid,
-          });
+          sendApiError(res, 502, 'Wix returned an empty order payload', { orderId: guid });
           return;
         }
         guidToOrder.set(guid, r.order);
       } else if (r.status !== 404) {
-        res.status(r.status).json({
-          success: false,
-          message: 'Failed to retrieve Wix order by id',
-          wixError: r.wixPayload,
-        });
+        sendApiError(
+          res,
+          r.status,
+          'Failed to retrieve Wix order by id',
+          safeWixErrorData(r.wixPayload)
+        );
         return;
       }
     }
@@ -354,7 +348,7 @@ exports.getWixOrders = async (req, res) => {
       req.body?.access_token || req.query?.access_token || req.headers['x-wix-access-token'];
 
     if (!account_key || !String(account_key).trim()) {
-      return res.status(400).json({ success: false, message: 'account_key is required' });
+      return sendApiError(res, 400, 'account_key is required');
     }
 
     const wixAuth = await resolveWixAuth({
@@ -364,10 +358,11 @@ exports.getWixOrders = async (req, res) => {
     });
 
     if (!wixAuth?.accessToken) {
-      return res.status(401).json({
-        success: false,
-        message: 'Wix credentials not configured. Connect Wix / pass access_token or set env vars.',
-      });
+      return sendApiError(
+        res,
+        401,
+        'Wix credentials not configured. Connect Wix / pass access_token or set env vars.'
+      );
     }
 
     if (wixAuth.siteId && account_key) {
@@ -382,10 +377,7 @@ exports.getWixOrders = async (req, res) => {
     const { startIso, endIso } = parseDateRangeInputs(startDate, endDate);
 
     if ((startIso && !endIso) || (!startIso && endIso)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Provide both startDate and endDate or omit both.',
-      });
+      return sendApiError(res, 400, 'Provide both startDate and endDate or omit both.');
     }
 
     let filter = {};
@@ -410,15 +402,7 @@ exports.getWixOrders = async (req, res) => {
       orders,
     });
   } catch (err) {
-    const r = err?.response;
-    const status = r?.status || err?.response?.status || 500;
-    const wixPayload = typeof r?.data !== 'undefined' ? summarizeWixHttpError(r) : null;
-    return res.status(status).json({
-      success: false,
-      message: 'Failed to retrieve Wix orders',
-      error: wixPayload?.message || err?.message || 'Unknown error',
-      ...(wixPayload ? { wixError: wixPayload } : {}),
-    });
+    return sendApiError(res, err);
   }
 };
 
@@ -456,7 +440,7 @@ exports.getWixOrderByNumber = async (req, res) => {
     );
 
     if (!account_key || !String(account_key).trim()) {
-      return res.status(400).json({ success: false, message: 'account_key is required' });
+      return sendApiError(res, 400, 'account_key is required');
     }
 
     const orderIdTrim =
@@ -472,24 +456,23 @@ exports.getWixOrderByNumber = async (req, res) => {
         : null;
 
     if (orderIdTrim && (orderNumStrTrim || (isOrderNumArray && orderNumberList.length > 0))) {
-      return res.status(400).json({
-        success: false,
-        message: 'Provide only one of order_id or order_number (order_number / orderName)',
-      });
+      return sendApiError(
+        res,
+        400,
+        'Provide only one of order_id or order_number (order_number / orderName)'
+      );
     }
 
     if (!orderIdTrim && !orderNumStrTrim && !(isOrderNumArray && orderNumberList.length > 0)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Missing required parameter: order_id or order_number',
-      });
+      return sendApiError(res, 400, 'Missing required parameter: order_id or order_number');
     }
 
     if (isOrderNumArray && orderNumberList.length > MAX_WIX_ORDER_BY_NUMBER_BATCH) {
-      return res.status(400).json({
-        success: false,
-        message: `order_number array must have at most ${MAX_WIX_ORDER_BY_NUMBER_BATCH} entries`,
-      });
+      return sendApiError(
+        res,
+        400,
+        `order_number array must have at most ${MAX_WIX_ORDER_BY_NUMBER_BATCH} entries`
+      );
     }
 
     const wixAuth = await resolveWixAuth({
@@ -499,10 +482,11 @@ exports.getWixOrderByNumber = async (req, res) => {
     });
 
     if (!wixAuth?.accessToken) {
-      return res.status(401).json({
-        success: false,
-        message: 'Wix credentials not configured. Connect Wix / pass access_token or set env vars.',
-      });
+      return sendApiError(
+        res,
+        401,
+        'Wix credentials not configured. Connect Wix / pass access_token or set env vars.'
+      );
     }
 
     if (wixAuth.siteId && account_key) {
@@ -518,10 +502,7 @@ exports.getWixOrderByNumber = async (req, res) => {
     let notFoundLabel = '';
     if (orderIdTrim) {
       if (!looksLikeOrderGuid(orderIdTrim)) {
-        return res.status(400).json({
-          success: false,
-          message: 'order_id must be a Wix order GUID (UUID)',
-        });
+        return sendApiError(res, 400, 'order_id must be a Wix order GUID (UUID)');
       }
       guid = orderIdTrim;
       notFoundLabel = `Order not found for order_id: ${orderIdTrim}`;
@@ -537,10 +518,7 @@ exports.getWixOrderByNumber = async (req, res) => {
 
     const orderNum = parseOrderNumber(orderNumStrTrim);
     if (orderNum === null) {
-      return res.status(400).json({
-        success: false,
-        message: 'order_number must be numeric or a Wix order GUID (UUID)',
-      });
+      return sendApiError(res, 400, 'order_number must be numeric or a Wix order GUID (UUID)');
     }
 
     const r = await searchWixOrdersPage(wixAuth, {
@@ -552,34 +530,26 @@ exports.getWixOrderByNumber = async (req, res) => {
 
     if (r.status < 200 || r.status >= 300) {
       const wixPayload = summarizeWixHttpError(r);
-      return res.status(r.status >= 400 ? r.status : 502).json({
-        success: false,
-        message: 'Failed to search Wix order by number',
-        wixError: wixPayload,
-      });
+      return sendApiError(
+        res,
+        r.status >= 400 ? r.status : 502,
+        'Failed to search Wix order by number',
+        safeWixErrorData(wixPayload)
+      );
     }
 
     const orders = Array.isArray(r?.data?.orders) ? r.data.orders : [];
     const found = orders.find((o) => Number(o?.number) === orderNum) || orders[0] || null;
 
     if (!found) {
-      return res.status(404).json({
-        success: false,
-        message: `Order not found for order_number: ${orderNumStrTrim}`,
+      return sendApiError(res, 404, `Order not found for order_number: ${orderNumStrTrim}`, {
+        orderNumber: orderNumStrTrim,
       });
     }
 
     return res.status(200).json({ success: true, order: found });
   } catch (err) {
-    const r = err?.response;
-    const status = r?.status || err?.response?.status || 500;
-    const wixPayload = typeof r?.data !== 'undefined' ? summarizeWixHttpError(r) : null;
-    return res.status(status).json({
-      success: false,
-      message: 'Failed to retrieve Wix order',
-      error: wixPayload?.message || err?.message || 'Unknown error',
-      ...(wixPayload ? { wixError: wixPayload } : {}),
-    });
+    return sendApiError(res, err);
   }
 };
 
@@ -619,29 +589,24 @@ exports.fulfillWixOrderWithTrackingInfo = async (req, res) => {
       req.query?.order_number;
 
     if (!account_key || !String(account_key).trim()) {
-      return res.status(400).json({ success: false, message: 'account_key is required' });
+      return sendApiError(res, 400, 'account_key is required');
     }
     if (!orderIdRaw || !String(orderIdRaw).trim()) {
-      return res.status(400).json({
-        success: false,
-        message: 'Missing required parameter: order_id (Wix order GUID)',
-      });
+      return sendApiError(res, 400, 'Missing required parameter: order_id (Wix order GUID)');
     }
     if (!orderNumberRaw || !String(orderNumberRaw).trim()) {
-      return res.status(400).json({
-        success: false,
-        message: 'Missing required parameter: order_number (used for FinerWorks GET_ORDER_STATUS)',
-      });
+      return sendApiError(
+        res,
+        400,
+        'Missing required parameter: order_number (used for FinerWorks GET_ORDER_STATUS)'
+      );
     }
 
     const orderId = String(orderIdRaw).trim();
     const orderNumber = String(orderNumberRaw).trim();
 
     if (!looksLikeOrderGuid(orderId)) {
-      return res.status(400).json({
-        success: false,
-        message: 'order_id must be a Wix order GUID (UUID)',
-      });
+      return sendApiError(res, 400, 'order_id must be a Wix order GUID (UUID)');
     }
 
     const wixAuth = await resolveWixAuth({
@@ -651,10 +616,11 @@ exports.fulfillWixOrderWithTrackingInfo = async (req, res) => {
     });
 
     if (!wixAuth?.accessToken) {
-      return res.status(401).json({
-        success: false,
-        message: 'Wix credentials not configured. Connect Wix / pass access_token or set env vars.',
-      });
+      return sendApiError(
+        res,
+        401,
+        'Wix credentials not configured. Connect Wix / pass access_token or set env vars.'
+      );
     }
 
     if (wixAuth.siteId && account_key) {
@@ -664,17 +630,17 @@ exports.fulfillWixOrderWithTrackingInfo = async (req, res) => {
     const orderFetch = await fetchWixOrderByGuid(wixAuth, orderId);
     if (!orderFetch.ok) {
       if (orderFetch.status === 404) {
-        return res.status(404).json({
-          success: false,
-          message: `Wix order not found for order_id: ${orderId}`,
-          ...(orderFetch.wixPayload ? { wixError: orderFetch.wixPayload } : {}),
+        return sendApiError(res, 404, `Wix order not found for order_id: ${orderId}`, {
+          orderId,
+          ...(orderFetch.wixPayload ? safeWixErrorData(orderFetch.wixPayload) : {}),
         });
       }
-      return res.status(orderFetch.status >= 400 ? orderFetch.status : 502).json({
-        success: false,
-        message: 'Failed to load Wix order before fulfillment',
-        ...(orderFetch.wixPayload ? { wixError: orderFetch.wixPayload } : {}),
-      });
+      return sendApiError(
+        res,
+        orderFetch.status >= 400 ? orderFetch.status : 502,
+        'Failed to load Wix order before fulfillment',
+        orderFetch.wixPayload ? safeWixErrorData(orderFetch.wixPayload) : {}
+      );
     }
 
     const wixOrder = orderFetch.order;
@@ -684,10 +650,7 @@ exports.fulfillWixOrderWithTrackingInfo = async (req, res) => {
       for (const row of req.body.line_items) {
         const id = row?.id != null ? String(row.id).trim() : '';
         if (!id) {
-          return res.status(400).json({
-            success: false,
-            message: 'line_items entries must include id (Wix line item GUID)',
-          });
+          return sendApiError(res, 400, 'line_items entries must include id (Wix line item GUID)');
         }
         const ent = { id };
         const q = Number(row?.quantity);
@@ -699,11 +662,11 @@ exports.fulfillWixOrderWithTrackingInfo = async (req, res) => {
     }
 
     if (!lineItems.length) {
-      return res.status(400).json({
-        success: false,
-        message:
-          'No fulfillable line items on this Wix order (or none match filters). Pass line_items with Wix line item GUIDs.',
-      });
+      return sendApiError(
+        res,
+        400,
+        'No fulfillable line items on this Wix order (or none match filters). Pass line_items with Wix line item GUIDs.'
+      );
     }
 
     const selectOrderId = {
@@ -715,11 +678,7 @@ exports.fulfillWixOrderWithTrackingInfo = async (req, res) => {
     try {
       orderStatusData = await finerworksService.GET_ORDER_STATUS(selectOrderId);
     } catch (error) {
-      return res.status(502).json({
-        success: false,
-        message: 'Failed to get order status data',
-        error: error?.message || 'Unknown error',
-      });
+      return sendApiError(res, error);
     }
 
     const shipment = orderStatusData?.orders?.[0]?.shipments?.[0] || {};
@@ -730,10 +689,7 @@ exports.fulfillWixOrderWithTrackingInfo = async (req, res) => {
     const carrierName = shipment?.carrier;
 
     if (!trackingNumber) {
-      return res.status(400).json({
-        success: false,
-        message: 'Missing tracking number in FinerWorks shipment data',
-      });
+      return sendApiError(res, 400, 'Missing tracking number in FinerWorks shipment data');
     }
 
     const { shippingProvider, predefined } = resolveWixShippingProvider(carrierName);
@@ -744,11 +700,11 @@ exports.fulfillWixOrderWithTrackingInfo = async (req, res) => {
 
     if (!predefined) {
       if (!trackingUrlRaw || !/^https?:\/\//i.test(trackingUrlRaw)) {
-        return res.status(400).json({
-          success: false,
-          message:
-            'Carrier is not a Wix predefined provider; provide a valid http(s) tracking_url from FinerWorks for trackingLink.',
-        });
+        return sendApiError(
+          res,
+          400,
+          'Carrier is not a Wix predefined provider; provide a valid http(s) tracking_url from FinerWorks for trackingLink.'
+        );
       }
       trackingInfo.trackingLink = trackingUrlRaw;
     } else if (trackingUrlRaw && /^https?:\/\//i.test(trackingUrlRaw)) {
@@ -779,20 +735,13 @@ exports.fulfillWixOrderWithTrackingInfo = async (req, res) => {
     }
 
     const wixPayload = summarizeWixHttpError(resp);
-    return res.status(resp.status >= 400 ? resp.status : 502).json({
-      success: false,
-      message: 'Failed to create Wix fulfillment',
-      wixError: wixPayload,
-    });
+    return sendApiError(
+      res,
+      resp.status >= 400 ? resp.status : 502,
+      'Failed to create Wix fulfillment',
+      safeWixErrorData(wixPayload)
+    );
   } catch (err) {
-    const r = err?.response;
-    const status = r?.status || err?.response?.status || 500;
-    const wixPayload = typeof r?.data !== 'undefined' ? summarizeWixHttpError(r) : null;
-    return res.status(status >= 400 ? status : 502).json({
-      success: false,
-      message: 'Failed to fulfill Wix order with tracking info',
-      error: wixPayload?.message || err?.message || 'Unknown error',
-      ...(wixPayload ? { wixError: wixPayload } : {}),
-    });
+    return sendApiError(res, err);
   }
 };

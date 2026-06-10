@@ -6,6 +6,7 @@ const {
   scanAllSquarespaceAccounts,
 } = require('../helpers/squarespace-accounts-dynamo');
 const debug = require('debug');
+const { sendApiError } = require('../helpers/api-error');
 const log = debug('app:squarespaceAuth');
 require('dotenv').config();
 const { validateAccountKey } = require('../validators/accountKey.validator');
@@ -46,10 +47,7 @@ const handleSquarespaceAuth = async (req, res) => {
 
     const { valid, error } = validateAccountKey(account_key);
     if (!valid) {
-      return res.status(400).json({
-        success: false,
-        message: error.message,
-      });
+      return sendApiError(res, 400, error.message);
     }
 
     const clientId = process.env.SQUARESPACE_CLIENT_ID;
@@ -60,17 +58,11 @@ const handleSquarespaceAuth = async (req, res) => {
       'website.inventory,website.products,website.orders';
 
     if (!clientId) {
-      return res.status(500).json({
-        success: false,
-        message: 'SQUARESPACE_CLIENT_ID not configured',
-      });
+      return sendApiError(res, 500, 'SQUARESPACE_CLIENT_ID not configured');
     }
 
     if (!process.env.SQUARESPACE_CLIENT_SECRET) {
-      return res.status(500).json({
-        success: false,
-        message: 'SQUARESPACE_CLIENT_SECRET not configured',
-      });
+      return sendApiError(res, 500, 'SQUARESPACE_CLIENT_SECRET not configured');
     }
 
     // Required by Squarespace OAuth to prevent CSRF.
@@ -107,11 +99,7 @@ const handleSquarespaceAuth = async (req, res) => {
     console.log('authUrl====>>>', authUrl);
     return res.redirect(authUrl);
   } catch (err) {
-    return res.status(500).json({
-      success: false,
-      message: 'Failed to initiate Squarespace OAuth',
-      error: err?.message || 'Unknown error',
-    });
+    return sendApiError(res, err);
   }
 };
 
@@ -130,17 +118,11 @@ const handleSquarespaceCallback = async (req, res) => {
     const return_url = req.query?.return_url;
     log('handleSquarespaceCallback', { code, state, error, access_denied, return_url });
     if (error || access_denied) {
-      return res.status(400).json({
-        success: false,
-        message: access_denied ? 'access_denied' : error || 'oauth_error',
-      });
+      return sendApiError(res, 400, access_denied ? 'access_denied' : error || 'oauth_error');
     }
 
     if (!code || !state) {
-      return res.status(400).json({
-        success: false,
-        message: 'Missing required parameters: code, state',
-      });
+      return sendApiError(res, 400, 'Missing required parameters: code, state');
     }
 
     let stateObj = null;
@@ -148,27 +130,18 @@ const handleSquarespaceCallback = async (req, res) => {
       stateObj = JSON.parse(base64UrlDecode(state));
     } catch (_e) {
       // Not a state we generated; treat as invalid.
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid state',
-      });
+      return sendApiError(res, 400, 'Invalid state');
     }
 
     const account_key = stateObj?.account_key;
     if (!account_key) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid state: missing account_key',
-      });
+      return sendApiError(res, 400, 'Invalid state: missing account_key');
     }
 
     const clientId = process.env.SQUARESPACE_CLIENT_ID;
     const clientSecret = process.env.SQUARESPACE_CLIENT_SECRET;
     if (!clientId || !clientSecret) {
-      return res.status(500).json({
-        success: false,
-        message: 'Squarespace OAuth credentials not configured',
-      });
+      return sendApiError(res, 500, 'Squarespace OAuth credentials not configured');
     }
 
     const redirectUri = buildRedirectUri(req);
@@ -197,11 +170,7 @@ const handleSquarespaceCallback = async (req, res) => {
 
     const tokenData = tokenResp?.data;
     if (!tokenData?.access_token) {
-      return res.status(400).json({
-        success: false,
-        message: 'Token exchange succeeded but access_token missing',
-        data: tokenData,
-      });
+      return sendApiError(res, 400, 'Token exchange succeeded but access_token missing');
     }
 
     const getInformation = await finerworksService.GET_INFO({ account_key });
@@ -286,11 +255,7 @@ const handleSquarespaceCallback = async (req, res) => {
       message: 'Squarespace connection added successfully',
     });
   } catch (err) {
-    return res.status(500).json({
-      success: false,
-      message: 'Failed to process Squarespace callback',
-      error: err?.message || 'Unknown error',
-    });
+    return sendApiError(res, err);
   }
 };
 
@@ -526,10 +491,7 @@ const refreshSquarespaceToken = async (req, res) => {
       req.query?.refreshToken;
 
     if (!account_key || !refresh_token) {
-      return res.status(400).json({
-        success: false,
-        message: 'Missing required parameters: account_key and refresh_token',
-      });
+      return sendApiError(res, 400, 'Missing required parameters: account_key and refresh_token');
     }
 
     const tokenData = await refreshSquarespaceTokensCore(account_key, refresh_token);
@@ -542,18 +504,7 @@ const refreshSquarespaceToken = async (req, res) => {
       expires_in: tokenData.expires_in ?? null,
     });
   } catch (err) {
-    if (err?.tokenData) {
-      return res.status(400).json({
-        success: false,
-        message: err.message,
-        data: err.tokenData,
-      });
-    }
-    return res.status(500).json({
-      success: false,
-      message: 'Failed to refresh Squarespace token',
-      error: err?.response?.data || err?.message || 'Unknown error',
-    });
+    return sendApiError(res, err);
   }
 };
 

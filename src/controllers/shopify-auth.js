@@ -1,6 +1,7 @@
 const axios = require('axios');
 const crypto = require('crypto');
 const finerworksService = require('../helpers/finerworks-service');
+const { sendApiError } = require('../helpers/api-error');
 
 require('dotenv').config();
 
@@ -30,26 +31,17 @@ const handleShopifyAuth = async (req, res) => {
     const { code, shop, hmac } = req.query;
 
     if (!code || !shop || !hmac) {
-      return res.status(400).json({
-        success: false,
-        message: 'Missing required parameters',
-      });
+      return sendApiError(res, 400, 'Missing required parameters');
     }
 
     // Validate the HMAC
     if (!validateHmac(req.query)) {
-      return res.status(401).json({
-        success: false,
-        message: 'Invalid HMAC. Request could not be verified',
-      });
+      return sendApiError(res, 401, 'Invalid HMAC. Request could not be verified');
     }
 
     // Validate the shop domain
     if (!shop.match(/^[a-zA-Z0-9][a-zA-Z0-9-]*\.myshopify\.com$/)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid shop domain',
-      });
+      return sendApiError(res, 400, 'Invalid shop domain');
     }
 
     const response = await axios.post(`https://${shop}/admin/oauth/access_token`, {
@@ -66,10 +58,7 @@ const handleShopifyAuth = async (req, res) => {
     });
   } catch (error) {
     console.error('Shopify auth error:', error);
-    return res.status(500).json({
-      success: false,
-      message: 'Failed to authorize with Shopify',
-    });
+    return sendApiError(res, error);
   }
 };
 
@@ -161,11 +150,7 @@ const handleShopifyCallback = async (req, res) => {
     // });
   } catch (error) {
     console.error('Shopify callback error:', error);
-    return res.status(500).json({
-      success: false,
-      message: 'Failed to process Shopify callback',
-      error: error.message,
-    });
+    return sendApiError(res, error);
   }
 };
 
@@ -175,10 +160,7 @@ const handleShopifyInstall = async (req, res) => {
 
     // Validate shop parameter
     if (!shop) {
-      return res.status(400).json({
-        success: false,
-        message: 'Missing required parameter: shop',
-      });
+      return sendApiError(res, 400, 'Missing required parameter: shop');
     }
 
     // Normalize shop domain (add .myshopify.com if not present)
@@ -189,18 +171,12 @@ const handleShopifyInstall = async (req, res) => {
 
     // Validate the shop domain format
     if (!shopDomain.match(/^[a-zA-Z0-9][a-zA-Z0-9-]*\.myshopify\.com$/)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid shop domain format. Expected: shopname.myshopify.com',
-      });
+      return sendApiError(res, 400, 'Invalid shop domain format. Expected: shopname.myshopify.com');
     }
 
     // Check for required environment variables
     if (!process.env.SHOPIFY_CLIENT_ID) {
-      return res.status(500).json({
-        success: false,
-        message: 'Shopify Client ID not configured',
-      });
+      return sendApiError(res, 500, 'Shopify Client ID not configured');
     }
 
     // Generate a random state/nonce for CSRF protection
@@ -228,11 +204,7 @@ const handleShopifyInstall = async (req, res) => {
     return res.redirect(authUrl);
   } catch (error) {
     console.error('Shopify install error:', error);
-    return res.status(500).json({
-      success: false,
-      message: 'Failed to initiate Shopify installation',
-      error: error.message,
-    });
+    return sendApiError(res, error);
   }
 };
 
@@ -245,10 +217,7 @@ const handleShopifyDisconnect = async (req, res) => {
   try {
     const account_key = req.body?.account_key;
     if (!account_key) {
-      return res.status(400).json({
-        success: false,
-        message: 'Missing required parameter: account_key',
-      });
+      return sendApiError(res, 400, 'Missing required parameter: account_key');
     }
 
     const getInformation = await finerworksService.GET_INFO({ account_key });
@@ -290,11 +259,7 @@ const handleShopifyDisconnect = async (req, res) => {
     });
   } catch (error) {
     console.error('Shopify disconnect error:', error);
-    return res.status(500).json({
-      success: false,
-      message: 'Failed to disconnect Shopify',
-      error: error.message,
-    });
+    return sendApiError(res, error);
   }
 };
 
@@ -307,16 +272,10 @@ const disconnectShopifyFromOfa = async (req, res) => {
   try {
     const { storeName, account_key } = req.body || {};
     if (!storeName) {
-      return res.status(400).json({
-        success: false,
-        message: 'Missing required parameters: shop and secret',
-      });
+      return sendApiError(res, 400, 'Missing required parameters: shop and secret');
     }
     if (!account_key) {
-      return res.status(400).json({
-        success: false,
-        message: 'Missing required parameter: account_key',
-      });
+      return sendApiError(res, 400, 'Missing required parameter: account_key');
     }
     console.log('hello');
 
@@ -328,11 +287,7 @@ const disconnectShopifyFromOfa = async (req, res) => {
     console.log('disconnectResponse===', disconnectResponse);
     const success = disconnectResponse?.data?.success === true;
     if (!success) {
-      return res.status(400).json({
-        success: false,
-        message: 'Disconnect API did not return success',
-        response: disconnectResponse?.data,
-      });
+      return sendApiError(res, 400, 'Disconnect API did not return success');
     }
 
     const getInformation = await finerworksService.GET_INFO({ account_key });
@@ -366,14 +321,7 @@ const disconnectShopifyFromOfa = async (req, res) => {
     });
   } catch (error) {
     console.error('disconnectShopifyFromOfa error:', error);
-    const status = error?.response?.status || 500;
-    const message =
-      error?.response?.data?.message || error?.message || 'Failed to disconnect Shopify from OFA';
-    return res.status(status).json({
-      success: false,
-      message,
-      error: error.message,
-    });
+    return sendApiError(res, error);
   }
 };
 

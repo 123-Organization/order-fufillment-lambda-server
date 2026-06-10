@@ -1,4 +1,5 @@
 const jwt = require('jsonwebtoken');
+const { sendApiError } = require('../helpers/api-error');
 const debug = require('debug');
 const log = debug('app:wix-webhooks');
 
@@ -87,17 +88,13 @@ const handleWixJwtBodyAsAppInstall = async (req, res) => {
 
     const token = String(raw || '').trim();
     if (!token) {
-      return res
-        .status(400)
-        .json({ success: false, message: 'Empty webhook body (expected JWT string)' });
+      return sendApiError(res, 400, 'Empty webhook body (expected JWT string)');
     }
 
     const decoded = jwt.decode(token, { complete: true });
     const payload = decoded && typeof decoded === 'object' ? decoded.payload : null;
     if (!payload || typeof payload !== 'object') {
-      return res
-        .status(400)
-        .json({ success: false, message: 'Could not decode Wix webhook JWT payload' });
+      return sendApiError(res, 400, 'Could not decode Wix webhook JWT payload');
     }
 
     const extracted = extractWixAppInstalledFields(payload);
@@ -133,11 +130,11 @@ const handleWixJwtBodyAsAppInstall = async (req, res) => {
     }
 
     if (!instanceId || !String(instanceId).trim()) {
-      return res.status(400).json({
-        success: false,
-        message:
-          'Missing instanceId in decoded JWT (expected instanceId inside payload.data or metadata)',
-      });
+      return sendApiError(
+        res,
+        400,
+        'Missing instanceId in decoded JWT (expected instanceId inside payload.data or metadata)'
+      );
     }
 
     if (!account_key || !String(account_key).trim()) {
@@ -178,12 +175,7 @@ const handleWixJwtBodyAsAppInstall = async (req, res) => {
       },
     });
   } catch (err) {
-    const status = err?.response?.status || 500;
-    return res.status(status).json({
-      success: false,
-      message: 'Failed to process Wix app instance installed webhook',
-      error: err?.response?.data || err?.message || 'Unknown error',
-    });
+    return sendApiError(res, err);
   }
 };
 

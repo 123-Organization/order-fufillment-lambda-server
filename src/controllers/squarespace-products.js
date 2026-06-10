@@ -1,6 +1,7 @@
 const axios = require('axios');
 const FormData = require('form-data');
 const finerworksService = require('../helpers/finerworks-service');
+const { sendApiError } = require('../helpers/api-error');
 
 const STORE_PAGES_URL = 'https://api.squarespace.com/1.0/commerce/store_pages';
 const API_BASE = 'https://api.squarespace.com/v2/commerce';
@@ -843,17 +844,15 @@ const syncSquarespaceProducts = async (req, res) => {
     );
 
     if (!accessToken)
-      return res.status(400).json({ success: false, message: 'access_token is required' });
+      return sendApiError(res, 400, 'access_token is required');
     if (!accountKey || !String(accountKey).trim()) {
-      return res.status(400).json({ success: false, message: 'account_key is required' });
+      return sendApiError(res, 400, 'account_key is required');
     }
     if (!sessionId || !String(sessionId).trim()) {
-      return res.status(400).json({ success: false, message: 'session_id is required' });
+      return sendApiError(res, 400, 'session_id is required');
     }
     if (!rawProducts.length) {
-      return res
-        .status(400)
-        .json({ success: false, message: 'productsList must be a non-empty array' });
+      return sendApiError(res, 400, 'productsList must be a non-empty array');
     }
 
     const uniqueImageGuids = [
@@ -862,10 +861,7 @@ const syncSquarespaceProducts = async (req, res) => {
     const syncGroups = buildSyncGroups(rawProducts, groupByImageGuid);
 
     if (!syncGroups.length) {
-      return res.status(400).json({
-        success: false,
-        message: 'No valid products to sync (each item needs image_guid and sku)',
-      });
+      return sendApiError(res, 400, 'No valid products to sync (each item needs image_guid and sku)');
     }
 
     let fwData;
@@ -878,14 +874,7 @@ const syncSquarespaceProducts = async (req, res) => {
         },
       });
     } catch (err) {
-      const status = err?.response?.status || 502;
-      return res.status(status).json({
-        success: false,
-        message: 'Failed to load FinerWorks images for product sync',
-        step: 'finerworks_list_images',
-        error: err?.message || 'Unknown error',
-        ...(err?.response?.data ? { finerworksError: err.response.data } : {}),
-      });
+      return sendApiError(res, err);
     }
     const allImages = extractImages(fwData);
     const guidSet = new Set(uniqueImageGuids);
@@ -906,22 +895,11 @@ const syncSquarespaceProducts = async (req, res) => {
     try {
       storePageId = await fetchStorePageId(headers, explicitStorePageId);
     } catch (err) {
-      const data = err?.response?.data;
-      const status = err?.status || err?.response?.status || 502;
-      return res.status(status).json({
-        success: false,
-        message: 'Failed to access Squarespace store pages',
-        step: err?.step || 'fetch_store_pages',
-        error: squarespaceErrorMessage(data, err?.message || 'Unknown error'),
-        ...(authorizationHint(data) ? { hint: authorizationHint(data) } : {}),
-        ...(data && typeof data === 'object' ? { squarespaceError: data } : {}),
-      });
+      return sendApiError(res, err);
     }
 
     if (!storePageId) {
-      return res
-        .status(400)
-        .json({ success: false, message: 'No valid Squarespace store page id found' });
+      return sendApiError(res, 400, 'No valid Squarespace store page id found');
     }
 
     const results = [];
@@ -995,16 +973,7 @@ const syncSquarespaceProducts = async (req, res) => {
       results,
     });
   } catch (err) {
-    const status = err?.response?.status || err?.status || 500;
-    const data = err?.response?.data;
-    return res.status(status).json({
-      success: false,
-      message: 'Failed to sync Squarespace products',
-      step: err?.step || 'unknown',
-      error: squarespaceErrorMessage(data, err?.message || 'Unknown error'),
-      ...(authorizationHint(data) ? { hint: authorizationHint(data) } : {}),
-      ...(data && typeof data === 'object' ? { details: data } : {}),
-    });
+    return sendApiError(res, err);
   }
 };
 

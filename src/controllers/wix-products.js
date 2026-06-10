@@ -1,5 +1,6 @@
 const axios = require('axios');
 const finerworksService = require('../helpers/finerworks-service');
+const { sendApiError } = require('../helpers/api-error');
 
 const WIX_OPTION_CONFIGURATION = 'Configuration';
 /** Wix Catalog V3 caps option choice labels at 50 chars (validated server-side). */
@@ -579,13 +580,10 @@ const syncWixProducts = async (req, res) => {
       req.query?.access_token || req.body?.access_token || req.headers['x-wix-access-token'];
 
     if (!account_key || !String(account_key).trim()) {
-      return res.status(400).json({ success: false, message: 'account_key is required' });
+      return sendApiError(res, 400, 'account_key is required');
     }
     if (!Array.isArray(rawProducts) || !rawProducts.length) {
-      return res.status(400).json({
-        success: false,
-        message: 'productList / productsList must be a non-empty array',
-      });
+      return sendApiError(res, 400, 'productList / productsList must be a non-empty array');
     }
 
     let wixAuth = await resolveWixAuth({
@@ -595,11 +593,11 @@ const syncWixProducts = async (req, res) => {
     });
 
     if (!wixAuth) {
-      return res.status(400).json({
-        success: false,
-        message:
-          'Missing Wix auth. Connect Wix for this account or provide access_token in the request.',
-      });
+      return sendApiError(
+        res,
+        400,
+        'Missing Wix auth. Connect Wix for this account or provide access_token in the request.'
+      );
     }
 
     if (
@@ -794,12 +792,7 @@ const syncWixProducts = async (req, res) => {
       results,
     });
   } catch (err) {
-    const status = err?.response?.status || 500;
-    return res.status(status).json({
-      success: false,
-      message: 'Failed to sync products to Wix',
-      error: err?.response?.data || err?.message || 'Unknown error',
-    });
+    return sendApiError(res, err);
   }
 };
 
