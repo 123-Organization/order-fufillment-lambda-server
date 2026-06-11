@@ -279,8 +279,32 @@ const LOCATIONS_QUERY = `
 }
 `;
 
-const fetchPrimaryLocation = async ({ shopDomain, accessToken, apiVersion }) => {
-  const endpoint = `https://${shopDomain}/admin/api/${apiVersion}/graphql.json`;
+const formatShopifyRequestError = (err, fallback = 'Shopify request failed') => {
+  if (err?.response?.data) {
+    const data = err.response.data;
+    if (Array.isArray(data.errors) && data.errors.length) {
+      const message = data.errors
+        .map((e) => (typeof e === 'string' ? e : e?.message))
+        .filter(Boolean)
+        .join('; ');
+      if (message) return message;
+    }
+    if (typeof data.errors === 'string' && data.errors.trim()) {
+      return data.errors;
+    }
+    if (data.error) {
+      return typeof data.error === 'string' ? data.error : JSON.stringify(data.error);
+    }
+  }
+  if (err?.message && String(err.message).trim()) {
+    return String(err.message).trim();
+  }
+  return fallback;
+};
+
+const fetchOnlineFulfillmentLocations = async ({ shopDomain, accessToken, apiVersion }) => {
+  const version = String(apiVersion || process.env.SHOPIFY_API_VERSION || '2025-10').trim();
+  const endpoint = `https://${shopDomain}/admin/api/${version}/graphql.json`;
   const headers = {
     'X-Shopify-Access-Token': accessToken,
     'Content-Type': 'application/json',
@@ -296,38 +320,50 @@ const fetchPrimaryLocation = async ({ shopDomain, accessToken, apiVersion }) => 
       { headers }
     );
 
-    if (resp.data.errors) {
-      const message = Array.isArray(resp.data.errors)
-        ? resp.data.errors.map((e) => e.message).join('; ')
-        : 'Unknown GraphQL error';
-      const error = new Error(message);
+    if (Array.isArray(resp.data?.errors) && resp.data.errors.length) {
+      const message = resp.data.errors
+        .map((e) => (typeof e === 'string' ? e : e?.message))
+        .filter(Boolean)
+        .join('; ');
+      const error = new Error(message || 'Shopify GraphQL error while fetching locations');
       error.status = 502;
       throw error;
     }
 
-    const data = resp.data?.data || {};
-    const edges = data.locations?.edges || [];
+    const edges = resp.data?.data?.locations?.edges || [];
     if (!edges.length) {
-      return null;
+      return [];
     }
 
-    // Prefer a location whose name includes "shop location" (case-insensitive)
-    const shopLocationEdge = edges.find(
-      (e) => e?.node?.name && e.node.name.toLowerCase().includes('shop location')
-    );
+    const locations = edges.map((e) => e?.node).filter((node) => node?.id);
+    locations.sort((a, b) => {
+      const aIsShop = String(a.name || '')
+        .toLowerCase()
+        .includes('shop location');
+      const bIsShop = String(b.name || '')
+        .toLowerCase()
+        .includes('shop location');
+      if (aIsShop !== bIsShop) return aIsShop ? -1 : 1;
+      return String(a.name || '').localeCompare(String(b.name || ''));
+    });
 
-    const chosen = shopLocationEdge || edges[0];
-    return chosen.node.id;
+    return locations.map((node) => node.id);
   } catch (err) {
-    const status = err?.response?.status || 500;
-    const message =
-      (err?.response?.data && (err.response.data.errors || err.response.data.error)) ||
-      err.message ||
-      'Request failed';
-    const error = new Error(typeof message === 'string' ? message : JSON.stringify(message));
-    error.status = status;
+    const error = new Error(formatShopifyRequestError(err, 'Failed to fetch Shopify locations'));
+    error.status = err?.response?.status || err?.status || 500;
     throw error;
   }
+};
+
+const fetchPrimaryLocation = async (params) => {
+  const locationIds = await fetchOnlineFulfillmentLocations(params);
+  return locationIds[0] || null;
+};
+
+const resolveQuantityInStock = (src, defaultQty = 10) => {
+  if (typeof src?.quantity_in_stock === 'number') return src.quantity_in_stock;
+  if (typeof src?.quantity === 'number') return src.quantity;
+  return defaultQty;
 };
 
 // Query to list delivery (shipping) profiles via GraphQL Admin API
@@ -480,6 +516,106 @@ const assignVariantsToShippingProfile = async ({
     error.status = status;
     throw error;
   }
+};
+
+const dissociateVariantsFromShippingProfile = async ({
+  shopDomain,
+  accessToken,
+  apiVersion,
+  deliveryProfileGid,
+  variantGids,
+}) => {
+  if (!deliveryProfileGid || !Array.isArray(variantGids) || !variantGids.length) {
+    return null;
+  }
+
+  const endpoint = `https://${shopDomain}/admin/api/${apiVersion}/graphql.json`;
+  const headers = {
+    'X-Shopify-Access-Token': accessToken,
+    'Content-Type': 'application/json',
+  };
+
+  try {
+    const resp = await axios.post(
+      endpoint,
+      {
+        query: DELIVERY_PROFILE_UPDATE_MUTATION,
+        variables: {
+          id: deliveryProfileGid,
+          profile: {
+            variantsToDissociate: variantGids,
+          },
+        },
+      },
+      { headers }
+    );
+
+    if (resp.data.errors) {
+      const message = Array.isArray(resp.data.errors)
+        ? resp.data.errors.map((e) => e.message).join('; ')
+        : 'Unknown GraphQL error';
+      const error = new Error(message);
+      error.status = 502;
+      throw error;
+    }
+
+    const payload = resp.data?.data?.deliveryProfileUpdate;
+    if (!payload) {
+      const error = new Error('Invalid Shopify response for deliveryProfileUpdate');
+      error.status = 502;
+      throw error;
+    }
+
+    if (Array.isArray(payload.userErrors) && payload.userErrors.length > 0) {
+      const message = payload.userErrors
+        .map((e) => `${e.field ? e.field.join('.') : 'error'}: ${e.message}`)
+        .join('; ');
+      const error = new Error(message);
+      error.status = 400;
+      throw error;
+    }
+
+    return payload.profile || null;
+  } catch (err) {
+    const error = new Error(formatShopifyRequestError(err, 'Failed to update Shopify delivery profile'));
+    error.status = err?.response?.status || err?.status || 500;
+    throw error;
+  }
+};
+
+/**
+ * By default keep synced products on Shopify's General shipping profile (which has active rates).
+ * Assigning to "FinerWorks Shipping" without configured zone rates causes storefront "Sold out".
+ */
+const applyFinerWorksShippingProfileForVariants = async ({
+  shopDomain,
+  accessToken,
+  apiVersion,
+  deliveryProfileGid,
+  variantGids,
+  assignToFinerWorksProfile,
+}) => {
+  if (!deliveryProfileGid || !Array.isArray(variantGids) || !variantGids.length) {
+    return null;
+  }
+
+  if (assignToFinerWorksProfile) {
+    return assignVariantsToShippingProfile({
+      shopDomain,
+      accessToken,
+      apiVersion,
+      deliveryProfileGid,
+      variantGids,
+    });
+  }
+
+  return dissociateVariantsFromShippingProfile({
+    shopDomain,
+    accessToken,
+    apiVersion,
+    deliveryProfileGid,
+    variantGids,
+  });
 };
 
 // Create a new shipping profile restricted to US and CA via Shopify GraphQL Admin API.
@@ -1032,15 +1168,61 @@ const setInventoryQuantity = async ({
 
     return adjustPayload.inventoryAdjustmentGroup;
   } catch (err) {
-    const status = err?.response?.status || 500;
-    const message =
-      (err?.response?.data && (err.response.data.errors || err.response.data.error)) ||
-      err.message ||
-      'Request failed';
-    const error = new Error(typeof message === 'string' ? message : JSON.stringify(message));
-    error.status = status;
+    const error = new Error(formatShopifyRequestError(err, 'Failed to set Shopify inventory quantity'));
+    error.status = err?.response?.status || err?.status || 500;
     throw error;
   }
+};
+
+const applyInventoryToShopifyVariants = async ({
+  shopDomain,
+  accessToken,
+  apiVersion,
+  variantSources,
+  locationIds,
+}) => {
+  const results = [];
+  const errors = [];
+
+  if (!Array.isArray(variantSources) || !variantSources.length || !locationIds?.length) {
+    return { results, errors };
+  }
+
+  for (const entry of variantSources) {
+    const { inventoryItemId, quantity, trackInventory, sku } = entry || {};
+    if (!inventoryItemId || trackInventory === false) continue;
+
+    for (const locationId of locationIds) {
+      try {
+        await ensureInventoryItemStockedAtLocation({
+          shopDomain,
+          accessToken,
+          apiVersion,
+          inventoryItemId,
+          locationId,
+        });
+
+        const adjustResult = await setInventoryQuantity({
+          shopDomain,
+          accessToken,
+          apiVersion,
+          inventoryItemId,
+          locationId,
+          quantity,
+        });
+
+        results.push({ sku: sku || null, locationId, result: adjustResult });
+      } catch (invErr) {
+        errors.push({
+          sku: sku || null,
+          locationId,
+          error: invErr.message || 'Unknown inventory error',
+        });
+      }
+    }
+  }
+
+  return { results, errors };
 };
 
 // Mutation to create variants in bulk for a product (used here to set SKU/price)
@@ -1071,6 +1253,7 @@ const createOrReplaceVariantFromPayload = async ({
   apiVersion,
   productId,
   variants,
+  locationIds = [],
 }) => {
   if (!productId) return null;
 
@@ -1084,17 +1267,36 @@ const createOrReplaceVariantFromPayload = async ({
   if (Array.isArray(variants)) {
     for (const v of variants) {
       if (!v) continue;
-      const { sku, price, optionValues } = v;
+      const { sku, price, optionValues, quantity, trackInventory } = v;
       const variantInput = {};
 
       if (price !== undefined && price !== null) {
         variantInput.price = String(price);
       }
-      if (sku) {
+
+      const shouldTrackInventory = trackInventory !== false;
+      if (sku || shouldTrackInventory) {
         variantInput.inventoryItem = {
-          sku: String(sku),
+          ...(sku ? { sku: String(sku) } : {}),
+          tracked: shouldTrackInventory,
         };
       }
+
+      const stockLocationIds =
+        Array.isArray(v.locationIds) && v.locationIds.length ? v.locationIds : locationIds;
+      if (
+        shouldTrackInventory &&
+        typeof quantity === 'number' &&
+        Number.isFinite(quantity) &&
+        stockLocationIds.length
+      ) {
+        variantInput.inventoryQuantities = stockLocationIds.map((locationId) => ({
+          availableQuantity: quantity,
+          locationId,
+        }));
+        variantInput.inventoryPolicy = 'DENY';
+      }
+
       if (Array.isArray(optionValues) && optionValues.length) {
         variantInput.optionValues = optionValues.map((ov) => ({
           optionName: ov.optionName,
@@ -1216,6 +1418,67 @@ const fetchExistingSkusInShop = async ({ shopDomain, accessToken, apiVersion, sk
     }
   }
   return existing;
+};
+
+const fetchShopifyVariantsBySkus = async ({ shopDomain, accessToken, apiVersion, skuList }) => {
+  const bySku = new Map();
+  if (!shopDomain || !accessToken || !Array.isArray(skuList) || skuList.length === 0) {
+    return bySku;
+  }
+
+  const endpoint = `https://${shopDomain}/admin/api/${apiVersion}/graphql.json`;
+  const headers = {
+    'X-Shopify-Access-Token': accessToken,
+    'Content-Type': 'application/json',
+  };
+  const query = `
+    query productVariantsBySku($query: String!) {
+      productVariants(first: 1, query: $query) {
+        edges {
+          node {
+            id
+            sku
+            product {
+              id
+            }
+            inventoryItem {
+              id
+              tracked
+            }
+          }
+        }
+      }
+    }
+  `;
+
+  for (const sku of skuList) {
+    const s = sku != null ? String(sku).trim() : '';
+    if (!s) continue;
+    try {
+      const resp = await axios.post(
+        endpoint,
+        {
+          query,
+          variables: { query: `sku:${s.replace(/"/g, '\\"')}` },
+        },
+        { headers }
+      );
+      const node = resp?.data?.data?.productVariants?.edges?.[0]?.node;
+      if (node?.id) {
+        bySku.set(s, {
+          variantId: node.id,
+          sku: node.sku || s,
+          productId: node.product?.id || null,
+          inventoryItemId: node.inventoryItem?.id || null,
+          tracked: node.inventoryItem?.tracked,
+        });
+      }
+    } catch (_) {
+      // Per-SKU lookup failure; caller decides fallback behavior.
+    }
+  }
+
+  return bySku;
 };
 
 const normalizeOrderId = (orderId) => {
@@ -4242,7 +4505,10 @@ const syncShopifyProducts = async (req, res) => {
       req.query?.shop;
 
     const rawProducts = Array.isArray(req.body?.productsList) ? req.body.productsList : [];
-    const apiVersion = process.env.SHOPIFY_API_VERSION || '2025-10';
+    const apiVersion = String(process.env.SHOPIFY_API_VERSION || '2025-10').trim();
+    const assignFinerWorksShippingProfile =
+      req.body?.assign_finerworks_shipping_profile === true ||
+      req.body?.assignFinerWorksShippingProfile === true;
 
     if (!accessToken || !storeName) {
       return res.status(400).json({
@@ -4351,10 +4617,16 @@ const syncShopifyProducts = async (req, res) => {
       }
     }
 
-    // Fetch primary location once for all inventory updates
+    // Fetch fulfillment locations once for all inventory updates
+    let onlineFulfillmentLocationIds = [];
     let primaryLocationId = null;
     try {
-      primaryLocationId = await fetchPrimaryLocation({ shopDomain, accessToken, apiVersion });
+      onlineFulfillmentLocationIds = await fetchOnlineFulfillmentLocations({
+        shopDomain,
+        accessToken,
+        apiVersion,
+      });
+      primaryLocationId = onlineFulfillmentLocationIds[0] || null;
     } catch (locErr) {
       return res.status(locErr.status || 500).json({
         success: false,
@@ -4369,6 +4641,9 @@ const syncShopifyProducts = async (req, res) => {
         message: 'No Shopify locations found; cannot set inventory quantity',
       });
     }
+
+    // Stock a single primary location so quantity_in_stock maps to total available units.
+    const inventoryLocationIds = [primaryLocationId];
 
     // Fetch the "FinerWorks Shipping" delivery profile once so we can associate created variants with it.
     let finerWorksShippingProfileGid = null;
@@ -4436,15 +4711,154 @@ const syncShopifyProducts = async (req, res) => {
 
       const alreadyInShop = productSkus.filter((sku) => existingSkusInShop.has(sku));
       if (alreadyInShop.length > 0) {
-        results.push({
+        const resultEntry = {
           success: true,
-          skipped: true,
+          updated: true,
           index: i,
           sku: product?.sku || null,
           product_guid: product?.product_guid || null,
-          reason: 'SKU(s) already exist in Shopify store; skipping create',
+          reason: 'SKU(s) already exist in Shopify store; refreshing inventory and republishing',
           skusAlreadyInShop: alreadyInShop,
-        });
+        };
+
+        try {
+          const variantsBySku = await fetchShopifyVariantsBySkus({
+            shopDomain,
+            accessToken,
+            apiVersion,
+            skuList: productSkus,
+          });
+
+          const inventoryTargets = [];
+          const productIdsToRepublish = new Set();
+          const variantGidsForShipping = [];
+
+          for (const src of variantSourceProducts) {
+            const srcSku = src?.sku != null ? String(src.sku).trim() : '';
+            if (!srcSku) continue;
+            const found = variantsBySku.get(srcSku);
+            if (!found?.inventoryItemId) continue;
+            if (found.productId) productIdsToRepublish.add(found.productId);
+            if (found.variantId) variantGidsForShipping.push(found.variantId);
+
+            inventoryTargets.push({
+              sku: srcSku,
+              inventoryItemId: found.inventoryItemId,
+              quantity: resolveQuantityInStock(src),
+              trackInventory: src?.track_inventory !== false,
+            });
+          }
+
+          const { results: inventoryResults, errors: inventoryErrors } =
+            await applyInventoryToShopifyVariants({
+              shopDomain,
+              accessToken,
+              apiVersion,
+              variantSources: inventoryTargets,
+              locationIds: inventoryLocationIds,
+            });
+
+          resultEntry.inventoryAdjustments = inventoryResults;
+          if (inventoryErrors.length) {
+            hasErrors = true;
+            resultEntry.inventoryErrors = inventoryErrors;
+          }
+
+          for (const productId of productIdsToRepublish) {
+            try {
+              const published = await publishProductToPrimaryChannel({
+                shopDomain,
+                accessToken,
+                apiVersion,
+                productId,
+              });
+              resultEntry.republished = published;
+            } catch (publishErr) {
+              hasErrors = true;
+              resultEntry.publishError = publishErr.message || 'Unknown publish error';
+            }
+          }
+
+          if (finerWorksShippingProfileGid && variantGidsForShipping.length) {
+            try {
+              const deliveryProfile = await applyFinerWorksShippingProfileForVariants({
+                shopDomain,
+                accessToken,
+                apiVersion,
+                deliveryProfileGid: finerWorksShippingProfileGid,
+                variantGids: variantGidsForShipping,
+                assignToFinerWorksProfile: assignFinerWorksShippingProfile,
+              });
+              resultEntry.shippingProfileAssignment = {
+                deliveryProfileId: deliveryProfile?.id || finerWorksShippingProfileGid,
+                variantGids: variantGidsForShipping,
+                action: assignFinerWorksShippingProfile ? 'associated' : 'dissociated_to_general',
+              };
+            } catch (shippingErr) {
+              hasErrors = true;
+              resultEntry.shippingProfileError =
+                shippingErr.message || 'Unknown shipping profile assignment error';
+            }
+          }
+
+          const accountKey =
+            req.body?.account_key || req.body?.accountKey || req.body?.accountkey || null;
+          const firstProductId = productIdsToRepublish.values().next().value || null;
+          const shopifyProductNumericId = firstProductId
+            ? String(firstProductId).split('/').pop()
+            : null;
+
+          const virtualInventoryUpdates = [];
+          const virtualInventoryUpdateErrors = [];
+
+          for (const src of variantSourceProducts) {
+            const srcSku = src?.sku ? String(src.sku) : null;
+            if (!srcSku) continue;
+
+            const item = {
+              sku: srcSku,
+              asking_price:
+                src?.asking_price ??
+                src?.per_item_price ??
+                src?.price_details?.product_price ??
+                src?.total_price ??
+                0,
+              name: src?.name || 'Untitled',
+              description: src?.description_long || src?.description_short || '',
+              quantity_in_stock: resolveQuantityInStock(src, 0),
+              track_inventory: src?.track_inventory !== false,
+              third_party_integrations: {
+                ...(src?.third_party_integrations || {}),
+                shopify_graphql_product_id: shopifyProductNumericId || firstProductId || null,
+              },
+            };
+
+            try {
+              const updateResult = await finerworksService.UPDATE_VIRTUAL_INVENTORY({
+                virtual_inventory: [item],
+                account_key: accountKey,
+              });
+              virtualInventoryUpdates.push({ sku: srcSku, result: updateResult });
+            } catch (singleErr) {
+              hasErrors = true;
+              virtualInventoryUpdateErrors.push({
+                sku: srcSku,
+                error: singleErr.message || 'Unknown virtual inventory update error',
+              });
+            }
+          }
+
+          resultEntry.virtualInventoryUpdates = virtualInventoryUpdates;
+          if (virtualInventoryUpdateErrors.length) {
+            resultEntry.virtualInventoryUpdateErrors = virtualInventoryUpdateErrors;
+          }
+        } catch (refreshErr) {
+          hasErrors = true;
+          resultEntry.success = false;
+          resultEntry.error = refreshErr.message || 'Failed to refresh existing Shopify product';
+        }
+
+        results.push(resultEntry);
         continue;
       }
 
@@ -4467,20 +4881,6 @@ const syncShopifyProducts = async (req, res) => {
         // Mark these SKUs as existing so we do not create them again in the same request.
         for (const sku of productSkus) {
           existingSkusInShop.add(sku);
-        }
-
-        // Ensure product is published to the primary sales channel (e.g., Online Store)
-        try {
-          const published = await publishProductToPrimaryChannel({
-            shopDomain,
-            accessToken,
-            apiVersion,
-            productId: created.id,
-          });
-          resultEntry.published = published;
-        } catch (publishErr) {
-          hasErrors = true;
-          resultEntry.publishError = publishErr.message || 'Unknown publish error';
         }
 
         // Build a list of source products for variants:
@@ -4512,6 +4912,9 @@ const syncShopifyProducts = async (req, res) => {
             variantPayloads.push({
               sku: src?.sku,
               price: variantPrice,
+              quantity: src?.track_inventory !== false ? resolveQuantityInStock(src) : undefined,
+              trackInventory: src?.track_inventory !== false,
+              locationIds: inventoryLocationIds,
               // Only include optionValues when we're actually creating a multi-variant product.
               // For unique items, sending optionValues without defining product options causes:
               // "Option does not exist" and prevents variant creation.
@@ -4532,6 +4935,7 @@ const syncShopifyProducts = async (req, res) => {
             apiVersion,
             productId: created.id,
             variants: variantPayloads,
+            locationIds: inventoryLocationIds,
           });
 
           if (Array.isArray(variantsCreated) && variantsCreated.length > 0) {
@@ -4562,91 +4966,85 @@ const syncShopifyProducts = async (req, res) => {
           }
         }
 
-        // Set inventory for each created variant, mapping back to its source product.
+        // Set inventory for each created variant (matched by SKU), then publish to Online Store.
         if (createdVariants.length && primaryLocationId) {
-          for (let vIndex = 0; vIndex < createdVariants.length; vIndex++) {
-            const variant = createdVariants[vIndex];
-            const src = variantSourceProducts[vIndex] || product;
+          const srcBySku = new Map();
+          for (const src of variantSourceProducts) {
+            const srcSku = src?.sku != null ? String(src.sku).trim() : '';
+            if (srcSku) srcBySku.set(srcSku, src);
+          }
+
+          const inventoryTargets = [];
+          for (const variant of createdVariants) {
+            const variantSku = variant?.sku != null ? String(variant.sku).trim() : '';
+            const src = (variantSku && srcBySku.get(variantSku)) || product;
             const inventoryItemId = variant?.inventoryItem?.id;
-
-            // Use quantity_in_stock (or quantity) from the matching source payload when provided,
-            // otherwise default to 10.
-            const quantityInStock =
-              typeof src?.quantity_in_stock === 'number'
-                ? src.quantity_in_stock
-                : typeof src?.quantity === 'number'
-                  ? src.quantity
-                  : 10;
-
             if (!inventoryItemId) continue;
 
-            try {
-              // First ensure this inventory item is stocked at the primary location
-              await ensureInventoryItemStockedAtLocation({
-                shopDomain,
-                accessToken,
-                apiVersion,
-                inventoryItemId,
-                locationId: primaryLocationId,
-              });
+            inventoryTargets.push({
+              sku: variantSku || null,
+              inventoryItemId,
+              quantity: resolveQuantityInStock(src),
+              trackInventory: src?.track_inventory !== false,
+            });
+          }
 
-              // Then set its available quantity
-              const adjustResult = await setInventoryQuantity({
-                shopDomain,
-                accessToken,
-                apiVersion,
-                inventoryItemId,
-                locationId: primaryLocationId,
-                quantity: quantityInStock,
-              });
+          const { results: inventoryResults, errors: inventoryErrors } =
+            await applyInventoryToShopifyVariants({
+              shopDomain,
+              accessToken,
+              apiVersion,
+              variantSources: inventoryTargets,
+              locationIds: inventoryLocationIds,
+            });
 
-              if (vIndex === 0) {
-                resultEntry.inventoryAdjustmentGroup = adjustResult;
-              } else {
-                if (!resultEntry.additionalInventoryAdjustments) {
-                  resultEntry.additionalInventoryAdjustments = [];
-                }
-                resultEntry.additionalInventoryAdjustments.push({
-                  index: vIndex,
-                  sku: src?.sku || null,
-                  result: adjustResult,
-                });
-              }
-            } catch (invErr) {
-              hasErrors = true;
-              if (vIndex === 0) {
-                resultEntry.inventoryError = invErr.message || 'Unknown inventory error';
-              } else {
-                if (!resultEntry.additionalInventoryErrors) {
-                  resultEntry.additionalInventoryErrors = [];
-                }
-                resultEntry.additionalInventoryErrors.push({
-                  index: vIndex,
-                  sku: src?.sku || null,
-                  error: invErr.message || 'Unknown inventory error',
-                });
-              }
+          if (inventoryResults.length) {
+            resultEntry.inventoryAdjustmentGroup = inventoryResults[0]?.result || null;
+            if (inventoryResults.length > 1) {
+              resultEntry.additionalInventoryAdjustments = inventoryResults.slice(1);
+            }
+          }
+          if (inventoryErrors.length) {
+            hasErrors = true;
+            resultEntry.inventoryError = inventoryErrors[0]?.error || 'Unknown inventory error';
+            if (inventoryErrors.length > 1) {
+              resultEntry.additionalInventoryErrors = inventoryErrors.slice(1);
             }
           }
         }
 
-        // After successfully creating the product/variants and adjusting inventory,
-        // associate all created variants with the "FinerWorks Shipping" delivery profile when available.
+        // Publish AFTER variant + inventory are configured so Online Store sees purchasable stock.
+        try {
+          const published = await publishProductToPrimaryChannel({
+            shopDomain,
+            accessToken,
+            apiVersion,
+            productId: created.id,
+          });
+          resultEntry.published = published;
+        } catch (publishErr) {
+          hasErrors = true;
+          resultEntry.publishError = publishErr.message || 'Unknown publish error';
+        }
+
+        // Keep products on General shipping profile unless explicitly assigned to FinerWorks Shipping.
         if (finerWorksShippingProfileGid && createdVariants.length) {
           const variantGids = createdVariants.map((v) => v && v.id).filter(Boolean);
 
           if (variantGids.length) {
             try {
-              const deliveryProfile = await assignVariantsToShippingProfile({
+              const deliveryProfile = await applyFinerWorksShippingProfileForVariants({
                 shopDomain,
                 accessToken,
                 apiVersion,
                 deliveryProfileGid: finerWorksShippingProfileGid,
                 variantGids,
+                assignToFinerWorksProfile: assignFinerWorksShippingProfile,
               });
               resultEntry.shippingProfileAssignment = {
                 deliveryProfileId: deliveryProfile?.id || finerWorksShippingProfileGid,
                 variantGids,
+                action: assignFinerWorksShippingProfile ? 'associated' : 'dissociated_to_general',
               };
             } catch (shippingErr) {
               hasErrors = true;
