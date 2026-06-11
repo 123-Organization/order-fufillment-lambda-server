@@ -8,7 +8,7 @@ function squarespaceHeaders(accessToken) {
   return {
     Authorization: `Bearer ${accessToken}`,
     'User-Agent': process.env.SQUARESPACE_USER_AGENT || 'ofa-node',
-    Accept: 'application/json'
+    Accept: 'application/json',
   };
 }
 
@@ -66,7 +66,8 @@ function matchShippingOptionId(title, options, carrierCode = null) {
 }
 
 function resolveDefaultShippingCode(shippingOptions) {
-  const fromEnv = process.env.SQUARESPACE_DEFAULT_SHIPPING_CODE || process.env.WIX_DEFAULT_SHIPPING_CODE;
+  const fromEnv =
+    process.env.SQUARESPACE_DEFAULT_SHIPPING_CODE || process.env.WIX_DEFAULT_SHIPPING_CODE;
   if (fromEnv != null && String(fromEnv).trim()) {
     const envCode = String(fromEnv).trim();
     if (isValidFinerWorksShippingCode(envCode)) return envCode;
@@ -110,18 +111,26 @@ function buildRecipientFromSquarespaceOrder(order, orderPoDisplay) {
     country_code: country.length === 2 ? country : 'us',
     phone: addr.phone != null ? String(addr.phone) : '',
     email: order?.customerEmail || null,
-    address_order_po: orderPoDisplay
+    address_order_po: orderPoDisplay,
   };
 }
 
 function pickFinerWorksProductGuid(product) {
   if (!product || typeof product !== 'object') return null;
   const productGuid = product.product_guid ?? product.productGuid ?? null;
-  if (productGuid && String(productGuid).trim() && String(productGuid).trim() !== FINERWORKS_EMPTY_PRODUCT_GUID) {
+  if (
+    productGuid &&
+    String(productGuid).trim() &&
+    String(productGuid).trim() !== FINERWORKS_EMPTY_PRODUCT_GUID
+  ) {
     return String(productGuid).trim();
   }
   const imageGuid = product.image_guid ?? product.imageGuid ?? null;
-  if (imageGuid && String(imageGuid).trim() && String(imageGuid).trim() !== FINERWORKS_EMPTY_PRODUCT_GUID) {
+  if (
+    imageGuid &&
+    String(imageGuid).trim() &&
+    String(imageGuid).trim() !== FINERWORKS_EMPTY_PRODUCT_GUID
+  ) {
     return String(imageGuid).trim();
   }
   return null;
@@ -133,7 +142,7 @@ async function resolveFinerWorksProductGuidBySku(sku, account_key) {
   try {
     const resp = await finerworksService.LIST_VIRTUAL_INVENTORY({
       sku_filter: [skuStr],
-      account_key
+      account_key,
     });
     const guid = pickFinerWorksProductGuid(resp?.products?.[0]);
     return guid || FINERWORKS_EMPTY_PRODUCT_GUID;
@@ -147,7 +156,7 @@ function placeholderProductImage() {
     pixel_width: 600,
     pixel_height: 600,
     product_url_file: 'https://via.placeholder.com/150',
-    product_url_thumbnail: 'https://via.placeholder.com/150'
+    product_url_thumbnail: 'https://via.placeholder.com/150',
   };
 }
 
@@ -160,13 +169,13 @@ async function enrichOrderItemsWithProductGuids(orderItems, account_key) {
         return {
           ...item,
           product_guid: FINERWORKS_EMPTY_PRODUCT_GUID,
-          product_image: placeholderProductImage()
+          product_image: placeholderProductImage(),
         };
       }
       try {
         const resp = await finerworksService.LIST_VIRTUAL_INVENTORY({
           sku_filter: [skuStr],
-          account_key
+          account_key,
         });
         const product = resp?.products?.[0];
         const guid = pickFinerWorksProductGuid(product) || FINERWORKS_EMPTY_PRODUCT_GUID;
@@ -179,16 +188,16 @@ async function enrichOrderItemsWithProductGuids(orderItems, account_key) {
                 pixel_width: 600,
                 pixel_height: 600,
                 product_url_file: imageUrl,
-                product_url_thumbnail: imageUrl
+                product_url_thumbnail: imageUrl,
               }
-            : placeholderProductImage()
+            : placeholderProductImage(),
         };
       } catch (_) {
         const guid = await resolveFinerWorksProductGuidBySku(skuStr, account_key);
         return {
           ...item,
           product_guid: guid,
-          product_image: placeholderProductImage()
+          product_image: placeholderProductImage(),
         };
       }
     })
@@ -208,20 +217,18 @@ function transformSquarespaceOrderToFinerWorksPayload(order, { shippingOptions =
   const recipient = buildRecipientFromSquarespaceOrder(order, orderPoDisplay);
 
   const lineItems = Array.isArray(order?.lineItems) ? order.lineItems : [];
-  const orderItems = lineItems
-    .filter(squarespaceLineItemSkuStartsWithAP)
-    .map((li) => ({
-      product_order_po: orderPoDisplay || null,
-      product_qty: li.quantity ?? 0,
-      product_sku: li?.sku ?? null,
-      product_image: placeholderProductImage(),
-      product_title: li?.productName ?? null,
-      template: null,
-      product_guid: FINERWORKS_EMPTY_PRODUCT_GUID,
-      custom_data_1: li?.productId ? String(li.productId) : null,
-      custom_data_2: li?.variantId ? String(li.variantId) : null,
-      custom_data_3: null
-    }));
+  const orderItems = lineItems.filter(squarespaceLineItemSkuStartsWithAP).map((li) => ({
+    product_order_po: orderPoDisplay || null,
+    product_qty: li.quantity ?? 0,
+    product_sku: li?.sku ?? null,
+    product_image: placeholderProductImage(),
+    product_title: li?.productName ?? null,
+    template: null,
+    product_guid: FINERWORKS_EMPTY_PRODUCT_GUID,
+    custom_data_1: li?.productId ? String(li.productId) : null,
+    custom_data_2: li?.variantId ? String(li.variantId) : null,
+    custom_data_3: null,
+  }));
 
   return {
     order_po: orderPoDisplay || null,
@@ -240,15 +247,13 @@ function transformSquarespaceOrderToFinerWorksPayload(order, { shippingOptions =
     custom_data_1: order?.id ? String(order.id) : null,
     custom_data_2: order?.orderNumber != null ? String(order.orderNumber) : null,
     custom_data_3: null,
-    source: 'squarespace'
+    source: 'squarespace',
   };
 }
 
 function resolveSquarespaceApiBaseUrl() {
   const fromEnv =
-    process.env.OFA_PUBLIC_API_BASE_URL ||
-    process.env.SQUARESPACE_ORDER_CREATE_WEBHOOK_URL ||
-    '';
+    process.env.OFA_PUBLIC_API_BASE_URL || process.env.SQUARESPACE_ORDER_CREATE_WEBHOOK_URL || '';
   return String(fromEnv).trim().replace(/\/$/, '');
 }
 
@@ -259,7 +264,7 @@ function buildSquarespaceFulfillmentWebhookUrl({ account_key, accessToken, order
   const params = new URLSearchParams({
     account_key: String(account_key),
     orderNumber: String(orderNumber || ''),
-    orderId: String(orderId || '')
+    orderId: String(orderId || ''),
   });
   if (accessToken) {
     params.set('access_token', String(accessToken));
@@ -278,7 +283,7 @@ async function fetchSquarespaceOrderById(accessToken, orderId) {
   const endpoint = `${SQUARESPACE_ORDERS_URL}/${encodeURIComponent(id)}`;
   const resp = await axios.get(endpoint, {
     headers: squarespaceHeaders(accessToken),
-    timeout: 120000
+    timeout: 120000,
   });
 
   const order = resp?.data;
@@ -298,5 +303,5 @@ module.exports = {
   enrichOrderItemsWithProductGuids,
   buildSquarespaceFulfillmentWebhookUrl,
   buildSquarespaceOrderPo,
-  squarespaceLineItemSkuStartsWithAP
+  squarespaceLineItemSkuStartsWithAP,
 };

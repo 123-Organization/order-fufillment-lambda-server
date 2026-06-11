@@ -6,14 +6,23 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "start": "set DEBUG=app:* & node lambda.js",
-    "dev": "set DEBUG=app:* & nodemon lambda.js"
+    "dev": "set DEBUG=app:* & nodemon lambda.js",
+    "lint": "eslint .",
+    "lint:platform": "eslint \"src/controllers/{shopify-*,squarespace-*,wix-*,platform-order-sync,disconnect-store}.js\" \"src/helpers/{shopify-*,squarespace-*,wix-*,platform-connections}.js\"",
+    "lint:file": "eslint",
+    "lint:fix": "eslint --fix .",
+    "lint:fix:platform": "eslint --fix \"src/controllers/{shopify-*,squarespace-*,wix-*,platform-order-sync,disconnect-store}.js\" \"src/helpers/{shopify-*,squarespace-*,wix-*,platform-connections}.js\"",
+    "format": "prettier --write .",
+    "format:platform": "prettier --write \"src/controllers/{shopify-*,squarespace-*,wix-*,platform-order-sync,disconnect-store}.js\" \"src/helpers/{shopify-*,squarespace-*,wix-*,platform-connections}.js\"",
+    "format:check": "prettier --check .",
+    "format:check:platform": "prettier --check \"src/controllers/{shopify-*,squarespace-*,wix-*,platform-order-sync,disconnect-store}.js\" \"src/helpers/{shopify-*,squarespace-*,wix-*,platform-connections}.js\""
   },
   "author": "",
   "license": "ISC",
   "dependencies": {
     "@aws-sdk/client-dynamodb": "^3.511.0",
-    "@aws-sdk/lib-dynamodb": "^3.511.0",
     "@aws-sdk/client-s3": "^3.511.0",
+    "@aws-sdk/lib-dynamodb": "^3.511.0",
     "add": "^2.0.6",
     "aws-lambda": "^1.0.7",
     "axios": "^1.6.7",
@@ -33,6 +42,12 @@
     "yarn": "^1.22.22"
   },
   "devDependencies": {
+    "@eslint/js": "^9.39.4",
+    "eslint": "^9.39.4",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-n": "^18.0.1",
+    "globals": "^17.6.0",
+    "prettier": "^3.8.3",
     "serverless-build-plugin": "^3.2.0"
   }
 }

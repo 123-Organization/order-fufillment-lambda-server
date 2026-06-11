@@ -1,7 +1,5 @@
 const finerworksService = require('../helpers/finerworks-service');
-const {
-  deleteSquarespaceAccountsByAccountKey
-} = require('../helpers/squarespace-accounts-dynamo');
+const { deleteSquarespaceAccountsByAccountKey } = require('../helpers/squarespace-accounts-dynamo');
 
 function normalizeSlug(input) {
   return String(input || '')
@@ -33,7 +31,7 @@ exports.disconnectStoreBySlug = async (req, res) => {
     if (!connectionName) {
       return res.status(400).json({
         success: false,
-        message: 'Invalid slug. Expected one of: squarespace, wix'
+        message: 'Invalid slug. Expected one of: squarespace, wix',
       });
     }
 
@@ -46,7 +44,7 @@ exports.disconnectStoreBySlug = async (req, res) => {
     if (!account_key || !String(account_key).trim()) {
       return res.status(400).json({
         success: false,
-        message: 'Missing required parameter: account_key'
+        message: 'Missing required parameter: account_key',
       });
     }
 
@@ -67,13 +65,13 @@ exports.disconnectStoreBySlug = async (req, res) => {
       return res.status(200).json({
         success: true,
         message: `No ${connectionName} connection found; nothing to disconnect`,
-        connections: nextConnections
+        connections: nextConnections,
       });
     }
 
     await finerworksService.UPDATE_INFO({
       account_key: trimmedKey,
-      connections: nextConnections
+      connections: nextConnections,
     });
 
     if (connectionName === 'Squarespace') {
@@ -83,15 +81,14 @@ exports.disconnectStoreBySlug = async (req, res) => {
     return res.status(200).json({
       success: true,
       message: `${connectionName} disconnected successfully`,
-      connections: nextConnections
+      connections: nextConnections,
     });
   } catch (err) {
     const status = err?.response?.status || 500;
     return res.status(status).json({
       success: false,
       message: 'Failed to disconnect store',
-      error: err?.response?.data || err?.message || 'Unknown error'
+      error: err?.response?.data || err?.message || 'Unknown error',
     });
   }
 };
-

@@ -18,7 +18,7 @@ async function fetchAccountKeyByWixInstanceId(instanceId) {
   const body = {
     instance_id: id,
     wix_instance_id: id,
-    instanceId: id
+    instanceId: id,
   };
   if (ACCOUNT_INFO_SECRET) body.secret = ACCOUNT_INFO_SECRET;
 
@@ -26,7 +26,7 @@ async function fetchAccountKeyByWixInstanceId(instanceId) {
     const resp = await axios.post(ACCOUNT_INFO_URL, body, {
       headers: { 'Content-Type': 'application/json' },
       timeout: 10000,
-      validateStatus: () => true
+      validateStatus: () => true,
     });
     if (resp.status < 200 || resp.status >= 300) return null;
     const key = resp?.data?.account_key || resp?.data?.accountKey || null;
@@ -37,5 +37,5 @@ async function fetchAccountKeyByWixInstanceId(instanceId) {
 }
 
 module.exports = {
-  fetchAccountKeyByWixInstanceId
+  fetchAccountKeyByWixInstanceId,
 };

@@ -7,14 +7,14 @@ function squarespaceHeaders(accessToken) {
     Authorization: `Bearer ${accessToken}`,
     'User-Agent': process.env.SQUARESPACE_USER_AGENT || 'ofa-node',
     'Content-Type': 'application/json',
-    Accept: 'application/json'
+    Accept: 'application/json',
   };
 }
 
 async function listSquarespaceWebhookSubscriptions(accessToken) {
   const resp = await axios.get(SQUARESPACE_WEBHOOKS_URL, {
     headers: squarespaceHeaders(accessToken),
-    timeout: 60000
+    timeout: 60000,
   });
   return Array.isArray(resp?.data?.webhookSubscriptions) ? resp.data.webhookSubscriptions : [];
 }
@@ -24,22 +24,25 @@ async function createSquarespaceWebhookSubscription(accessToken, { endpointUrl, 
     SQUARESPACE_WEBHOOKS_URL,
     {
       endpointUrl,
-      topics
+      topics,
     },
     {
       headers: squarespaceHeaders(accessToken),
-      timeout: 60000
+      timeout: 60000,
     }
   );
   return resp?.data || null;
 }
 
 async function deleteSquarespaceWebhookSubscription(accessToken, subscriptionId) {
-  await axios.delete(`${SQUARESPACE_WEBHOOKS_URL}/${encodeURIComponent(String(subscriptionId).trim())}`, {
-    headers: squarespaceHeaders(accessToken),
-    timeout: 60000,
-    validateStatus: (status) => status === 204 || status === 404
-  });
+  await axios.delete(
+    `${SQUARESPACE_WEBHOOKS_URL}/${encodeURIComponent(String(subscriptionId).trim())}`,
+    {
+      headers: squarespaceHeaders(accessToken),
+      timeout: 60000,
+      validateStatus: (status) => status === 204 || status === 404,
+    }
+  );
 }
 
 function findOrderCreateSubscription(subscriptions, endpointUrl) {
@@ -57,5 +60,5 @@ module.exports = {
   listSquarespaceWebhookSubscriptions,
   createSquarespaceWebhookSubscription,
   deleteSquarespaceWebhookSubscription,
-  findOrderCreateSubscription
+  findOrderCreateSubscription,
 };

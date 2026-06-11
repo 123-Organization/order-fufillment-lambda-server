@@ -5,10 +5,10 @@ const {
   UpdateCommand,
   QueryCommand,
   ScanCommand,
-  DeleteCommand
+  DeleteCommand,
 } = require('@aws-sdk/lib-dynamodb');
-const debug = require("debug");
-const log = debug("app:squarespace-accounts-dynamo");
+const debug = require('debug');
+const log = debug('app:squarespace-accounts-dynamo');
 
 const dynamodb = DynamoDBDocumentClient.from(new DynamoDBClient({}));
 
@@ -25,8 +25,7 @@ const dynamodb = DynamoDBDocumentClient.from(new DynamoDBClient({}));
  */
 const tableName = () => process.env.SQUARESPACE_ACCOUNTS_TABLE_NAME;
 
-const accountKeyGsiName = () =>
-  process.env.SQUARESPACE_ACCOUNTS_ACCOUNT_KEY_GSI || 'account-key';
+const accountKeyGsiName = () => process.env.SQUARESPACE_ACCOUNTS_ACCOUNT_KEY_GSI || 'account-key';
 
 /** All items matching `account_key` on the account-key GSI (paginated Query). */
 const queryAllItemsByAccountKey = async (TableName, account_key) => {
@@ -39,7 +38,7 @@ const queryAllItemsByAccountKey = async (TableName, account_key) => {
         IndexName: accountKeyGsiName(),
         KeyConditionExpression: 'account_key = :ak',
         ExpressionAttributeValues: { ':ak': account_key },
-        ExclusiveStartKey
+        ExclusiveStartKey,
       })
     );
     collected.push(...(page.Items || []));
@@ -94,7 +93,7 @@ const putSquarespaceAccount = async (item) => {
       ...item,
       id: partitionId,
       account_key,
-      updated_at
+      updated_at,
     };
 
     const names = {};
@@ -123,7 +122,7 @@ const putSquarespaceAccount = async (item) => {
         Key: { id: partitionId },
         UpdateExpression: `SET ${setParts.join(', ')}`,
         ExpressionAttributeNames: names,
-        ExpressionAttributeValues: values
+        ExpressionAttributeValues: values,
       })
     );
     return;
@@ -136,8 +135,8 @@ const putSquarespaceAccount = async (item) => {
         ...item,
         id,
         account_key,
-        updated_at
-      }
+        updated_at,
+      },
     })
   );
 };
@@ -153,7 +152,7 @@ const scanAllSquarespaceAccounts = async () => {
     const page = await dynamodb.send(
       new ScanCommand({
         TableName,
-        ExclusiveStartKey
+        ExclusiveStartKey,
       })
     );
     acc.push(...(page.Items || []));
@@ -180,10 +179,7 @@ const deleteSquarespaceAccountsByAccountKey = async (account_key) => {
   for (const item of items) {
     const id = item?.id;
     if (id == null || String(id).trim() === '') {
-      console.warn(
-        'squarespace-accounts: skip delete for item without id (partition key)',
-        ak
-      );
+      console.warn('squarespace-accounts: skip delete for item without id (partition key)', ak);
       continue;
     }
     await dynamodb.send(new DeleteCommand({ TableName, Key: { id } }));
@@ -193,5 +189,5 @@ const deleteSquarespaceAccountsByAccountKey = async (account_key) => {
 module.exports = {
   putSquarespaceAccount,
   scanAllSquarespaceAccounts,
-  deleteSquarespaceAccountsByAccountKey
+  deleteSquarespaceAccountsByAccountKey,
 };

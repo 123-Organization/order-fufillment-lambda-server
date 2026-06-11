@@ -1,5 +1,5 @@
 const axios = require('axios');
-const finerworksService = require("../helpers/finerworks-service");
+const finerworksService = require('../helpers/finerworks-service');
 const debug = require('debug');
 const log = debug('app:shopifyOrders');
 
@@ -21,42 +21,45 @@ const normalizeShopDomain = (shopInput) => {
 /** Match Shopify shipping line to a shipping option id. Sets code to option.id (never shipping_code).
  *  Tries: (1) title vs shipping_method, (2) Shopify carrier code (edge.node.code) vs shipping_code. */
 const matchShippingOptionId = (title, options, carrierCodeFromShopify = null) => {
-  console.log("title====",title);
-  console.log("options====",options);
-  console.log("carrierCodeFromShopify====",carrierCodeFromShopify); 
+  console.log('title====', title);
+  console.log('options====', options);
+  console.log('carrierCodeFromShopify====', carrierCodeFromShopify);
   if (!Array.isArray(options) || !options.length) return null;
   const opts = options;
   // console.log("opts====",opts);
 
   const byTitle = (t) => {
     if (!t) return null;
-    const exact = opts.find(o => o?.shipping_method === t);
-    console.log("exact===",exact)
+    const exact = opts.find((o) => o?.shipping_method === t);
+    console.log('exact===', exact);
     if (exact) return exact.id;
-    const prefix = opts.find(o => String(o?.shipping_method || '').startsWith(t));
-    console.log("prefix=====",prefix);
+    const prefix = opts.find((o) => String(o?.shipping_method || '').startsWith(t));
+    console.log('prefix=====', prefix);
     if (prefix) return prefix.id;
-    const contains = opts.find(o => String(o?.shipping_method || '').toLowerCase().includes(t.toLowerCase()));
+    const contains = opts.find((o) =>
+      String(o?.shipping_method || '')
+        .toLowerCase()
+        .includes(t.toLowerCase())
+    );
     return contains ? contains.id : null;
   };
 
   const idByTitle = byTitle(title != null ? String(title).trim() : '');
-  console.log("idByTitle====",idByTitle);
+  console.log('idByTitle====', idByTitle);
   if (idByTitle != null) return idByTitle;
 
   const code = carrierCodeFromShopify != null ? String(carrierCodeFromShopify).trim() : '';
-  console.log("code=====",code)
+  console.log('code=====', code);
   if (code) {
-    console.log("enetered the code====")
-    const byCode = opts.find(o => String(o?.shipping_code || '').trim() === code);
+    console.log('enetered the code====');
+    const byCode = opts.find((o) => String(o?.shipping_code || '').trim() === code);
     if (byCode) return byCode.id;
   }
   return null;
 };
 
 const SHIPPING_FEES_URL =
-  process.env.SHIPPING_FEES_URL ||
-  'https://shopify.finerworks.com/api/shipping-fees';
+  process.env.SHIPPING_FEES_URL || 'https://shopify.finerworks.com/api/shipping-fees';
 
 const getShopShippingMarkupPercent = async (shopInput) => {
   const shop = normalizeShopDomain(shopInput);
@@ -65,7 +68,7 @@ const getShopShippingMarkupPercent = async (shopInput) => {
   try {
     const resp = await axios.get(SHIPPING_FEES_URL, {
       params: { shop },
-      timeout: 8000
+      timeout: 8000,
     });
 
     const data = resp?.data;
@@ -132,22 +135,25 @@ const mapInventoryProductToShopifyInput = (product) => {
   const labels = Array.isArray(product?.labels) ? product.labels : [];
 
   const findLabelValue = (key) => {
-    const entry = labels.find(l => String(l.key).toLowerCase() === String(key).toLowerCase());
+    const entry = labels.find((l) => String(l.key).toLowerCase() === String(key).toLowerCase());
     return entry ? entry.value : null;
   };
 
-  const title = product?.name || findLabelValue('title') || product?.sku || product?.product_code || 'Untitled Product';
+  const title =
+    product?.name ||
+    findLabelValue('title') ||
+    product?.sku ||
+    product?.product_code ||
+    'Untitled Product';
   const descriptionHtml = product?.description_long || product?.description_short || '';
   const productType = findLabelValue('type') || null;
 
-  const tags = labels.map(l => `${l.key}: ${l.value}`);
+  const tags = labels.map((l) => `${l.key}: ${l.value}`);
 
   // Optional: product options (for variants) can be precomputed and attached
   // to the product object as `product.productOptions` by higher-level logic
   // (for example, based on grouped variants sharing the same image_guid).
-  const productOptions = Array.isArray(product?.productOptions)
-    ? product.productOptions
-    : null;
+  const productOptions = Array.isArray(product?.productOptions) ? product.productOptions : null;
 
   // NOTE:
   // New Shopify Product APIs (2024-04+) no longer allow variants/images/media
@@ -168,10 +174,10 @@ const mapInventoryProductToShopifyInput = (product) => {
               namespace: 'custom',
               key: 'product_guid',
               type: 'single_line_text_field',
-              value: String(product.product_guid).trim()
-            }
+              value: String(product.product_guid).trim(),
+            },
           ]
-        : undefined
+        : undefined,
   };
 
   // Remove undefined fields to keep the payload clean
@@ -189,7 +195,7 @@ const createShopifyProduct = async ({ shopDomain, accessToken, apiVersion, produ
   const endpoint = `https://${shopDomain}/admin/api/${apiVersion}/graphql.json`;
   const headers = {
     'X-Shopify-Access-Token': accessToken,
-    'Content-Type': 'application/json'
+    'Content-Type': 'application/json',
   };
 
   const input = mapInventoryProductToShopifyInput(product);
@@ -200,7 +206,7 @@ const createShopifyProduct = async ({ shopDomain, accessToken, apiVersion, produ
     media.push({
       alt: product?.name || product?.sku || null,
       mediaContentType: 'IMAGE',
-      originalSource: product.image_url_1
+      originalSource: product.image_url_1,
     });
   }
 
@@ -213,8 +219,8 @@ const createShopifyProduct = async ({ shopDomain, accessToken, apiVersion, produ
         variables: {
           input,
           // If no media, pass null so GraphQL can accept optional variable
-          media: media.length ? media : null
-        }
+          media: media.length ? media : null,
+        },
       },
       { headers }
     );
@@ -231,7 +237,7 @@ const createShopifyProduct = async ({ shopDomain, accessToken, apiVersion, produ
 
   if (resp.data.errors) {
     const message = Array.isArray(resp.data.errors)
-      ? resp.data.errors.map(e => e.message).join('; ')
+      ? resp.data.errors.map((e) => e.message).join('; ')
       : 'Unknown GraphQL error';
     const error = new Error(message);
     error.status = 502;
@@ -247,7 +253,7 @@ const createShopifyProduct = async ({ shopDomain, accessToken, apiVersion, produ
 
   if (Array.isArray(createPayload.userErrors) && createPayload.userErrors.length > 0) {
     const message = createPayload.userErrors
-      .map(e => `${e.field ? e.field.join('.') : 'error'}: ${e.message}`)
+      .map((e) => `${e.field ? e.field.join('.') : 'error'}: ${e.message}`)
       .join('; ');
     const error = new Error(message);
     error.status = 400;
@@ -277,7 +283,7 @@ const fetchPrimaryLocation = async ({ shopDomain, accessToken, apiVersion }) => 
   const endpoint = `https://${shopDomain}/admin/api/${apiVersion}/graphql.json`;
   const headers = {
     'X-Shopify-Access-Token': accessToken,
-    'Content-Type': 'application/json'
+    'Content-Type': 'application/json',
   };
 
   try {
@@ -285,14 +291,14 @@ const fetchPrimaryLocation = async ({ shopDomain, accessToken, apiVersion }) => 
       endpoint,
       {
         query: LOCATIONS_QUERY,
-        variables: {}
+        variables: {},
       },
       { headers }
     );
 
     if (resp.data.errors) {
       const message = Array.isArray(resp.data.errors)
-        ? resp.data.errors.map(e => e.message).join('; ')
+        ? resp.data.errors.map((e) => e.message).join('; ')
         : 'Unknown GraphQL error';
       const error = new Error(message);
       error.status = 502;
@@ -339,11 +345,16 @@ const DELIVERY_PROFILES_QUERY = `
 `;
 
 // Fetch a delivery profile GID by its human-readable name (e.g. "FinerWorks Shipping")
-const fetchDeliveryProfileGidByName = async ({ shopDomain, accessToken, apiVersion, profileName }) => {
+const fetchDeliveryProfileGidByName = async ({
+  shopDomain,
+  accessToken,
+  apiVersion,
+  profileName,
+}) => {
   const endpoint = `https://${shopDomain}/admin/api/${apiVersion}/graphql.json`;
   const headers = {
     'X-Shopify-Access-Token': accessToken,
-    'Content-Type': 'application/json'
+    'Content-Type': 'application/json',
   };
 
   try {
@@ -351,13 +362,13 @@ const fetchDeliveryProfileGidByName = async ({ shopDomain, accessToken, apiVersi
       endpoint,
       {
         query: DELIVERY_PROFILES_QUERY,
-        variables: {}
+        variables: {},
       },
       { headers }
     );
     if (resp.data.errors) {
       const message = Array.isArray(resp.data.errors)
-        ? resp.data.errors.map(e => e.message).join('; ')
+        ? resp.data.errors.map((e) => e.message).join('; ')
         : 'Unknown GraphQL error';
       const error = new Error(message);
       error.status = 502;
@@ -370,9 +381,7 @@ const fetchDeliveryProfileGidByName = async ({ shopDomain, accessToken, apiVersi
     }
 
     const matchEdge = edges.find(
-      (e) =>
-        e?.node?.name &&
-        e.node.name.trim().toLowerCase() === profileName.trim().toLowerCase()
+      (e) => e?.node?.name && e.node.name.trim().toLowerCase() === profileName.trim().toLowerCase()
     );
 
     return matchEdge?.node?.id || null;
@@ -408,7 +417,7 @@ const assignVariantsToShippingProfile = async ({
   accessToken,
   apiVersion,
   deliveryProfileGid,
-  variantGids
+  variantGids,
 }) => {
   if (!deliveryProfileGid || !Array.isArray(variantGids) || !variantGids.length) {
     return null;
@@ -417,7 +426,7 @@ const assignVariantsToShippingProfile = async ({
   const endpoint = `https://${shopDomain}/admin/api/${apiVersion}/graphql.json`;
   const headers = {
     'X-Shopify-Access-Token': accessToken,
-    'Content-Type': 'application/json'
+    'Content-Type': 'application/json',
   };
 
   try {
@@ -428,16 +437,16 @@ const assignVariantsToShippingProfile = async ({
         variables: {
           id: deliveryProfileGid,
           profile: {
-            variantsToAssociate: variantGids
-          }
-        }
+            variantsToAssociate: variantGids,
+          },
+        },
       },
       { headers }
     );
 
     if (resp.data.errors) {
       const message = Array.isArray(resp.data.errors)
-        ? resp.data.errors.map(e => e.message).join('; ')
+        ? resp.data.errors.map((e) => e.message).join('; ')
         : 'Unknown GraphQL error';
       const error = new Error(message);
       error.status = 502;
@@ -453,7 +462,7 @@ const assignVariantsToShippingProfile = async ({
 
     if (Array.isArray(payload.userErrors) && payload.userErrors.length > 0) {
       const message = payload.userErrors
-        .map(e => `${e.field ? e.field.join('.') : 'error'}: ${e.message}`)
+        .map((e) => `${e.field ? e.field.join('.') : 'error'}: ${e.message}`)
         .join('; ');
       const error = new Error(message);
       error.status = 400;
@@ -496,7 +505,7 @@ const createUsCanadaShippingProfile = async (req, res) => {
     if (!accessToken || !storeName) {
       return res.status(400).json({
         success: false,
-        message: 'Missing required parameters: access_token and storeName'
+        message: 'Missing required parameters: access_token and storeName',
       });
     }
 
@@ -504,7 +513,7 @@ const createUsCanadaShippingProfile = async (req, res) => {
     if (!shopDomain || !shopDomain.match(/^[a-z0-9][a-z0-9-]*\.myshopify\.com$/)) {
       return res.status(400).json({
         success: false,
-        message: 'Invalid storeName. Expected shopname or shopname.myshopify.com'
+        message: 'Invalid storeName. Expected shopname or shopname.myshopify.com',
       });
     }
 
@@ -516,21 +525,21 @@ const createUsCanadaShippingProfile = async (req, res) => {
       return res.status(locErr.status || 500).json({
         success: false,
         message: 'Failed to fetch Shopify locations for delivery profile',
-        error: locErr.message || 'Unknown error'
+        error: locErr.message || 'Unknown error',
       });
     }
 
     if (!primaryLocationId) {
       return res.status(400).json({
         success: false,
-        message: 'No Shopify locations found; cannot create delivery profile'
+        message: 'No Shopify locations found; cannot create delivery profile',
       });
     }
 
     const endpoint = `https://${shopDomain}/admin/api/${apiVersion}/graphql.json`;
     const headers = {
       'X-Shopify-Access-Token': accessToken,
-      'Content-Type': 'application/json'
+      'Content-Type': 'application/json',
     };
 
     const mutation = `
@@ -561,22 +570,60 @@ const createUsCanadaShippingProfile = async (req, res) => {
                   {
                     code: 'US',
                     provinces: [
-                      { code: 'AL' }, { code: 'AK' }, { code: 'AZ' }, { code: 'AR' },
-                      { code: 'CA' }, { code: 'CO' }, { code: 'CT' }, { code: 'DE' },
-                      { code: 'FL' }, { code: 'GA' }, { code: 'HI' }, { code: 'ID' },
-                      { code: 'IL' }, { code: 'IN' }, { code: 'IA' }, { code: 'KS' },
-                      { code: 'KY' }, { code: 'LA' }, { code: 'ME' }, { code: 'MD' },
-                      { code: 'MA' }, { code: 'MI' }, { code: 'MN' }, { code: 'MS' },
-                      { code: 'MO' }, { code: 'MT' }, { code: 'NE' }, { code: 'NV' },
-                      { code: 'NH' }, { code: 'NJ' }, { code: 'NM' }, { code: 'NY' },
-                      { code: 'NC' }, { code: 'ND' }, { code: 'OH' }, { code: 'OK' },
-                      { code: 'OR' }, { code: 'PA' }, { code: 'RI' }, { code: 'SC' },
-                      { code: 'SD' }, { code: 'TN' }, { code: 'TX' }, { code: 'UT' },
-                      { code: 'VT' }, { code: 'VA' }, { code: 'WA' }, { code: 'WV' },
-                      { code: 'WI' }, { code: 'WY' }, { code: 'DC' }
-                    ]
-                  }
-                ]
+                      { code: 'AL' },
+                      { code: 'AK' },
+                      { code: 'AZ' },
+                      { code: 'AR' },
+                      { code: 'CA' },
+                      { code: 'CO' },
+                      { code: 'CT' },
+                      { code: 'DE' },
+                      { code: 'FL' },
+                      { code: 'GA' },
+                      { code: 'HI' },
+                      { code: 'ID' },
+                      { code: 'IL' },
+                      { code: 'IN' },
+                      { code: 'IA' },
+                      { code: 'KS' },
+                      { code: 'KY' },
+                      { code: 'LA' },
+                      { code: 'ME' },
+                      { code: 'MD' },
+                      { code: 'MA' },
+                      { code: 'MI' },
+                      { code: 'MN' },
+                      { code: 'MS' },
+                      { code: 'MO' },
+                      { code: 'MT' },
+                      { code: 'NE' },
+                      { code: 'NV' },
+                      { code: 'NH' },
+                      { code: 'NJ' },
+                      { code: 'NM' },
+                      { code: 'NY' },
+                      { code: 'NC' },
+                      { code: 'ND' },
+                      { code: 'OH' },
+                      { code: 'OK' },
+                      { code: 'OR' },
+                      { code: 'PA' },
+                      { code: 'RI' },
+                      { code: 'SC' },
+                      { code: 'SD' },
+                      { code: 'TN' },
+                      { code: 'TX' },
+                      { code: 'UT' },
+                      { code: 'VT' },
+                      { code: 'VA' },
+                      { code: 'WA' },
+                      { code: 'WV' },
+                      { code: 'WI' },
+                      { code: 'WY' },
+                      { code: 'DC' },
+                    ],
+                  },
+                ],
               },
               {
                 name: 'Canada',
@@ -584,29 +631,34 @@ const createUsCanadaShippingProfile = async (req, res) => {
                   {
                     code: 'CA',
                     provinces: [
-                      { code: 'AB' }, { code: 'BC' }, { code: 'MB' }, { code: 'NB' },
-                      { code: 'NL' }, { code: 'NS' }, { code: 'NT' }, { code: 'NU' },
-                      { code: 'ON' }, { code: 'PE' }, { code: 'QC' }, { code: 'SK' },
-                      { code: 'YT' }
-                    ]
-                  }
-                ]
-              }
-            ]
-          }
-        ]
-      }
+                      { code: 'AB' },
+                      { code: 'BC' },
+                      { code: 'MB' },
+                      { code: 'NB' },
+                      { code: 'NL' },
+                      { code: 'NS' },
+                      { code: 'NT' },
+                      { code: 'NU' },
+                      { code: 'ON' },
+                      { code: 'PE' },
+                      { code: 'QC' },
+                      { code: 'SK' },
+                      { code: 'YT' },
+                    ],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
     };
 
-    const resp = await axios.post(
-      endpoint,
-      { query: mutation, variables },
-      { headers }
-    );
+    const resp = await axios.post(endpoint, { query: mutation, variables }, { headers });
 
     if (resp.data.errors) {
       const message = Array.isArray(resp.data.errors)
-        ? resp.data.errors.map(e => e.message).join('; ')
+        ? resp.data.errors.map((e) => e.message).join('; ')
         : 'Unknown GraphQL error';
       const error = new Error(message);
       error.status = 502;
@@ -617,24 +669,24 @@ const createUsCanadaShippingProfile = async (req, res) => {
     if (!payload) {
       return res.status(502).json({
         success: false,
-        message: 'Invalid Shopify response for deliveryProfileCreate'
+        message: 'Invalid Shopify response for deliveryProfileCreate',
       });
     }
 
     if (Array.isArray(payload.userErrors) && payload.userErrors.length > 0) {
       const message = payload.userErrors
-        .map(e => `${e.field ? e.field.join('.') : 'error'}: ${e.message}`)
+        .map((e) => `${e.field ? e.field.join('.') : 'error'}: ${e.message}`)
         .join('; ');
       return res.status(400).json({
         success: false,
-        message
+        message,
       });
     }
 
     return res.status(200).json({
       success: true,
       shopDomain,
-      profile: payload.profile
+      profile: payload.profile,
     });
   } catch (err) {
     const status = err?.status || err?.response?.status || 500;
@@ -644,7 +696,7 @@ const createUsCanadaShippingProfile = async (req, res) => {
       'Request failed';
     return res.status(status).json({
       success: false,
-      message: typeof message === 'string' ? message : JSON.stringify(message)
+      message: typeof message === 'string' ? message : JSON.stringify(message),
     });
   }
 };
@@ -684,7 +736,7 @@ const fetchPrimaryPublication = async ({ shopDomain, accessToken, apiVersion }) 
   const endpoint = `https://${shopDomain}/admin/api/${apiVersion}/graphql.json`;
   const headers = {
     'X-Shopify-Access-Token': accessToken,
-    'Content-Type': 'application/json'
+    'Content-Type': 'application/json',
   };
 
   try {
@@ -692,14 +744,14 @@ const fetchPrimaryPublication = async ({ shopDomain, accessToken, apiVersion }) 
       endpoint,
       {
         query: PUBLICATIONS_QUERY,
-        variables: {}
+        variables: {},
       },
       { headers }
     );
 
     if (resp.data.errors) {
       const message = Array.isArray(resp.data.errors)
-        ? resp.data.errors.map(e => e.message).join('; ')
+        ? resp.data.errors.map((e) => e.message).join('; ')
         : 'Unknown GraphQL error';
       const error = new Error(message);
       error.status = 502;
@@ -711,7 +763,7 @@ const fetchPrimaryPublication = async ({ shopDomain, accessToken, apiVersion }) 
 
     // Prefer a publication whose name mentions "online store" (case-insensitive), otherwise first
     const onlineStorePub = edges.find(
-      e =>
+      (e) =>
         e?.node?.name &&
         typeof e.node.name === 'string' &&
         e.node.name.toLowerCase().includes('online store')
@@ -731,13 +783,18 @@ const fetchPrimaryPublication = async ({ shopDomain, accessToken, apiVersion }) 
   }
 };
 
-const publishProductToPrimaryChannel = async ({ shopDomain, accessToken, apiVersion, productId }) => {
+const publishProductToPrimaryChannel = async ({
+  shopDomain,
+  accessToken,
+  apiVersion,
+  productId,
+}) => {
   if (!productId) return null;
 
   const endpoint = `https://${shopDomain}/admin/api/${apiVersion}/graphql.json`;
   const headers = {
     'X-Shopify-Access-Token': accessToken,
-    'Content-Type': 'application/json'
+    'Content-Type': 'application/json',
   };
 
   const publicationId = await fetchPrimaryPublication({ shopDomain, accessToken, apiVersion });
@@ -751,10 +808,10 @@ const publishProductToPrimaryChannel = async ({ shopDomain, accessToken, apiVers
     id: productId,
     input: [
       {
-        publicationId
+        publicationId,
         // publishDate: null // publish immediately
-      }
-    ]
+      },
+    ],
   };
 
   try {
@@ -762,14 +819,14 @@ const publishProductToPrimaryChannel = async ({ shopDomain, accessToken, apiVers
       endpoint,
       {
         query: PUBLISHABLE_PUBLISH_MUTATION,
-        variables
+        variables,
       },
       { headers }
     );
 
     if (resp.data.errors) {
       const message = Array.isArray(resp.data.errors)
-        ? resp.data.errors.map(e => e.message).join('; ')
+        ? resp.data.errors.map((e) => e.message).join('; ')
         : 'Unknown GraphQL error';
       const error = new Error(message);
       error.status = 502;
@@ -785,7 +842,7 @@ const publishProductToPrimaryChannel = async ({ shopDomain, accessToken, apiVers
 
     if (Array.isArray(payload.userErrors) && payload.userErrors.length > 0) {
       const message = payload.userErrors
-        .map(e => `${e.field ? e.field.join('.') : 'error'}: ${e.message}`)
+        .map((e) => `${e.field ? e.field.join('.') : 'error'}: ${e.message}`)
         .join('; ');
       const error = new Error(message);
       error.status = 400;
@@ -820,16 +877,22 @@ const INVENTORY_ACTIVATE_MUTATION = `
   }
 `;
 
-const ensureInventoryItemStockedAtLocation = async ({ shopDomain, accessToken, apiVersion, inventoryItemId, locationId }) => {
+const ensureInventoryItemStockedAtLocation = async ({
+  shopDomain,
+  accessToken,
+  apiVersion,
+  inventoryItemId,
+  locationId,
+}) => {
   const endpoint = `https://${shopDomain}/admin/api/${apiVersion}/graphql.json`;
   const headers = {
     'X-Shopify-Access-Token': accessToken,
-    'Content-Type': 'application/json'
+    'Content-Type': 'application/json',
   };
 
   const variables = {
     inventoryItemId,
-    locationId
+    locationId,
   };
 
   try {
@@ -837,14 +900,14 @@ const ensureInventoryItemStockedAtLocation = async ({ shopDomain, accessToken, a
       endpoint,
       {
         query: INVENTORY_ACTIVATE_MUTATION,
-        variables
+        variables,
       },
       { headers }
     );
 
     if (resp.data.errors) {
       const message = Array.isArray(resp.data.errors)
-        ? resp.data.errors.map(e => e.message).join('; ')
+        ? resp.data.errors.map((e) => e.message).join('; ')
         : 'Unknown GraphQL error';
       const error = new Error(message);
       error.status = 502;
@@ -860,7 +923,7 @@ const ensureInventoryItemStockedAtLocation = async ({ shopDomain, accessToken, a
 
     if (Array.isArray(payload.userErrors) && payload.userErrors.length > 0) {
       const message = payload.userErrors
-        .map(e => `${e.field ? e.field.join('.') : 'error'}: ${e.message}`)
+        .map((e) => `${e.field ? e.field.join('.') : 'error'}: ${e.message}`)
         .join('; ');
       const error = new Error(message);
       error.status = 400;
@@ -903,11 +966,18 @@ const INVENTORY_SET_QUANTITIES_MUTATION = `
   }
 `;
 
-const setInventoryQuantity = async ({ shopDomain, accessToken, apiVersion, inventoryItemId, locationId, quantity }) => {
+const setInventoryQuantity = async ({
+  shopDomain,
+  accessToken,
+  apiVersion,
+  inventoryItemId,
+  locationId,
+  quantity,
+}) => {
   const endpoint = `https://${shopDomain}/admin/api/${apiVersion}/graphql.json`;
   const headers = {
     'X-Shopify-Access-Token': accessToken,
-    'Content-Type': 'application/json'
+    'Content-Type': 'application/json',
   };
 
   const variables = {
@@ -919,10 +989,10 @@ const setInventoryQuantity = async ({ shopDomain, accessToken, apiVersion, inven
         {
           inventoryItemId,
           locationId,
-          quantity
-        }
-      ]
-    }
+          quantity,
+        },
+      ],
+    },
   };
 
   try {
@@ -930,14 +1000,14 @@ const setInventoryQuantity = async ({ shopDomain, accessToken, apiVersion, inven
       endpoint,
       {
         query: INVENTORY_SET_QUANTITIES_MUTATION,
-        variables
+        variables,
       },
       { headers }
     );
 
     if (resp.data.errors) {
       const message = Array.isArray(resp.data.errors)
-        ? resp.data.errors.map(e => e.message).join('; ')
+        ? resp.data.errors.map((e) => e.message).join('; ')
         : 'Unknown GraphQL error';
       const error = new Error(message);
       error.status = 502;
@@ -953,7 +1023,7 @@ const setInventoryQuantity = async ({ shopDomain, accessToken, apiVersion, inven
 
     if (Array.isArray(adjustPayload.userErrors) && adjustPayload.userErrors.length > 0) {
       const message = adjustPayload.userErrors
-        .map(e => `${e.field ? e.field.join('.') : 'error'}: ${e.message}`)
+        .map((e) => `${e.field ? e.field.join('.') : 'error'}: ${e.message}`)
         .join('; ');
       const error = new Error(message);
       error.status = 400;
@@ -995,13 +1065,19 @@ const PRODUCT_VARIANTS_BULK_CREATE_MUTATION = `
   }
 `;
 
-const createOrReplaceVariantFromPayload = async ({ shopDomain, accessToken, apiVersion, productId, variants }) => {
+const createOrReplaceVariantFromPayload = async ({
+  shopDomain,
+  accessToken,
+  apiVersion,
+  productId,
+  variants,
+}) => {
   if (!productId) return null;
 
   const endpoint = `https://${shopDomain}/admin/api/${apiVersion}/graphql.json`;
   const headers = {
     'X-Shopify-Access-Token': accessToken,
-    'Content-Type': 'application/json'
+    'Content-Type': 'application/json',
   };
 
   const variantInputs = [];
@@ -1016,22 +1092,18 @@ const createOrReplaceVariantFromPayload = async ({ shopDomain, accessToken, apiV
       }
       if (sku) {
         variantInput.inventoryItem = {
-          sku: String(sku)
+          sku: String(sku),
         };
       }
       if (Array.isArray(optionValues) && optionValues.length) {
         variantInput.optionValues = optionValues.map((ov) => ({
           optionName: ov.optionName,
-          name: ov.name
+          name: ov.name,
         }));
       }
 
       // Skip empty entries
-      if (
-        !variantInput.price &&
-        !variantInput.inventoryItem &&
-        !variantInput.optionValues
-      ) {
+      if (!variantInput.price && !variantInput.inventoryItem && !variantInput.optionValues) {
         continue;
       }
 
@@ -1045,7 +1117,7 @@ const createOrReplaceVariantFromPayload = async ({ shopDomain, accessToken, apiV
   const variables = {
     productId,
     strategy: 'REMOVE_STANDALONE_VARIANT',
-    variants: variantInputs
+    variants: variantInputs,
   };
 
   try {
@@ -1053,14 +1125,14 @@ const createOrReplaceVariantFromPayload = async ({ shopDomain, accessToken, apiV
       endpoint,
       {
         query: PRODUCT_VARIANTS_BULK_CREATE_MUTATION,
-        variables
+        variables,
       },
       { headers }
     );
 
     if (resp.data.errors) {
       const message = Array.isArray(resp.data.errors)
-        ? resp.data.errors.map(e => e.message).join('; ')
+        ? resp.data.errors.map((e) => e.message).join('; ')
         : 'Unknown GraphQL error';
       const error = new Error(message);
       error.status = 502;
@@ -1076,7 +1148,7 @@ const createOrReplaceVariantFromPayload = async ({ shopDomain, accessToken, apiV
 
     if (Array.isArray(payload.userErrors) && payload.userErrors.length > 0) {
       const message = payload.userErrors
-        .map(e => `${e.field ? e.field.join('.') : 'error'}: ${e.message}`)
+        .map((e) => `${e.field ? e.field.join('.') : 'error'}: ${e.message}`)
         .join('; ');
       const error = new Error(message);
       error.status = 400;
@@ -1110,7 +1182,7 @@ const fetchExistingSkusInShop = async ({ shopDomain, accessToken, apiVersion, sk
   const endpoint = `https://${shopDomain}/admin/api/${apiVersion}/graphql.json`;
   const headers = {
     'X-Shopify-Access-Token': accessToken,
-    'Content-Type': 'application/json'
+    'Content-Type': 'application/json',
   };
   const query = `
     query productVariantsBySku($query: String!) {
@@ -1127,10 +1199,14 @@ const fetchExistingSkusInShop = async ({ shopDomain, accessToken, apiVersion, sk
     const s = sku != null ? String(sku).trim() : '';
     if (!s) continue;
     try {
-      const resp = await axios.post(endpoint, {
-        query,
-        variables: { query: `sku:${s.replace(/"/g, '\\"')}` }
-      }, { headers });
+      const resp = await axios.post(
+        endpoint,
+        {
+          query,
+          variables: { query: `sku:${s.replace(/"/g, '\\"')}` },
+        },
+        { headers }
+      );
       const edges = resp?.data?.data?.productVariants?.edges;
       if (Array.isArray(edges) && edges.length > 0) {
         existing.add(s);
@@ -1209,7 +1285,7 @@ const normalizeOrderId = (orderId) => {
 //         currencyCode
 //         displayFinancialStatus
 //         displayFulfillmentStatus
-//         customer { id 
+//         customer { id
 
 //         }
 //          shippingAddress {
@@ -1228,7 +1304,7 @@ const normalizeOrderId = (orderId) => {
 //         }
 //         customer {
 //           id
-//           tags          
+//           tags
 //         }
 //           fulfillments {
 //           id
@@ -1308,11 +1384,11 @@ const buildOrdersQuery = (startDate, endDate, first = 10, after = null) => {
   if (isoEnd) searchClauses.push(`created_at:<=${isoEnd}`);
   searchClauses.push('status:open');
 
-  const queryFilter = searchClauses.length ? `, query: \"${searchClauses.join(' ')}\"` : '';
+  const queryFilter = searchClauses.length ? `, query: "${searchClauses.join(' ')}"` : '';
 
   return `
 {
-  orders(first: ${first}${after ? `, after: \"${after}\"` : ''}${queryFilter}, sortKey: CREATED_AT, reverse: true) {
+  orders(first: ${first}${after ? `, after: "${after}"` : ''}${queryFilter}, sortKey: CREATED_AT, reverse: true) {
     edges {
       cursor
       node {
@@ -1860,34 +1936,50 @@ const buildOrdersQuery = (startDate, endDate, first = 10, after = null) => {
 // }
 // `;
 // };
-const fetchAllOrders = async ({ shopDomain, accessToken, apiVersion, query: overrideQuery, startDate, endDate }) => {
+const fetchAllOrders = async ({
+  shopDomain,
+  accessToken,
+  apiVersion,
+  query: overrideQuery,
+  startDate,
+  endDate,
+}) => {
   const endpoint = `https://${shopDomain}/admin/api/${apiVersion}/graphql.json`;
-  console.log("endpoint=========>>>>>>", endpoint);
+  console.log('endpoint=========>>>>>>', endpoint);
 
   const headers = {
     'X-Shopify-Access-Token': accessToken,
     'Content-Type': 'application/json',
     // 'Accept': 'application/json'
   };
-  console.log("headers=====>>>>", headers);
+  console.log('headers=====>>>>', headers);
 
   const query = overrideQuery || buildOrdersQuery(startDate, endDate);
-  console.log("query================", query);
+  console.log('query================', query);
   const variables = {};
   let resp;
   try {
     resp = await axios.post(endpoint, { query, variables }, { headers });
   } catch (err) {
-    console.log("err=========>>>>>>>>>>>>>>>>", err?.response?.status, err?.response?.data || err?.message);
+    console.log(
+      'err=========>>>>>>>>>>>>>>>>',
+      err?.response?.status,
+      err?.response?.data || err?.message
+    );
     const status = err?.response?.status || 500;
-    const message = (err?.response?.data && (err.response.data.errors || err.response.data.error)) || err.message || 'Request failed';
+    const message =
+      (err?.response?.data && (err.response.data.errors || err.response.data.error)) ||
+      err.message ||
+      'Request failed';
     const error = new Error(typeof message === 'string' ? message : JSON.stringify(message));
     error.status = status;
     throw error;
   }
-  console.log("resp=========>>>>>>>>>>>>>>>>", resp)
+  console.log('resp=========>>>>>>>>>>>>>>>>', resp);
   if (resp.data.errors) {
-    const message = Array.isArray(resp.data.errors) ? resp.data.errors.map(e => e.message).join('; ') : 'Unknown GraphQL error';
+    const message = Array.isArray(resp.data.errors)
+      ? resp.data.errors.map((e) => e.message).join('; ')
+      : 'Unknown GraphQL error';
     const error = new Error(message);
     error.status = 502;
     throw error;
@@ -1906,44 +1998,60 @@ const getShopifyOrders = async (req, res) => {
   try {
     let accessToken = req.body?.access_token || req.headers['x-shopify-access-token'];
     const authHeader = req.headers?.authorization || req.headers?.Authorization;
-    const startDate = req.body?.startDate || req.body?.start_date || req.query?.startDate || req.query?.start_date;
-    const endDate = req.body?.endDate || req.body?.end_date || req.query?.endDate || req.query?.end_date;
+    const startDate =
+      req.body?.startDate || req.body?.start_date || req.query?.startDate || req.query?.start_date;
+    const endDate =
+      req.body?.endDate || req.body?.end_date || req.query?.endDate || req.query?.end_date;
 
     if (!accessToken && authHeader && authHeader.startsWith('Bearer ')) {
       accessToken = authHeader.slice(7).trim();
     }
-    const storeName = req.body?.storeName || req.body?.shop || req.body?.store || req.query?.storeName || req.query?.shop;
+    const storeName =
+      req.body?.storeName ||
+      req.body?.shop ||
+      req.body?.store ||
+      req.query?.storeName ||
+      req.query?.shop;
     const apiVersion = process.env.SHOPIFY_API_VERSION || '2025-10';
 
     if (!accessToken || !storeName) {
       return res.status(400).json({
         success: false,
-        message: 'Missing required parameters: accessToken and storeName'
+        message: 'Missing required parameters: accessToken and storeName',
       });
     }
 
     const shopDomain = normalizeShopDomain(storeName);
-    console.log("shopDomain==============", shopDomain);
+    console.log('shopDomain==============', shopDomain);
     if (!shopDomain || !shopDomain.match(/^[a-z0-9][a-z0-9-]*\.myshopify\.com$/)) {
       return res.status(400).json({
         success: false,
-        message: 'Invalid storeName. Expected shopname or shopname.myshopify.com'
+        message: 'Invalid storeName. Expected shopname or shopname.myshopify.com',
       });
     }
-    var shippingOptions = await finerworksService.SHIPPING_OPTIONS_LIST();
-    console.log("shippingOptions====>>",shippingOptions);
-     
+    const shippingOptions = await finerworksService.SHIPPING_OPTIONS_LIST();
+    console.log('shippingOptions====>>', shippingOptions);
+
     const query = req.body?.query; // optional override for custom queries
-    let orders = await fetchAllOrders({ shopDomain, accessToken, apiVersion, query, startDate, endDate });
+    let orders = await fetchAllOrders({
+      shopDomain,
+      accessToken,
+      apiVersion,
+      query,
+      startDate,
+      endDate,
+    });
 
     // Filter orders to only those with at least one line item sourced from "Shop location"
     const TARGET_LOCATION_NAME = 'Shop location';
-    orders = orders.filter(order => {
+    orders = orders.filter((order) => {
       const lineItemEdges = order?.lineItems?.edges || [];
-      return lineItemEdges.some(liEdge => {
+      return lineItemEdges.some((liEdge) => {
         const inventoryItem = liEdge?.node?.variant?.inventoryItem;
         const inventoryLevelEdges = inventoryItem?.inventoryLevels?.edges || [];
-        return inventoryLevelEdges.some(levelEdge => levelEdge?.node?.location?.name === TARGET_LOCATION_NAME);
+        return inventoryLevelEdges.some(
+          (levelEdge) => levelEdge?.node?.location?.name === TARGET_LOCATION_NAME
+        );
       });
     });
 
@@ -1959,8 +2067,8 @@ const getShopifyOrders = async (req, res) => {
       return String(rawValue).toLowerCase() !== 'true';
     });
 
-    orders.forEach(order => {
-      order.shippingLines.edges.forEach(edge => {
+    orders.forEach((order) => {
+      order.shippingLines.edges.forEach((edge) => {
         const matchedId = matchShippingOptionId(
           edge.node?.title,
           shippingOptions.shipping_options,
@@ -1970,13 +2078,11 @@ const getShopifyOrders = async (req, res) => {
       });
       // Add product_guid to each line item's product from metafield (custom.product_guid)
       const lineItemEdges = order?.lineItems?.edges || [];
-      lineItemEdges.forEach(liEdge => {
+      lineItemEdges.forEach((liEdge) => {
         const product = liEdge?.node?.variant?.product;
         if (!product) return;
         const metafieldEdges = product?.metafields?.edges || [];
-        const productGuidNode = metafieldEdges.find(
-          e => e?.node?.key === 'product_guid'
-        );
+        const productGuidNode = metafieldEdges.find((e) => e?.node?.key === 'product_guid');
         product.product_guid = productGuidNode?.node?.value ?? null;
       });
     });
@@ -1986,7 +2092,7 @@ const getShopifyOrders = async (req, res) => {
     return res.status(status).json({
       success: false,
       message: 'Failed to retrieve Shopify orders',
-      error: err.message || 'Unknown error'
+      error: err.message || 'Unknown error',
     });
   }
 };
@@ -2033,7 +2139,6 @@ const getShopifyOrders = async (req, res) => {
 // `;
 // };
 
-
 // const buildOrderByNameQuery = (orderName) => {
 //   const normalized = orderName && orderName.startsWith('#') ? orderName : `#${orderName}`;
 //   return `
@@ -2045,34 +2150,34 @@ const getShopifyOrders = async (req, res) => {
 //         name
 //         createdAt
 //         updatedAt
-//         totalPriceSet { 
-//           shopMoney { 
-//             amount 
-//             currencyCode 
-//           } 
+//         totalPriceSet {
+//           shopMoney {
+//             amount
+//             currencyCode
+//           }
 //         }
-//         subtotalPriceSet { 
-//           shopMoney { 
-//             amount 
-//             currencyCode 
-//           } 
+//         subtotalPriceSet {
+//           shopMoney {
+//             amount
+//             currencyCode
+//           }
 //         }
-//         totalTaxSet { 
-//           shopMoney { 
-//             amount 
-//             currencyCode 
-//           } 
+//         totalTaxSet {
+//           shopMoney {
+//             amount
+//             currencyCode
+//           }
 //         }
-//         totalShippingPriceSet { 
-//           shopMoney { 
-//             amount 
-//             currencyCode 
-//           } 
+//         totalShippingPriceSet {
+//           shopMoney {
+//             amount
+//             currencyCode
+//           }
 //         }
 //         currencyCode
 //         displayFinancialStatus
 //         displayFulfillmentStatus
-//         customer { 
+//         customer {
 //           id
 //           tags
 //           firstName
@@ -2116,27 +2221,27 @@ const getShopifyOrders = async (req, res) => {
 //               title
 //               sku
 //               quantity
-//               originalUnitPriceSet { 
-//                 shopMoney { 
-//                   amount 
-//                   currencyCode 
-//                 } 
+//               originalUnitPriceSet {
+//                 shopMoney {
+//                   amount
+//                   currencyCode
+//                 }
 //               }
 //               variant {
 //                 id
 //                 title
 //                 sku
-//                 image { 
-//                   url 
-//                   altText 
+//                 image {
+//                   url
+//                   altText
 //                 }
-//                 product { 
-//                   id 
-//                   title 
-//                   featuredImage { 
-//                     url 
-//                     altText 
-//                   } 
+//                 product {
+//                   id
+//                   title
+//                   featuredImage {
+//                     url
+//                     altText
+//                   }
 //                 }
 //               }
 //             }
@@ -2159,36 +2264,36 @@ const getShopifyOrders = async (req, res) => {
 //         name
 //         createdAt
 //         updatedAt
-//         totalPriceSet { 
-//           shopMoney { 
-//             amount 
-//             currencyCode 
-//           } 
+//         totalPriceSet {
+//           shopMoney {
+//             amount
+//             currencyCode
+//           }
 //         }
-//         subtotalPriceSet { 
-//           shopMoney { 
-//             amount 
-//             currencyCode 
-//           } 
+//         subtotalPriceSet {
+//           shopMoney {
+//             amount
+//             currencyCode
+//           }
 //         }
-//         totalTaxSet { 
-//           shopMoney { 
-//             amount 
-//             currencyCode 
-//           } 
+//         totalTaxSet {
+//           shopMoney {
+//             amount
+//             currencyCode
+//           }
 //         }
-//         totalShippingPriceSet { 
-//           shopMoney { 
-//             amount 
-//             currencyCode 
-//           } 
+//         totalShippingPriceSet {
+//           shopMoney {
+//             amount
+//             currencyCode
+//           }
 //         }
 //         currencyCode
 //         displayFinancialStatus
 //         displayFulfillmentStatus
 
 //         # Customer Details
-//         customer { 
+//         customer {
 //           id
 //           displayName
 //           createdAt
@@ -2288,21 +2393,21 @@ const getShopifyOrders = async (req, res) => {
 //               title
 //               code
 //               carrierIdentifier
-//               originalPriceSet { 
-//                 shopMoney { 
-//                   amount 
-//                   currencyCode 
-//                 } 
+//               originalPriceSet {
+//                 shopMoney {
+//                   amount
+//                   currencyCode
+//                 }
 //               }
-//               discountedPriceSet { 
-//                 shopMoney { 
-//                   amount 
-//                   currencyCode 
-//                 } 
+//               discountedPriceSet {
+//                 shopMoney {
+//                   amount
+//                   currencyCode
+//                 }
 //               }
-//               requestedFulfillmentService { 
-//                 id 
-//                 serviceName 
+//               requestedFulfillmentService {
+//                 id
+//                 serviceName
 //               }
 //             }
 //           }
@@ -2315,27 +2420,27 @@ const getShopifyOrders = async (req, res) => {
 //               title
 //               sku
 //               quantity
-//               originalUnitPriceSet { 
-//                 shopMoney { 
-//                   amount 
-//                   currencyCode 
-//                 } 
+//               originalUnitPriceSet {
+//                 shopMoney {
+//                   amount
+//                   currencyCode
+//                 }
 //               }
 //               variant {
 //                 id
 //                 title
 //                 sku
-//                 image { 
-//                   url 
-//                   altText 
+//                 image {
+//                   url
+//                   altText
 //                 }
-//                 product { 
-//                   id 
-//                   title 
-//                   featuredImage { 
-//                     url 
-//                     altText 
-//                   } 
+//                 product {
+//                   id
+//                   title
+//                   featuredImage {
+//                     url
+//                     altText
+//                   }
 //                 }
 //               }
 //             }
@@ -2715,29 +2820,34 @@ const buildOrderByNameQuery = (orderName) => {
 `;
 };
 const fetchOrderByName = async ({ shopDomain, accessToken, apiVersion, orderName }) => {
-  console.log("orderName====>>>>", orderName);
+  console.log('orderName====>>>>', orderName);
   const endpoint = `https://${shopDomain}/admin/api/${apiVersion}/graphql.json`;
   const headers = {
     'X-Shopify-Access-Token': accessToken,
-    'Content-Type': 'application/json'
+    'Content-Type': 'application/json',
   };
   const query = buildOrderByNameQuery(orderName);
   let resp;
+  let shippingOptions;
   try {
     resp = await axios.post(endpoint, { query, variables: {} }, { headers });
-    console.log("resp==========", resp.data);
-    var shippingOptions = await finerworksService.SHIPPING_OPTIONS_LIST();
-    console.log("shippingOptions=====>>>>", shippingOptions);
-
+    console.log('resp==========', resp.data);
+    shippingOptions = await finerworksService.SHIPPING_OPTIONS_LIST();
+    console.log('shippingOptions=====>>>>', shippingOptions);
   } catch (err) {
     const status = err?.response?.status || 500;
-    const message = (err?.response?.data && (err.response.data.errors || err.response.data.error)) || err.message || 'Request failed';
+    const message =
+      (err?.response?.data && (err.response.data.errors || err.response.data.error)) ||
+      err.message ||
+      'Request failed';
     const error = new Error(typeof message === 'string' ? message : JSON.stringify(message));
     error.status = status;
     throw error;
   }
   if (resp.data.errors) {
-    const message = Array.isArray(resp.data.errors) ? resp.data.errors.map(e => e.message).join('; ') : 'Unknown GraphQL error';
+    const message = Array.isArray(resp.data.errors)
+      ? resp.data.errors.map((e) => e.message).join('; ')
+      : 'Unknown GraphQL error';
     const error = new Error(message);
     error.status = 502;
     throw error;
@@ -2747,7 +2857,7 @@ const fetchOrderByName = async ({ shopDomain, accessToken, apiVersion, orderName
   if (!node) return null;
 
   // Map shipping line to FinerWorks option id (same as /shopify/orders)
-  node.shippingLines.edges.forEach(edge => {
+  node.shippingLines.edges.forEach((edge) => {
     const matchedId = matchShippingOptionId(
       edge.node?.title,
       shippingOptions.shipping_options,
@@ -2758,13 +2868,11 @@ const fetchOrderByName = async ({ shopDomain, accessToken, apiVersion, orderName
 
   // Add product_guid to each line item's product from metafield (same as /shopify/orders)
   const lineItemEdges = node?.lineItems?.edges || [];
-  lineItemEdges.forEach(liEdge => {
+  lineItemEdges.forEach((liEdge) => {
     const product = liEdge?.node?.variant?.product;
     if (!product) return;
     const metafieldEdges = product?.metafields?.edges || [];
-    const productGuidNode = metafieldEdges.find(
-      e => e?.node?.key === 'product_guid'
-    );
+    const productGuidNode = metafieldEdges.find((e) => e?.node?.key === 'product_guid');
     product.product_guid = productGuidNode?.node?.value ?? null;
   });
 
@@ -2778,16 +2886,28 @@ const getShopifyOrderByName = async (req, res) => {
     if (!accessToken && authHeader && authHeader.startsWith('Bearer ')) {
       accessToken = authHeader.slice(7).trim();
     }
-    const storeName = req.body?.storeName || req.body?.shop || req.body?.store || req.query?.storeName || req.query?.shop;
-    const orderName = req.body?.orderName || req.body?.name || req.query?.orderName || req.query?.name;
+    const storeName =
+      req.body?.storeName ||
+      req.body?.shop ||
+      req.body?.store ||
+      req.query?.storeName ||
+      req.query?.shop;
+    const orderName =
+      req.body?.orderName || req.body?.name || req.query?.orderName || req.query?.name;
     const apiVersion = process.env.SHOPIFY_API_VERSION || '2025-10';
 
     if (!accessToken || !storeName || !orderName) {
-      return res.status(400).json({ success: false, message: 'Missing required parameters: accessToken, storeName, orderName' });
+      return res.status(400).json({
+        success: false,
+        message: 'Missing required parameters: accessToken, storeName, orderName',
+      });
     }
     const shopDomain = normalizeShopDomain(storeName);
     if (!shopDomain || !shopDomain.match(/^[a-z0-9][a-z0-9-]*\.myshopify\.com$/)) {
-      return res.status(400).json({ success: false, message: 'Invalid storeName. Expected shopname or shopname.myshopify.com' });
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid storeName. Expected shopname or shopname.myshopify.com',
+      });
     }
 
     const order = await fetchOrderByName({ shopDomain, accessToken, apiVersion, orderName });
@@ -2802,42 +2922,50 @@ const getShopifyOrderByName = async (req, res) => {
     if (String(submittedToFinerworksMetafield?.node?.value).toLowerCase() === 'true') {
       return res.status(200).json({
         success: false,
-        message: 'This order is already submitted to FinerWorks'
+        message: 'This order is already submitted to FinerWorks',
       });
     }
 
     return res.status(200).json({ success: true, order });
   } catch (err) {
     const status = err.status || 500;
-    return res.status(status).json({ success: false, message: 'Failed to retrieve order by name', error: err.message || 'Unknown error' });
+    return res.status(status).json({
+      success: false,
+      message: 'Failed to retrieve order by name',
+      error: err.message || 'Unknown error',
+    });
   }
 };
 
 const buildFulfillmentMutation = (fulfillmentOrderId, lineItems, trackingInfo) => {
   // Build line items for fulfillment
-  const fulfillmentLineItems = lineItems && lineItems.length > 0
-    ? lineItems.map(item => ({
-      id: item.lineItemId,
-      quantity: item.quantity || null
-    }))
-    : null;
+  const fulfillmentLineItems =
+    lineItems && lineItems.length > 0
+      ? lineItems.map((item) => ({
+          id: item.lineItemId,
+          quantity: item.quantity || null,
+        }))
+      : null;
 
   // Build tracking info if provided
-  const trackingInput = trackingInfo ? {
-    number: trackingInfo.number || null,
-    url: trackingInfo.url || null,
-    company: trackingInfo.company || null
-  } : null;
+  const trackingInput = trackingInfo
+    ? {
+        number: trackingInfo.number || null,
+        url: trackingInfo.url || null,
+        company: trackingInfo.company || null,
+      }
+    : null;
 
   // If line items are specified, use them; otherwise fulfill all
   let lineItemsInput;
   if (fulfillmentLineItems && fulfillmentLineItems.length > 0) {
-    const lineItemsStr = fulfillmentLineItems.map(item => {
-      const quantityStr = item.quantity !== null && item.quantity !== undefined
-        ? item.quantity.toString()
-        : 'null';
-      return `{ id: "${item.id}", quantity: ${quantityStr} }`;
-    }).join(', ');
+    const lineItemsStr = fulfillmentLineItems
+      .map((item) => {
+        const quantityStr =
+          item.quantity !== null && item.quantity !== undefined ? item.quantity.toString() : 'null';
+        return `{ id: "${item.id}", quantity: ${quantityStr} }`;
+      })
+      .join(', ');
 
     lineItemsInput = `lineItemsByFulfillmentOrder: [{
         fulfillmentOrderId: "${fulfillmentOrderId}",
@@ -2926,7 +3054,7 @@ const fetchFulfillmentOrders = async ({ shopDomain, accessToken, apiVersion, ord
   const endpoint = `https://${shopDomain}/admin/api/${apiVersion}/graphql.json`;
   const headers = {
     'X-Shopify-Access-Token': accessToken,
-    'Content-Type': 'application/json'
+    'Content-Type': 'application/json',
   };
   const query = getFulfillmentOrdersQuery(orderId);
 
@@ -2935,7 +3063,7 @@ const fetchFulfillmentOrders = async ({ shopDomain, accessToken, apiVersion, ord
 
     if (resp.data.errors) {
       const message = Array.isArray(resp.data.errors)
-        ? resp.data.errors.map(e => e.message).join('; ')
+        ? resp.data.errors.map((e) => e.message).join('; ')
         : 'Unknown GraphQL error';
       const error = new Error(message);
       error.status = 502;
@@ -2945,19 +3073,28 @@ const fetchFulfillmentOrders = async ({ shopDomain, accessToken, apiVersion, ord
     return resp.data.data?.order;
   } catch (err) {
     const status = err?.response?.status || err.status || 500;
-    const message = (err?.response?.data && (err.response.data.errors || err.response.data.error))
-      || err.message || 'Request failed';
+    const message =
+      (err?.response?.data && (err.response.data.errors || err.response.data.error)) ||
+      err.message ||
+      'Request failed';
     const error = new Error(typeof message === 'string' ? message : JSON.stringify(message));
     error.status = status;
     throw error;
   }
 };
 
-const createFulfillment = async ({ shopDomain, accessToken, apiVersion, fulfillmentOrderId, lineItems, trackingInfo }) => {
+const createFulfillment = async ({
+  shopDomain,
+  accessToken,
+  apiVersion,
+  fulfillmentOrderId,
+  lineItems,
+  trackingInfo,
+}) => {
   const endpoint = `https://${shopDomain}/admin/api/${apiVersion}/graphql.json`;
   const headers = {
     'X-Shopify-Access-Token': accessToken,
-    'Content-Type': 'application/json'
+    'Content-Type': 'application/json',
   };
 
   const mutation = buildFulfillmentMutation(fulfillmentOrderId, lineItems, trackingInfo);
@@ -2967,7 +3104,7 @@ const createFulfillment = async ({ shopDomain, accessToken, apiVersion, fulfillm
 
     if (resp.data.errors) {
       const message = Array.isArray(resp.data.errors)
-        ? resp.data.errors.map(e => e.message).join('; ')
+        ? resp.data.errors.map((e) => e.message).join('; ')
         : 'Unknown GraphQL error';
       const error = new Error(message);
       error.status = 502;
@@ -2977,7 +3114,9 @@ const createFulfillment = async ({ shopDomain, accessToken, apiVersion, fulfillm
     const fulfillmentData = resp.data.data?.fulfillmentCreateV2;
 
     if (fulfillmentData?.userErrors && fulfillmentData.userErrors.length > 0) {
-      const errorMessages = fulfillmentData.userErrors.map(e => `${e.field}: ${e.message}`).join('; ');
+      const errorMessages = fulfillmentData.userErrors
+        .map((e) => `${e.field}: ${e.message}`)
+        .join('; ');
       const error = new Error(errorMessages);
       error.status = 400;
       throw error;
@@ -2986,8 +3125,10 @@ const createFulfillment = async ({ shopDomain, accessToken, apiVersion, fulfillm
     return fulfillmentData?.fulfillment;
   } catch (err) {
     const status = err?.response?.status || err.status || 500;
-    const message = (err?.response?.data && (err.response.data.errors || err.response.data.error))
-      || err.message || 'Request failed';
+    const message =
+      (err?.response?.data && (err.response.data.errors || err.response.data.error)) ||
+      err.message ||
+      'Request failed';
     const error = new Error(typeof message === 'string' ? message : JSON.stringify(message));
     error.status = status;
     throw error;
@@ -2995,7 +3136,12 @@ const createFulfillment = async ({ shopDomain, accessToken, apiVersion, fulfillm
 };
 
 // Helper function to process a single order fulfillment
-const processSingleOrderFulfillment = async ({ orderData, shopDomain, accessToken, apiVersion }) => {
+const processSingleOrderFulfillment = async ({
+  orderData,
+  shopDomain,
+  accessToken,
+  apiVersion,
+}) => {
   const orderId = orderData?.orderId || orderData?.order_id || orderData?.id;
   const orderName = orderData?.orderName || orderData?.order_name || orderData?.name;
   const lineItems = orderData?.lineItems || orderData?.line_items;
@@ -3024,10 +3170,14 @@ const processSingleOrderFulfillment = async ({ orderData, shopDomain, accessToke
     shopDomain,
     accessToken,
     apiVersion,
-    orderId: shopifyOrderId
+    orderId: shopifyOrderId,
   });
 
-  if (!orderFulfillmentData || !orderFulfillmentData.fulfillmentOrders || orderFulfillmentData.fulfillmentOrders.edges.length === 0) {
+  if (
+    !orderFulfillmentData ||
+    !orderFulfillmentData.fulfillmentOrders ||
+    orderFulfillmentData.fulfillmentOrders.edges.length === 0
+  ) {
     throw new Error('No fulfillment orders found for this order');
   }
 
@@ -3039,11 +3189,10 @@ const processSingleOrderFulfillment = async ({ orderData, shopDomain, accessToke
   let fulfillmentLineItems = null;
   if (lineItems && Array.isArray(lineItems) && lineItems.length > 0) {
     // Map provided line items to fulfillment order line items
-    fulfillmentLineItems = lineItems.map(item => {
+    fulfillmentLineItems = lineItems.map((item) => {
       // Find matching fulfillment order line item
       const fulfillmentLineItem = fulfillmentOrder.lineItems.edges.find(
-        edge => edge.node.lineItem.id === item.lineItemId ||
-          edge.node.lineItem.sku === item.sku
+        (edge) => edge.node.lineItem.id === item.lineItemId || edge.node.lineItem.sku === item.sku
       );
 
       if (!fulfillmentLineItem) {
@@ -3052,16 +3201,16 @@ const processSingleOrderFulfillment = async ({ orderData, shopDomain, accessToke
 
       return {
         lineItemId: fulfillmentLineItem.node.id,
-        quantity: item.quantity || fulfillmentLineItem.node.remainingQuantity
+        quantity: item.quantity || fulfillmentLineItem.node.remainingQuantity,
       };
     });
   } else {
     // If no line items specified, fulfill ALL items with ALL remaining quantities
     fulfillmentLineItems = fulfillmentOrder.lineItems.edges
-      .filter(edge => edge.node.remainingQuantity > 0) // Only include items with remaining quantity
-      .map(edge => ({
+      .filter((edge) => edge.node.remainingQuantity > 0) // Only include items with remaining quantity
+      .map((edge) => ({
         lineItemId: edge.node.id,
-        quantity: edge.node.remainingQuantity // Use full remaining quantity
+        quantity: edge.node.remainingQuantity, // Use full remaining quantity
       }));
 
     // Check if there are any items to fulfill
@@ -3077,7 +3226,7 @@ const processSingleOrderFulfillment = async ({ orderData, shopDomain, accessToke
     apiVersion,
     fulfillmentOrderId,
     lineItems: fulfillmentLineItems,
-    trackingInfo
+    trackingInfo,
   });
 
   return {
@@ -3086,8 +3235,8 @@ const processSingleOrderFulfillment = async ({ orderData, shopDomain, accessToke
     fulfillment,
     order: {
       id: orderFulfillmentData.id,
-      name: orderFulfillmentData.name
-    }
+      name: orderFulfillmentData.name,
+    },
   };
 };
 
@@ -3108,12 +3257,17 @@ const fulfillShopifyOrder = async (req, res) => {
 
     // For single order requests, validate required parameters upfront
     if (!isArrayRequest) {
-      const storeName = req.body?.storeName || req.body?.shop || req.body?.store || req.query?.storeName || req.query?.shop;
+      const storeName =
+        req.body?.storeName ||
+        req.body?.shop ||
+        req.body?.store ||
+        req.query?.storeName ||
+        req.query?.shop;
 
       if (!accessToken || !storeName) {
         return res.status(400).json({
           success: false,
-          message: 'Missing required parameters: accessToken and storeName'
+          message: 'Missing required parameters: accessToken and storeName',
         });
       }
 
@@ -3121,7 +3275,7 @@ const fulfillShopifyOrder = async (req, res) => {
       if (!shopDomain || !shopDomain.match(/^[a-z0-9][a-z0-9-]*\.myshopify\.com$/)) {
         return res.status(400).json({
           success: false,
-          message: 'Invalid storeName. Expected shopname or shopname.myshopify.com'
+          message: 'Invalid storeName. Expected shopname or shopname.myshopify.com',
         });
       }
     }
@@ -3136,14 +3290,19 @@ const fulfillShopifyOrder = async (req, res) => {
       // For array requests, each order can have its own storeName and accessToken
       // If not provided, use the common ones from headers/query
       const orderAccessToken = orderData?.access_token || accessToken;
-      const orderStoreName = orderData?.storeName || orderData?.shop || orderData?.store || req.query?.storeName || req.query?.shop;
+      const orderStoreName =
+        orderData?.storeName ||
+        orderData?.shop ||
+        orderData?.store ||
+        req.query?.storeName ||
+        req.query?.shop;
 
       // Validate required parameters for this order
       if (!orderAccessToken) {
         results.push({
           success: false,
           error: 'Missing required parameter: accessToken',
-          order: orderData?.orderName || orderData?.orderId || `Order at index ${i}`
+          order: orderData?.orderName || orderData?.orderId || `Order at index ${i}`,
         });
         hasErrors = true;
         continue;
@@ -3153,7 +3312,7 @@ const fulfillShopifyOrder = async (req, res) => {
         results.push({
           success: false,
           error: 'Missing required parameter: storeName',
-          order: orderData?.orderName || orderData?.orderId || `Order at index ${i}`
+          order: orderData?.orderName || orderData?.orderId || `Order at index ${i}`,
         });
         hasErrors = true;
         continue;
@@ -3165,7 +3324,7 @@ const fulfillShopifyOrder = async (req, res) => {
         results.push({
           success: false,
           error: 'Invalid storeName for this order',
-          order: orderData?.orderName || orderData?.orderId || `Order at index ${i}`
+          order: orderData?.orderName || orderData?.orderId || `Order at index ${i}`,
         });
         hasErrors = true;
         continue;
@@ -3175,11 +3334,11 @@ const fulfillShopifyOrder = async (req, res) => {
         const result = await processSingleOrderFulfillment({
           orderData: {
             ...orderData,
-            access_token: orderAccessToken
+            access_token: orderAccessToken,
           },
           shopDomain: orderShopDomain,
           accessToken: orderAccessToken,
-          apiVersion
+          apiVersion,
         });
         results.push(result);
       } catch (err) {
@@ -3187,7 +3346,7 @@ const fulfillShopifyOrder = async (req, res) => {
         results.push({
           success: false,
           error: err.message || 'Unknown error',
-          order: orderData?.orderName || orderData?.orderId || `Order at index ${i}`
+          order: orderData?.orderName || orderData?.orderId || `Order at index ${i}`,
         });
       }
     }
@@ -3195,16 +3354,14 @@ const fulfillShopifyOrder = async (req, res) => {
     // Return appropriate response format
     if (isArrayRequest) {
       // For array requests, always return array of results
-      const statusCode = hasErrors ? (results.some(r => r.success) ? 207 : 400) : 200; // 207 Multi-Status if mixed results
+      const statusCode = hasErrors ? (results.some((r) => r.success) ? 207 : 400) : 200; // 207 Multi-Status if mixed results
       return res.status(statusCode).json({
         success: !hasErrors,
-        message: hasErrors
-          ? 'Some orders failed to fulfill'
-          : 'All orders fulfilled successfully',
+        message: hasErrors ? 'Some orders failed to fulfill' : 'All orders fulfilled successfully',
         results,
         total: ordersToProcess.length,
-        succeeded: results.filter(r => r.success).length,
-        failed: results.filter(r => !r.success).length
+        succeeded: results.filter((r) => r.success).length,
+        failed: results.filter((r) => !r.success).length,
       });
     } else {
       // For single order requests, maintain backward compatibility with original response format
@@ -3215,7 +3372,7 @@ const fulfillShopifyOrder = async (req, res) => {
         return res.status(400).json({
           success: false,
           message: 'Failed to fulfill order',
-          error: result.error || 'Unknown error'
+          error: result.error || 'Unknown error',
         });
       }
     }
@@ -3224,7 +3381,7 @@ const fulfillShopifyOrder = async (req, res) => {
     return res.status(status).json({
       success: false,
       message: 'Failed to fulfill order',
-      error: err.message || 'Unknown error'
+      error: err.message || 'Unknown error',
     });
   }
 };
@@ -3304,7 +3461,7 @@ const buildOrderTagsRemoveMutation = (orderId, tags) => {
       .replace(/\t/g, '\\t');
   };
 
-  const escapedTags = tags.map(t => `"${escapeGraphQLString(t)}"`).join(', ');
+  const escapedTags = tags.map((t) => `"${escapeGraphQLString(t)}"`).join(', ');
 
   return `
     mutation {
@@ -3322,11 +3479,19 @@ const buildOrderTagsRemoveMutation = (orderId, tags) => {
 };
 
 // Helper function to update a single order's metafield
-const updateOrderMetafield = async ({ shopDomain, accessToken, apiVersion, orderId, referenceNumber, namespace = 'custom', key = 'reference_number' }) => {
+const updateOrderMetafield = async ({
+  shopDomain,
+  accessToken,
+  apiVersion,
+  orderId,
+  referenceNumber,
+  namespace = 'custom',
+  key = 'reference_number',
+}) => {
   const endpoint = `https://${shopDomain}/admin/api/${apiVersion}/graphql.json`;
   const headers = {
     'X-Shopify-Access-Token': accessToken,
-    'Content-Type': 'application/json'
+    'Content-Type': 'application/json',
   };
 
   // Normalize order ID to GID format
@@ -3339,7 +3504,7 @@ const updateOrderMetafield = async ({ shopDomain, accessToken, apiVersion, order
 
     if (resp.data.errors) {
       const message = Array.isArray(resp.data.errors)
-        ? resp.data.errors.map(e => e.message).join('; ')
+        ? resp.data.errors.map((e) => e.message).join('; ')
         : 'Unknown GraphQL error';
       const error = new Error(message);
       error.status = 502;
@@ -3349,7 +3514,9 @@ const updateOrderMetafield = async ({ shopDomain, accessToken, apiVersion, order
     const metafieldData = resp.data.data?.metafieldsSet;
 
     if (metafieldData?.userErrors && metafieldData.userErrors.length > 0) {
-      const errorMessages = metafieldData.userErrors.map(e => `${e.field}: ${e.message}`).join('; ');
+      const errorMessages = metafieldData.userErrors
+        .map((e) => `${e.field}: ${e.message}`)
+        .join('; ');
       const error = new Error(errorMessages);
       error.status = 400;
       throw error;
@@ -3358,12 +3525,14 @@ const updateOrderMetafield = async ({ shopDomain, accessToken, apiVersion, order
     return {
       success: true,
       orderId: normalizedOrderId,
-      metafield: metafieldData?.metafields?.[0] || null
+      metafield: metafieldData?.metafields?.[0] || null,
     };
   } catch (err) {
     const status = err?.response?.status || err.status || 500;
-    const message = (err?.response?.data && (err.response.data.errors || err.response.data.error))
-      || err.message || 'Request failed';
+    const message =
+      (err?.response?.data && (err.response.data.errors || err.response.data.error)) ||
+      err.message ||
+      'Request failed';
     const error = new Error(typeof message === 'string' ? message : JSON.stringify(message));
     error.status = status;
     throw error;
@@ -3377,12 +3546,12 @@ const updateOrderBooleanMetafield = async ({
   orderId,
   namespace = 'custom',
   key,
-  value
+  value,
 }) => {
   const endpoint = `https://${shopDomain}/admin/api/${apiVersion}/graphql.json`;
   const headers = {
     'X-Shopify-Access-Token': accessToken,
-    'Content-Type': 'application/json'
+    'Content-Type': 'application/json',
   };
 
   const normalizeBoolean = (v) => (v ? 'true' : 'false');
@@ -3432,7 +3601,9 @@ const updateOrderBooleanMetafield = async ({
 
   const metafieldData = resp.data?.data?.metafieldsSet;
   if (metafieldData?.userErrors && metafieldData.userErrors.length > 0) {
-    const errorMessages = metafieldData.userErrors.map((e) => `${e.field}: ${e.message}`).join('; ');
+    const errorMessages = metafieldData.userErrors
+      .map((e) => `${e.field}: ${e.message}`)
+      .join('; ');
     const error = new Error(errorMessages);
     error.status = 400;
     throw error;
@@ -3447,7 +3618,7 @@ const appendOrderNote = async ({ shopDomain, accessToken, apiVersion, orderId, n
   const endpoint = `https://${shopDomain}/admin/api/${apiVersion}/graphql.json`;
   const headers = {
     'X-Shopify-Access-Token': accessToken,
-    'Content-Type': 'application/json'
+    'Content-Type': 'application/json',
   };
 
   const normalizedOrderId = normalizeOrderId(orderId);
@@ -3477,7 +3648,7 @@ const appendOrderNote = async ({ shopDomain, accessToken, apiVersion, orderId, n
 
   if (resp.data.errors) {
     const message = Array.isArray(resp.data.errors)
-      ? resp.data.errors.map(e => e.message).join('; ')
+      ? resp.data.errors.map((e) => e.message).join('; ')
       : 'Unknown GraphQL error';
     const error = new Error(message);
     error.status = 502;
@@ -3486,7 +3657,7 @@ const appendOrderNote = async ({ shopDomain, accessToken, apiVersion, orderId, n
 
   const data = resp.data?.data?.orderUpdate;
   if (data?.userErrors && data.userErrors.length > 0) {
-    const errorMessages = data.userErrors.map(e => `${e.field}: ${e.message}`).join('; ');
+    const errorMessages = data.userErrors.map((e) => `${e.field}: ${e.message}`).join('; ');
     const error = new Error(errorMessages);
     error.status = 400;
     throw error;
@@ -3497,11 +3668,18 @@ const appendOrderNote = async ({ shopDomain, accessToken, apiVersion, orderId, n
 
 // Helper function to replace a single "status" tag on an order
 // It first removes old status tags, then adds the new tag.
-const updateOrderTags = async ({ shopDomain, accessToken, apiVersion, orderId, tag, removeTags = [] }) => {
+const updateOrderTags = async ({
+  shopDomain,
+  accessToken,
+  apiVersion,
+  orderId,
+  tag,
+  removeTags = [],
+}) => {
   const endpoint = `https://${shopDomain}/admin/api/${apiVersion}/graphql.json`;
   const headers = {
     'X-Shopify-Access-Token': accessToken,
-    'Content-Type': 'application/json'
+    'Content-Type': 'application/json',
   };
 
   const normalizedOrderId = normalizeOrderId(orderId);
@@ -3510,11 +3688,15 @@ const updateOrderTags = async ({ shopDomain, accessToken, apiVersion, orderId, t
     // 1) Remove old status tags if any
     if (removeTags && removeTags.length > 0) {
       const mutationRemove = buildOrderTagsRemoveMutation(normalizedOrderId, removeTags);
-      const respRemove = await axios.post(endpoint, { query: mutationRemove, variables: {} }, { headers });
+      const respRemove = await axios.post(
+        endpoint,
+        { query: mutationRemove, variables: {} },
+        { headers }
+      );
 
       if (respRemove.data.errors) {
         const message = Array.isArray(respRemove.data.errors)
-          ? respRemove.data.errors.map(e => e.message).join('; ')
+          ? respRemove.data.errors.map((e) => e.message).join('; ')
           : 'Unknown GraphQL error';
         const error = new Error(message);
         error.status = 502;
@@ -3523,7 +3705,9 @@ const updateOrderTags = async ({ shopDomain, accessToken, apiVersion, orderId, t
 
       const removeData = respRemove.data.data?.tagsRemove;
       if (removeData?.userErrors && removeData.userErrors.length > 0) {
-        const errorMessages = removeData.userErrors.map(e => `${e.field}: ${e.message}`).join('; ');
+        const errorMessages = removeData.userErrors
+          .map((e) => `${e.field}: ${e.message}`)
+          .join('; ');
         const error = new Error(errorMessages);
         error.status = 400;
         throw error;
@@ -3536,7 +3720,7 @@ const updateOrderTags = async ({ shopDomain, accessToken, apiVersion, orderId, t
 
     if (respAdd.data.errors) {
       const message = Array.isArray(respAdd.data.errors)
-        ? respAdd.data.errors.map(e => e.message).join('; ')
+        ? respAdd.data.errors.map((e) => e.message).join('; ')
         : 'Unknown GraphQL error';
       const error = new Error(message);
       error.status = 502;
@@ -3545,7 +3729,7 @@ const updateOrderTags = async ({ shopDomain, accessToken, apiVersion, orderId, t
 
     const tagsData = respAdd.data.data?.tagsAdd;
     if (tagsData?.userErrors && tagsData.userErrors.length > 0) {
-      const errorMessages = tagsData.userErrors.map(e => `${e.field}: ${e.message}`).join('; ');
+      const errorMessages = tagsData.userErrors.map((e) => `${e.field}: ${e.message}`).join('; ');
       const error = new Error(errorMessages);
       error.status = 400;
       throw error;
@@ -3555,12 +3739,14 @@ const updateOrderTags = async ({ shopDomain, accessToken, apiVersion, orderId, t
       success: true,
       orderId: normalizedOrderId,
       tag,
-      removed: removeTags
+      removed: removeTags,
     };
   } catch (err) {
     const status = err?.response?.status || err.status || 500;
-    const message = (err?.response?.data && (err.response.data.errors || err.response.data.error))
-      || err.message || 'Request failed';
+    const message =
+      (err?.response?.data && (err.response.data.errors || err.response.data.error)) ||
+      err.message ||
+      'Request failed';
     const error = new Error(typeof message === 'string' ? message : JSON.stringify(message));
     error.status = status;
     throw error;
@@ -3583,12 +3769,17 @@ const updateOrderReferenceNumbers = async (req, res) => {
     if (!Array.isArray(req.body.orders)) {
       return res.status(400).json({
         success: false,
-        message: 'Request body must contain an "orders" array'
+        message: 'Request body must contain an "orders" array',
       });
     }
 
     const orders = req.body.orders;
-    const storeName = req.body?.storeName || req.body?.shop || req.body?.store || req.query?.storeName || req.query?.shop;
+    const storeName =
+      req.body?.storeName ||
+      req.body?.shop ||
+      req.body?.store ||
+      req.query?.storeName ||
+      req.query?.shop;
     const namespace = req.body?.namespace || 'custom';
     const metafieldKey = req.body?.metafieldKey || 'reference_number';
     const apiVersion = process.env.SHOPIFY_API_VERSION || '2025-10';
@@ -3596,14 +3787,14 @@ const updateOrderReferenceNumbers = async (req, res) => {
     if (!accessToken || !storeName) {
       return res.status(400).json({
         success: false,
-        message: 'Missing required parameters: accessToken and storeName'
+        message: 'Missing required parameters: accessToken and storeName',
       });
     }
 
     if (orders.length === 0) {
       return res.status(400).json({
         success: false,
-        message: 'Orders array cannot be empty'
+        message: 'Orders array cannot be empty',
       });
     }
 
@@ -3611,7 +3802,7 @@ const updateOrderReferenceNumbers = async (req, res) => {
     if (!shopDomain || !shopDomain.match(/^[a-z0-9][a-z0-9-]*\.myshopify\.com$/)) {
       return res.status(400).json({
         success: false,
-        message: 'Invalid storeName. Expected shopname or shopname.myshopify.com'
+        message: 'Invalid storeName. Expected shopname or shopname.myshopify.com',
       });
     }
 
@@ -3631,7 +3822,7 @@ const updateOrderReferenceNumbers = async (req, res) => {
           success: false,
           error: 'Missing required parameter: orderId or orderName',
           orderIndex: i,
-          order: `Order at index ${i}`
+          order: `Order at index ${i}`,
         });
         hasErrors = true;
         continue;
@@ -3642,7 +3833,7 @@ const updateOrderReferenceNumbers = async (req, res) => {
           success: false,
           error: 'Missing required parameter: referenceNumber',
           orderIndex: i,
-          order: orderName || orderId || `Order at index ${i}`
+          order: orderName || orderId || `Order at index ${i}`,
         });
         hasErrors = true;
         continue;
@@ -3658,7 +3849,7 @@ const updateOrderReferenceNumbers = async (req, res) => {
           success: false,
           error: 'Invalid storeName for this order',
           orderIndex: i,
-          order: orderName || orderId || `Order at index ${i}`
+          order: orderName || orderId || `Order at index ${i}`,
         });
         hasErrors = true;
         continue;
@@ -3671,7 +3862,7 @@ const updateOrderReferenceNumbers = async (req, res) => {
             shopDomain: orderShopDomain,
             accessToken: orderAccessToken,
             apiVersion,
-            orderName
+            orderName,
           });
           if (!fetchedOrder) {
             throw new Error('Order not found');
@@ -3686,14 +3877,14 @@ const updateOrderReferenceNumbers = async (req, res) => {
           orderId,
           referenceNumber: String(referenceNumber),
           namespace: order?.namespace || namespace,
-          key: order?.metafieldKey || order?.metafield_key || metafieldKey
+          key: order?.metafieldKey || order?.metafield_key || metafieldKey,
         });
 
         results.push({
           ...result,
           orderIndex: i,
           order: orderName || orderId,
-          referenceNumber: String(referenceNumber)
+          referenceNumber: String(referenceNumber),
         });
       } catch (err) {
         hasErrors = true;
@@ -3702,29 +3893,27 @@ const updateOrderReferenceNumbers = async (req, res) => {
           error: err.message || 'Unknown error',
           orderIndex: i,
           order: orderName || orderId || `Order at index ${i}`,
-          referenceNumber: referenceNumber ? String(referenceNumber) : null
+          referenceNumber: referenceNumber ? String(referenceNumber) : null,
         });
       }
     }
 
     // Return results
-    const statusCode = hasErrors ? (results.some(r => r.success) ? 207 : 400) : 200; // 207 Multi-Status if mixed results
+    const statusCode = hasErrors ? (results.some((r) => r.success) ? 207 : 400) : 200; // 207 Multi-Status if mixed results
     return res.status(statusCode).json({
       success: !hasErrors,
-      message: hasErrors
-        ? 'Some orders failed to update'
-        : 'All orders updated successfully',
+      message: hasErrors ? 'Some orders failed to update' : 'All orders updated successfully',
       results,
       total: orders.length,
-      succeeded: results.filter(r => r.success).length,
-      failed: results.filter(r => !r.success).length
+      succeeded: results.filter((r) => r.success).length,
+      failed: results.filter((r) => !r.success).length,
     });
   } catch (err) {
     const status = err.status || 500;
     return res.status(status).json({
       success: false,
       message: 'Failed to update order reference numbers',
-      error: err.message || 'Unknown error'
+      error: err.message || 'Unknown error',
     });
   }
 };
@@ -3761,22 +3950,19 @@ const updateOrderFulfillmentStatus = async (req, res) => {
       accessToken = req.query?.access_token || req.query?.token;
     }
     const selectOrderId = {
-      "order_pos": [
-        orderNumber
-      ],
-      "account_key": req.query?.account_key
-    }
-    console.log("selectOrderId=================>>>>>>>>>>>", selectOrderId);
-    const orderStatusData = await finerworksService.GET_ORDER_STATUS(
-      selectOrderId
-    );
-    console.log("orderStatusData=================>>>>>>>>>>>", orderStatusData);
+      order_pos: [orderNumber],
+      account_key: req.query?.account_key,
+    };
+    console.log('selectOrderId=================>>>>>>>>>>>', selectOrderId);
+    const orderStatusData = await finerworksService.GET_ORDER_STATUS(selectOrderId);
+    console.log('orderStatusData=================>>>>>>>>>>>', orderStatusData);
 
-    const statusValue = req.body?.status || req.query?.status || orderStatusData.orders[0].order_status_label;
+    const statusValue =
+      req.body?.status || req.query?.status || orderStatusData.orders[0].order_status_label;
     const orderObj = orderStatusData.orders[0];
-  
-    console.log("orderObj========", orderObj);
-    console.log("statusValue========", statusValue);
+
+    console.log('orderObj========', orderObj);
+    console.log('statusValue========', statusValue);
     const namespace = req.body?.namespace || 'custom';
     const metafieldKey = req.body?.metafieldKey || 'fulfillment_status';
     const apiVersion = process.env.SHOPIFY_API_VERSION || '2025-10';
@@ -3798,7 +3984,7 @@ const updateOrderFulfillmentStatus = async (req, res) => {
     if (!accessToken || !storeName || !orderNumber || !statusValue) {
       return res.status(400).json({
         success: false,
-        message: 'Missing required parameters: accessToken, storeName, orderNumber, status'
+        message: 'Missing required parameters: accessToken, storeName, orderNumber, status',
       });
     }
 
@@ -3806,7 +3992,7 @@ const updateOrderFulfillmentStatus = async (req, res) => {
     if (!shopDomain || !shopDomain.match(/^[a-z0-9][a-z0-9-]*\.myshopify\.com$/)) {
       return res.status(400).json({
         success: false,
-        message: 'Invalid storeName. Expected shopname or shopname.myshopify.com'
+        message: 'Invalid storeName. Expected shopname or shopname.myshopify.com',
       });
     }
 
@@ -3815,15 +4001,15 @@ const updateOrderFulfillmentStatus = async (req, res) => {
       shopDomain,
       accessToken,
       apiVersion,
-      orderName: orderStatusData.orders[0].order_po.replace(/\D/g, '')
+      orderName: orderStatusData.orders[0].order_po.replace(/\D/g, ''),
       // orderName: '1015'
     });
-    console.log("order=======>>>>", order);
+    console.log('order=======>>>>', order);
 
     if (!order || !order.id) {
       return res.status(404).json({
         success: false,
-        message: 'Order not found'
+        message: 'Order not found',
       });
     }
 
@@ -3846,12 +4032,12 @@ const updateOrderFulfillmentStatus = async (req, res) => {
               trackingInfo: {
                 number: trackingNumber,
                 url: trackingUrl,
-                company: carrier || null
-              }
+                company: carrier || null,
+              },
             },
             shopDomain,
             accessToken,
-            apiVersion
+            apiVersion,
           });
         } catch (fulfillmentErr) {
           log('processSingleOrderFulfillment (tracking) failed: %s', fulfillmentErr?.message);
@@ -3863,21 +4049,19 @@ const updateOrderFulfillmentStatus = async (req, res) => {
             'Tracking information from FinerWorks',
             `Tracking Number: ${trackingNumber}`,
             `Tracking URL: ${trackingUrl}`,
-            carrier ? `Carrier: ${carrier}` : null
+            carrier ? `Carrier: ${carrier}` : null,
           ].filter(Boolean);
 
           const trackingNote = trackingNoteLines.join('\n');
           const existingNote = order?.note ? String(order.note) : '';
-          const combinedNote = existingNote
-            ? `${existingNote}\n\n${trackingNote}`
-            : trackingNote;
+          const combinedNote = existingNote ? `${existingNote}\n\n${trackingNote}` : trackingNote;
 
           await appendOrderNote({
             shopDomain,
             accessToken,
             apiVersion,
             orderId: order.id,
-            noteToAppend: combinedNote
+            noteToAppend: combinedNote,
           });
         } catch (noteErr) {
           log('appendOrderNote (tracking) failed: %s', noteErr?.message);
@@ -3894,7 +4078,7 @@ const updateOrderFulfillmentStatus = async (req, res) => {
       orderId: order.id,
       referenceNumber: String(effectiveStatus),
       namespace,
-      key: metafieldKey
+      key: metafieldKey,
     });
 
     // Update Shopify order tags so they show in the orders listing dashboard.
@@ -3913,8 +4097,8 @@ const updateOrderFulfillmentStatus = async (req, res) => {
       'In Progress',
       'shipped',
       'Fulfilled',
-      'fulfilled'
-    ].filter(t => t.toLowerCase() !== String(tagValue).toLowerCase());
+      'fulfilled',
+    ].filter((t) => t.toLowerCase() !== String(tagValue).toLowerCase());
 
     const tagUpdateResult = await updateOrderTags({
       shopDomain,
@@ -3922,7 +4106,7 @@ const updateOrderFulfillmentStatus = async (req, res) => {
       apiVersion,
       orderId: order.id,
       tag: String(tagValue),
-      removeTags: statusTagsToRemove
+      removeTags: statusTagsToRemove,
     });
 
     // Optionally trigger a real Shopify fulfillment so that the native
@@ -3939,11 +4123,11 @@ const updateOrderFulfillmentStatus = async (req, res) => {
       try {
         fulfillmentResult = await processSingleOrderFulfillment({
           orderData: {
-            orderName: order.name || orderNumber
+            orderName: order.name || orderNumber,
           },
           shopDomain,
           accessToken,
-          apiVersion
+          apiVersion,
         });
       } catch (fulfillErr) {
         // If there are no remaining items to fulfill, treat as non-fatal
@@ -3961,14 +4145,14 @@ const updateOrderFulfillmentStatus = async (req, res) => {
       status: String(effectiveStatus),
       metafield: result.metafield,
       tag: tagUpdateResult,
-      fulfillment: fulfillmentResult
+      fulfillment: fulfillmentResult,
     });
   } catch (err) {
     const status = err.status || 500;
     return res.status(status).json({
       success: false,
       message: 'Failed to update order fulfillment status',
-      error: err.message || 'Unknown error'
+      error: err.message || 'Unknown error',
     });
   }
 };
@@ -4024,13 +4208,12 @@ const deriveOptionValue = (product, optionName) => {
 };
 
 const buildVariantOptionValues = (product, optionNames) => {
-  const names = Array.isArray(optionNames) && optionNames.length
-    ? optionNames
-    : ['Type', 'Media', 'Style'];
+  const names =
+    Array.isArray(optionNames) && optionNames.length ? optionNames : ['Type', 'Media', 'Style'];
 
   return names.map((name) => ({
     optionName: name,
-    name: deriveOptionValue(product, name)
+    name: deriveOptionValue(product, name),
   }));
 };
 
@@ -4064,14 +4247,14 @@ const syncShopifyProducts = async (req, res) => {
     if (!accessToken || !storeName) {
       return res.status(400).json({
         success: false,
-        message: 'Missing required parameters: accessToken and storeName'
+        message: 'Missing required parameters: accessToken and storeName',
       });
     }
 
     if (!rawProducts.length) {
       return res.status(400).json({
         success: false,
-        message: 'productsList must be a non-empty array'
+        message: 'productsList must be a non-empty array',
       });
     }
 
@@ -4079,16 +4262,14 @@ const syncShopifyProducts = async (req, res) => {
     if (!shopDomain || !shopDomain.match(/^[a-z0-9][a-z0-9-]*\.myshopify\.com$/)) {
       return res.status(400).json({
         success: false,
-        message: 'Invalid storeName. Expected shopname or shopname.myshopify.com'
+        message: 'Invalid storeName. Expected shopname or shopname.myshopify.com',
       });
     }
 
     // Variant logic applies only when the "primary" field is present on at least one product.
     // - If "primary" (or "primaryItem") is absent on all products → treat each as a single product; no grouping.
     // - If "primary" is present (true or false) on any product → group by image_guid and apply variant logic.
-    const hasPrimaryField = rawProducts.some(
-      (p) => p && ('primary' in p || 'primaryItem' in p)
-    );
+    const hasPrimaryField = rawProducts.some((p) => p && ('primary' in p || 'primaryItem' in p));
 
     let products = [];
 
@@ -4128,9 +4309,7 @@ const syncShopifyProducts = async (req, res) => {
 
         // More than one product with the same image_guid -> variants.
         // Choose the primary item when marked (primaryItem === true or primary === true), otherwise default to the first.
-        let primary = items.find(
-          (p) => p && (p.primaryItem === true || p.primary === true)
-        );
+        let primary = items.find((p) => p && (p.primaryItem === true || p.primary === true));
         if (!primary) {
           primary = items[0];
         }
@@ -4161,8 +4340,8 @@ const syncShopifyProducts = async (req, res) => {
           const productOptions = optionNames.map((optName) => ({
             name: optName,
             values: (uniqueValuesByOption.get(optName) || []).map((v) => ({
-              name: v
-            }))
+              name: v,
+            })),
           }));
 
           primary.productOptions = productOptions;
@@ -4180,14 +4359,14 @@ const syncShopifyProducts = async (req, res) => {
       return res.status(locErr.status || 500).json({
         success: false,
         message: 'Failed to fetch Shopify locations for inventory',
-        error: locErr.message || 'Unknown error'
+        error: locErr.message || 'Unknown error',
       });
     }
 
     if (!primaryLocationId) {
       return res.status(400).json({
         success: false,
-        message: 'No Shopify locations found; cannot set inventory quantity'
+        message: 'No Shopify locations found; cannot set inventory quantity',
       });
     }
 
@@ -4198,9 +4377,9 @@ const syncShopifyProducts = async (req, res) => {
         shopDomain,
         accessToken,
         apiVersion,
-        profileName: 'FinerWorks Shipping'
+        profileName: 'FinerWorks Shipping',
       });
-      console.log("finerWorksShippingProfileGid========",finerWorksShippingProfileGid);
+      console.log('finerWorksShippingProfileGid========', finerWorksShippingProfileGid);
       if (!finerWorksShippingProfileGid) {
         console.warn(
           `Shopify shipping profile "FinerWorks Shipping" not found for shop ${shopDomain}; products will be created without a custom shipping profile.`
@@ -4233,10 +4412,13 @@ const syncShopifyProducts = async (req, res) => {
         shopDomain,
         accessToken,
         apiVersion,
-        skuList: uniqueSkusToSync
+        skuList: uniqueSkusToSync,
       });
     } catch (lookupErr) {
-      console.warn('Could not fetch existing SKUs from Shopify; will attempt sync and rely on API errors for duplicates:', lookupErr?.message);
+      console.warn(
+        'Could not fetch existing SKUs from Shopify; will attempt sync and rely on API errors for duplicates:',
+        lookupErr?.message
+      );
     }
 
     const results = [];
@@ -4246,7 +4428,7 @@ const syncShopifyProducts = async (req, res) => {
       const product = products[i];
       const variantSourceProducts = [
         product,
-        ...(Array.isArray(product?.variants) ? product.variants : [])
+        ...(Array.isArray(product?.variants) ? product.variants : []),
       ];
       const productSkus = variantSourceProducts
         .map((s) => (s?.sku != null ? String(s.sku).trim() : ''))
@@ -4261,7 +4443,7 @@ const syncShopifyProducts = async (req, res) => {
           sku: product?.sku || null,
           product_guid: product?.product_guid || null,
           reason: 'SKU(s) already exist in Shopify store; skipping create',
-          skusAlreadyInShop: alreadyInShop
+          skusAlreadyInShop: alreadyInShop,
         });
         continue;
       }
@@ -4271,7 +4453,7 @@ const syncShopifyProducts = async (req, res) => {
           shopDomain,
           accessToken,
           apiVersion,
-          product
+          product,
         });
 
         const resultEntry = {
@@ -4279,7 +4461,7 @@ const syncShopifyProducts = async (req, res) => {
           index: i,
           sku: product?.sku || null,
           product_guid: product?.product_guid || null,
-          shopifyProduct: created
+          shopifyProduct: created,
         };
 
         // Mark these SKUs as existing so we do not create them again in the same request.
@@ -4293,7 +4475,7 @@ const syncShopifyProducts = async (req, res) => {
             shopDomain,
             accessToken,
             apiVersion,
-            productId: created.id
+            productId: created.id,
           });
           resultEntry.published = published;
         } catch (publishErr) {
@@ -4306,7 +4488,7 @@ const syncShopifyProducts = async (req, res) => {
         // - Any additional variants attached via the `variants` array.
         const variantSourceProducts = [
           product,
-          ...(Array.isArray(product?.variants) ? product.variants : [])
+          ...(Array.isArray(product?.variants) ? product.variants : []),
         ];
         const hasGroupedVariants = Array.isArray(product?.variants) && product.variants.length > 0;
 
@@ -4340,7 +4522,7 @@ const syncShopifyProducts = async (req, res) => {
                       ? product.productOptions.map((o) => o && o.name).filter(Boolean)
                       : undefined
                   )
-                : undefined
+                : undefined,
             });
           }
 
@@ -4349,7 +4531,7 @@ const syncShopifyProducts = async (req, res) => {
             accessToken,
             apiVersion,
             productId: created.id,
-            variants: variantPayloads
+            variants: variantPayloads,
           });
 
           if (Array.isArray(variantsCreated) && variantsCreated.length > 0) {
@@ -4389,11 +4571,12 @@ const syncShopifyProducts = async (req, res) => {
 
             // Use quantity_in_stock (or quantity) from the matching source payload when provided,
             // otherwise default to 10.
-            const quantityInStock = typeof src?.quantity_in_stock === 'number'
-              ? src.quantity_in_stock
-              : typeof src?.quantity === 'number'
-                ? src.quantity
-                : 10;
+            const quantityInStock =
+              typeof src?.quantity_in_stock === 'number'
+                ? src.quantity_in_stock
+                : typeof src?.quantity === 'number'
+                  ? src.quantity
+                  : 10;
 
             if (!inventoryItemId) continue;
 
@@ -4404,7 +4587,7 @@ const syncShopifyProducts = async (req, res) => {
                 accessToken,
                 apiVersion,
                 inventoryItemId,
-                locationId: primaryLocationId
+                locationId: primaryLocationId,
               });
 
               // Then set its available quantity
@@ -4414,7 +4597,7 @@ const syncShopifyProducts = async (req, res) => {
                 apiVersion,
                 inventoryItemId,
                 locationId: primaryLocationId,
-                quantity: quantityInStock
+                quantity: quantityInStock,
               });
 
               if (vIndex === 0) {
@@ -4426,7 +4609,7 @@ const syncShopifyProducts = async (req, res) => {
                 resultEntry.additionalInventoryAdjustments.push({
                   index: vIndex,
                   sku: src?.sku || null,
-                  result: adjustResult
+                  result: adjustResult,
                 });
               }
             } catch (invErr) {
@@ -4440,7 +4623,7 @@ const syncShopifyProducts = async (req, res) => {
                 resultEntry.additionalInventoryErrors.push({
                   index: vIndex,
                   sku: src?.sku || null,
-                  error: invErr.message || 'Unknown inventory error'
+                  error: invErr.message || 'Unknown inventory error',
                 });
               }
             }
@@ -4450,9 +4633,7 @@ const syncShopifyProducts = async (req, res) => {
         // After successfully creating the product/variants and adjusting inventory,
         // associate all created variants with the "FinerWorks Shipping" delivery profile when available.
         if (finerWorksShippingProfileGid && createdVariants.length) {
-          const variantGids = createdVariants
-            .map(v => v && v.id)
-            .filter(Boolean);
+          const variantGids = createdVariants.map((v) => v && v.id).filter(Boolean);
 
           if (variantGids.length) {
             try {
@@ -4461,11 +4642,11 @@ const syncShopifyProducts = async (req, res) => {
                 accessToken,
                 apiVersion,
                 deliveryProfileGid: finerWorksShippingProfileGid,
-                variantGids
+                variantGids,
               });
               resultEntry.shippingProfileAssignment = {
                 deliveryProfileId: deliveryProfile?.id || finerWorksShippingProfileGid,
-                variantGids
+                variantGids,
               };
             } catch (shippingErr) {
               hasErrors = true;
@@ -4479,10 +4660,7 @@ const syncShopifyProducts = async (req, res) => {
         // update the FinerWorks virtual inventory with the new Shopify IDs.
         try {
           const accountKey =
-            req.body?.account_key ||
-            req.body?.accountKey ||
-            req.body?.accountkey ||
-            null;
+            req.body?.account_key || req.body?.accountKey || req.body?.accountkey || null;
 
           // When each product is distinct (no variant grouping): each item has its own
           // shopify_graphql_product_id. When variant logic applied: primary + variants
@@ -4520,10 +4698,7 @@ const syncShopifyProducts = async (req, res) => {
                 src?.total_price ??
                 0,
               name: src?.name || 'Untitled',
-              description:
-                src?.description_long ||
-                src?.description_short ||
-                '',
+              description: src?.description_long || src?.description_short || '',
               quantity_in_stock:
                 typeof src?.quantity_in_stock === 'number'
                   ? src.quantity_in_stock
@@ -4533,17 +4708,16 @@ const syncShopifyProducts = async (req, res) => {
               track_inventory: true,
               third_party_integrations: {
                 ...(src?.third_party_integrations || {}),
-                shopify_graphql_product_id:
-                  shopifyProductNumericId || shopifyProductGid || null
-              }
+                shopify_graphql_product_id: shopifyProductNumericId || shopifyProductGid || null,
+              },
             });
           }
 
           const finalPayload = {
             virtual_inventory: virtualInventoryItems,
-            account_key: accountKey
+            account_key: accountKey,
           };
-          console.log("finalPayload==============", finalPayload);
+          console.log('finalPayload==============', finalPayload);
 
           // NOTE: The upstream FinerWorks API can behave as if it only processes the first
           // item in `virtual_inventory`. To ensure every SKU is updated, call the endpoint
@@ -4555,19 +4729,19 @@ const syncShopifyProducts = async (req, res) => {
             try {
               const onePayload = {
                 virtual_inventory: [item],
-                account_key: accountKey
+                account_key: accountKey,
               };
               const updateResult = await finerworksService.UPDATE_VIRTUAL_INVENTORY(onePayload);
-              console.log("updateResult====",updateResult);
+              console.log('updateResult====', updateResult);
               virtualInventoryUpdates.push({
                 sku: item?.sku || null,
-                result: updateResult
+                result: updateResult,
               });
             } catch (singleErr) {
               hasErrors = true;
               virtualInventoryUpdateErrors.push({
                 sku: item?.sku || null,
-                error: singleErr.message || 'Unknown virtual inventory update error'
+                error: singleErr.message || 'Unknown virtual inventory update error',
               });
             }
           }
@@ -4591,28 +4765,26 @@ const syncShopifyProducts = async (req, res) => {
           index: i,
           sku: product?.sku || null,
           product_guid: product?.product_guid || null,
-          error: err.message || 'Unknown error'
+          error: err.message || 'Unknown error',
         });
       }
     }
 
-    const statusCode = hasErrors
-      ? (results.some(r => r.success) ? 207 : 400)
-      : 200;
+    const statusCode = hasErrors ? (results.some((r) => r.success) ? 207 : 400) : 200;
 
     return res.status(statusCode).json({
       success: !hasErrors,
       total: products.length,
-      succeeded: results.filter(r => r.success).length,
-      failed: results.filter(r => !r.success).length,
-      results
+      succeeded: results.filter((r) => r.success).length,
+      failed: results.filter((r) => !r.success).length,
+      results,
     });
   } catch (err) {
     const status = err.status || 500;
     return res.status(status).json({
       success: false,
       message: 'Failed to sync Shopify products',
-      error: err.message || 'Unknown error'
+      error: err.message || 'Unknown error',
     });
   }
 };
@@ -4649,15 +4821,12 @@ const createShopifyCarrierService = async (req, res) => {
       req.query?.storeName ||
       req.query?.shop;
 
-    const carrierService =
-      req.body?.carrier_service ||
-      req.body?.carrierService ||
-      null;
+    const carrierService = req.body?.carrier_service || req.body?.carrierService || null;
 
     if (!accessToken || !storeName || !carrierService) {
       return res.status(400).json({
         success: false,
-        message: 'Missing required parameters: accessToken, storeName, carrier_service'
+        message: 'Missing required parameters: accessToken, storeName, carrier_service',
       });
     }
 
@@ -4665,7 +4834,7 @@ const createShopifyCarrierService = async (req, res) => {
     if (!shopDomain || !shopDomain.match(/^[a-z0-9][a-z0-9-]*\.myshopify\.com$/)) {
       return res.status(400).json({
         success: false,
-        message: 'Invalid storeName. Expected shopname or shopname.myshopify.com'
+        message: 'Invalid storeName. Expected shopname or shopname.myshopify.com',
       });
     }
 
@@ -4675,12 +4844,12 @@ const createShopifyCarrierService = async (req, res) => {
     const headers = {
       'X-Shopify-Access-Token': accessToken,
       'Content-Type': 'application/json',
-      Accept: 'application/json'
+      Accept: 'application/json',
     };
 
     // We wrap whatever client sends in the required top-level key.
     const payload = {
-      carrier_service: carrierService
+      carrier_service: carrierService,
     };
 
     const resp = await axios.post(endpoint, payload, { headers });
@@ -4691,7 +4860,7 @@ const createShopifyCarrierService = async (req, res) => {
       shopDomain,
       // Echo the exact payload we sent to Shopify so callers can inspect it.
       requestPayload: payload,
-      raw: resp.data
+      raw: resp.data,
     });
   } catch (err) {
     const status = err?.response?.status || err.status || 500;
@@ -4702,7 +4871,7 @@ const createShopifyCarrierService = async (req, res) => {
     return res.status(status).json({
       success: false,
       message: 'Failed to create Shopify carrier service',
-      error: typeof message === 'string' ? message : JSON.stringify(message)
+      error: typeof message === 'string' ? message : JSON.stringify(message),
     });
   }
 };
@@ -4716,7 +4885,8 @@ const createShopifyCarrierService = async (req, res) => {
  */
 const listShopifyCarrierServices = async (req, res) => {
   try {
-    let accessToken = req.body?.access_token || req.query?.access_token || req.headers['x-shopify-access-token'];
+    let accessToken =
+      req.body?.access_token || req.query?.access_token || req.headers['x-shopify-access-token'];
     const authHeader = req.headers?.authorization || req.headers?.Authorization;
 
     if (!accessToken && authHeader && authHeader.startsWith('Bearer ')) {
@@ -4733,7 +4903,7 @@ const listShopifyCarrierServices = async (req, res) => {
     if (!accessToken || !storeName) {
       return res.status(400).json({
         success: false,
-        message: 'Missing required parameters: accessToken, storeName'
+        message: 'Missing required parameters: accessToken, storeName',
       });
     }
 
@@ -4741,7 +4911,7 @@ const listShopifyCarrierServices = async (req, res) => {
     if (!shopDomain || !shopDomain.match(/^[a-z0-9][a-z0-9-]*\.myshopify\.com$/)) {
       return res.status(400).json({
         success: false,
-        message: 'Invalid storeName. Expected shopname or shopname.myshopify.com'
+        message: 'Invalid storeName. Expected shopname or shopname.myshopify.com',
       });
     }
 
@@ -4749,7 +4919,7 @@ const listShopifyCarrierServices = async (req, res) => {
     const headers = {
       'X-Shopify-Access-Token': accessToken,
       'Content-Type': 'application/json',
-      Accept: 'application/json'
+      Accept: 'application/json',
     };
 
     const resp = await axios.get(endpoint, { headers });
@@ -4758,7 +4928,7 @@ const listShopifyCarrierServices = async (req, res) => {
       success: true,
       shopDomain,
       carrier_services: resp.data?.carrier_services || [],
-      raw: resp.data
+      raw: resp.data,
     });
   } catch (err) {
     const status = err?.response?.status || err.status || 500;
@@ -4769,7 +4939,7 @@ const listShopifyCarrierServices = async (req, res) => {
     return res.status(status).json({
       success: false,
       message: 'Failed to list Shopify carrier services',
-      error: typeof message === 'string' ? message : JSON.stringify(message)
+      error: typeof message === 'string' ? message : JSON.stringify(message),
     });
   }
 };
@@ -4807,7 +4977,7 @@ const deleteShopifyCarrierService = async (req, res) => {
     if (!accessToken || !storeName || !carrierServiceId) {
       return res.status(400).json({
         success: false,
-        message: 'Missing required parameters: accessToken, storeName, carrier_service_id'
+        message: 'Missing required parameters: accessToken, storeName, carrier_service_id',
       });
     }
 
@@ -4815,7 +4985,7 @@ const deleteShopifyCarrierService = async (req, res) => {
     if (!shopDomain || !shopDomain.match(/^[a-z0-9][a-z0-9-]*\.myshopify\.com$/)) {
       return res.status(400).json({
         success: false,
-        message: 'Invalid storeName. Expected shopname or shopname.myshopify.com'
+        message: 'Invalid storeName. Expected shopname or shopname.myshopify.com',
       });
     }
 
@@ -4823,7 +4993,7 @@ const deleteShopifyCarrierService = async (req, res) => {
     const headers = {
       'X-Shopify-Access-Token': accessToken,
       'Content-Type': 'application/json',
-      Accept: 'application/json'
+      Accept: 'application/json',
     };
 
     await axios.delete(endpoint, { headers });
@@ -4832,7 +5002,7 @@ const deleteShopifyCarrierService = async (req, res) => {
       success: true,
       shopDomain,
       carrier_service_id: carrierServiceId,
-      message: 'Carrier service deleted successfully'
+      message: 'Carrier service deleted successfully',
     });
   } catch (err) {
     const status = err?.response?.status || err.status || 500;
@@ -4843,7 +5013,7 @@ const deleteShopifyCarrierService = async (req, res) => {
     return res.status(status).json({
       success: false,
       message: 'Failed to delete Shopify carrier service',
-      error: typeof message === 'string' ? message : JSON.stringify(message)
+      error: typeof message === 'string' ? message : JSON.stringify(message),
     });
   }
 };
@@ -4997,7 +5167,6 @@ const deleteShopifyCarrierService = async (req, res) => {
 //           // const totalPriceMinor = Math.round(Number(price));
 //                     const totalPriceMinor = price
 
-
 //           const description =
 //             opt.transit_time && opt.carrier
 //               ? `${opt.shipping_method} - ${opt.carrier} (${opt.transit_time})`
@@ -5034,10 +5203,9 @@ const shopifyCarrierServiceCallback = async (req, res) => {
 
     if (!rate) {
       return res.status(400).json({
-        error: 'Missing required rate object in request body'
+        error: 'Missing required rate object in request body',
       });
     }
-  
 
     let accountKey = null;
     try {
@@ -5051,17 +5219,14 @@ const shopifyCarrierServiceCallback = async (req, res) => {
     }
     if (!accountKey) {
       return res.status(401).json({
-        error: 'Could not resolve account_key from account-info service'
+        error: 'Could not resolve account_key from account-info service',
       });
     }
 
     const currency = rate.currency || 'USD';
 
     // Build FinerWorks SHIPPING_OPTIONS_MULTIPLE payload in the expected structure
-    const orderPo =
-      rate.id ||
-      rate.reference ||
-      `PO_${Date.now()}`;
+    const orderPo = rate.id || rate.reference || `PO_${Date.now()}`;
 
     const dest = rate.destination || {};
 
@@ -5082,51 +5247,56 @@ const shopifyCarrierServiceCallback = async (req, res) => {
       address_2: dest.address2 || dest.address_2 || null,
       address_3: dest.address3 || dest.address_3 || null,
       city: dest.city || null,
-      state_code: (dest.province_code || dest.province || '').toString().slice(0, 2).toUpperCase() || null,
+      state_code:
+        (dest.province_code || dest.province || '').toString().slice(0, 2).toUpperCase() || null,
       province: '',
       zip_postal_code: (dest.zip || dest.postal_code || '').toString() || null,
       country_code: (dest.country_code || dest.country || '').toString().toLowerCase() || null,
       phone: dest.phone || null,
       email: dest.email || null,
-      address_order_po: orderPo
+      address_order_po: orderPo,
     };
 
     const items = Array.isArray(rate.items) ? rate.items : [];
     log('carrier-service/callback items count=%s', items.length);
-    const orderItemsPromises = items.map(async(item) => {
+    const orderItemsPromises = items.map(async (item) => {
       try {
         const title = item.name || item.title || null;
         const sku = item.sku || item.variant_id || null;
         const virtualInventoryPayload = {
           sku_filter: [sku],
-          account_key: accountKey
+          account_key: accountKey,
         };
-        const virtualInventoryResponse = await finerworksService.LIST_VIRTUAL_INVENTORY(virtualInventoryPayload);
-        log('carrier-service/callback LIST_VIRTUAL_INVENTORY sku=%s products=%s',
+        const virtualInventoryResponse =
+          await finerworksService.LIST_VIRTUAL_INVENTORY(virtualInventoryPayload);
+        log(
+          'carrier-service/callback LIST_VIRTUAL_INVENTORY sku=%s products=%s',
           sku,
           Array.isArray(virtualInventoryResponse?.products)
             ? virtualInventoryResponse.products.length
             : 0
         );
-        
+
         // Extract product_guid from API response
-        const productGuid = virtualInventoryResponse?.products?.[0]?.product_guid || "1c9f4263-035a-437e-9975-ba81b18f5d94";
-        
+        const productGuid =
+          virtualInventoryResponse?.products?.[0]?.product_guid ||
+          '1c9f4263-035a-437e-9975-ba81b18f5d94';
+
         // Only return the item if API call succeeded
         return {
           // product_order_po: orderPo,
           product_qty: item.quantity || 1,
           product_sku: sku,
           product_image: {
-            product_url_file: "https://via.placeholder.com/150",
-            product_url_thumbnail: "https://via.placeholder.com/150"
+            product_url_file: 'https://via.placeholder.com/150',
+            product_url_thumbnail: 'https://via.placeholder.com/150',
           },
           product_title: title,
           template: null,
           product_guid: productGuid,
           custom_data_1: null,
           custom_data_2: null,
-          custom_data_3: null
+          custom_data_3: null,
         };
       } catch (error) {
         // If API call fails, log error and return null to skip this item
@@ -5138,9 +5308,9 @@ const shopifyCarrierServiceCallback = async (req, res) => {
         return null;
       }
     });
-    
+
     // Wait for all promises and filter out null values (failed API calls)
-    const orderItems = (await Promise.all(orderItemsPromises)).filter(item => item !== null);
+    const orderItems = (await Promise.all(orderItemsPromises)).filter((item) => item !== null);
     log('carrier-service/callback built order_items count=%s', orderItems.length);
 
     // Call LIST_VIRTUAL_INVENTORY API
@@ -5163,39 +5333,30 @@ const shopifyCarrierServiceCallback = async (req, res) => {
       custom_data_1: null,
       custom_data_2: null,
       custom_data_3: null,
-      source: null
+      source: null,
     };
 
     const fwPayload = {
       orders: [orderPayload],
-      account_key: accountKey
+      account_key: accountKey,
     };
     // console.log("fwPayload======>>>>>", fwPayload);
     // return res.status(200).json( fwPayload );
 
-    const fwResponse = await finerworksService.SHIPPING_OPTIONS_MULTIPLE(
-      fwPayload
-    );
-    console.log("fwResponse=====>>>>>>",fwResponse);
-
-  
+    const fwResponse = await finerworksService.SHIPPING_OPTIONS_MULTIPLE(fwPayload);
+    console.log('fwResponse=====>>>>>>', fwResponse);
 
     const firstOrder =
-      fwResponse?.orders && Array.isArray(fwResponse.orders)
-        ? fwResponse.orders[0]
-        : null;
+      fwResponse?.orders && Array.isArray(fwResponse.orders) ? fwResponse.orders[0] : null;
 
     // FinerWorks returns shipping options under `options` for each order.
     const shippingOptions = firstOrder?.options || [];
 
-    const shopFromReq =
-      req.query?.shop || req.headers['x-shopify-shop-domain'] || req.body?.shop;
+    const shopFromReq = req.query?.shop || req.headers['x-shopify-shop-domain'] || req.body?.shop;
     const markupPercent = await getShopShippingMarkupPercent(shopFromReq);
-    console.log("markupPercent=-=======",markupPercent);
+    console.log('markupPercent=-=======', markupPercent);
     const markupMultiplier =
-      Number.isFinite(markupPercent) && markupPercent > 0
-        ? 1 + markupPercent / 100
-        : 1;
+      Number.isFinite(markupPercent) && markupPercent > 0 ? 1 + markupPercent / 100 : 1;
 
     const rates = Array.isArray(shippingOptions)
       ? shippingOptions.map((opt) => {
@@ -5213,7 +5374,6 @@ const shopifyCarrierServiceCallback = async (req, res) => {
             ? basePriceMinor * markupMultiplier
             : 0;
 
-
           const description =
             opt.transit_time && opt.carrier
               ? `${opt.shipping_method} - ${opt.carrier} (${opt.transit_time})`
@@ -5222,11 +5382,9 @@ const shopifyCarrierServiceCallback = async (req, res) => {
           return {
             service_name: methodName,
             service_code: String(code),
-            total_price: String(
-              Number.isFinite(totalPriceMinor) ? totalPriceMinor * 100 : 0
-            ),
+            total_price: String(Number.isFinite(totalPriceMinor) ? totalPriceMinor * 100 : 0),
             currency,
-            description
+            description,
           };
         })
       : [];
@@ -5236,7 +5394,7 @@ const shopifyCarrierServiceCallback = async (req, res) => {
   } catch (err) {
     console.error('Error in Shopify carrier service callback:', err);
     return res.status(500).json({
-      error: 'Internal Server Error'
+      error: 'Internal Server Error',
     });
   }
 };
@@ -5310,32 +5468,31 @@ const registerShopifyWebhook = async (req, res) => {
     if (!accessToken || !storeName) {
       return res.status(400).json({
         success: false,
-        message: 'Missing required parameters: access_token and storeName'
+        message: 'Missing required parameters: access_token and storeName',
       });
     }
 
     if (!webhook || typeof webhook !== 'object') {
       return res.status(400).json({
         success: false,
-        message: 'Missing required object: webhook'
+        message: 'Missing required object: webhook',
       });
     }
 
     const topic = webhook.topic ? String(webhook.topic) : null;
     const address = webhook.address ? String(webhook.address) : null;
-    const format = webhook.format ? String(webhook.format) : 'json';
 
     if (!topic || !address) {
       return res.status(400).json({
         success: false,
-        message: 'webhook.topic and webhook.address are required'
+        message: 'webhook.topic and webhook.address are required',
       });
     }
 
     if (!address.toLowerCase().startsWith('https://')) {
       return res.status(400).json({
         success: false,
-        message: 'webhook.address must be an https URL'
+        message: 'webhook.address must be an https URL',
       });
     }
 
@@ -5343,7 +5500,7 @@ const registerShopifyWebhook = async (req, res) => {
     if (!shopDomain || !shopDomain.match(/^[a-z0-9][a-z0-9-]*\.myshopify\.com$/)) {
       return res.status(400).json({
         success: false,
-        message: 'Invalid storeName. Expected shopname or shopname.myshopify.com'
+        message: 'Invalid storeName. Expected shopname or shopname.myshopify.com',
       });
     }
 
@@ -5351,7 +5508,8 @@ const registerShopifyWebhook = async (req, res) => {
     if (!gqlTopic) {
       return res.status(400).json({
         success: false,
-        message: 'Unsupported webhook.topic for GraphQL. Use "products/delete" or an enum like "PRODUCTS_DELETE".'
+        message:
+          'Unsupported webhook.topic for GraphQL. Use "products/delete" or an enum like "PRODUCTS_DELETE".',
       });
     }
 
@@ -5360,11 +5518,8 @@ const registerShopifyWebhook = async (req, res) => {
     const headers = {
       'X-Shopify-Access-Token': accessToken,
       'Content-Type': 'application/json',
-      Accept: 'application/json'
+      Accept: 'application/json',
     };
-
-    // GraphQL uses `uri` (not address) and enum format
-    const gqlFormat = String(format || '').toUpperCase() === 'JSON' ? 'JSON' : 'JSON';
 
     const resp = await axios.post(
       endpoint,
@@ -5373,16 +5528,16 @@ const registerShopifyWebhook = async (req, res) => {
         variables: {
           topic: gqlTopic,
           webhookSubscription: {
-            uri: address
-          }
-        }
+            uri: address,
+          },
+        },
       },
       { headers }
     );
 
     if (resp.data.errors) {
       const message = Array.isArray(resp.data.errors)
-        ? resp.data.errors.map(e => e.message).join('; ')
+        ? resp.data.errors.map((e) => e.message).join('; ')
         : 'Unknown GraphQL error';
       const error = new Error(message);
       error.status = 502;
@@ -5398,7 +5553,7 @@ const registerShopifyWebhook = async (req, res) => {
 
     if (Array.isArray(payload.userErrors) && payload.userErrors.length > 0) {
       const message = payload.userErrors
-        .map(e => `${e.field ? e.field.join('.') : 'error'}: ${e.message}`)
+        .map((e) => `${e.field ? e.field.join('.') : 'error'}: ${e.message}`)
         .join('; ');
       const error = new Error(message);
       error.status = 400;
@@ -5408,21 +5563,18 @@ const registerShopifyWebhook = async (req, res) => {
     return res.status(200).json({
       success: true,
       shopDomain,
-      webhookSubscription: payload.webhookSubscription || null
+      webhookSubscription: payload.webhookSubscription || null,
     });
   } catch (err) {
     const status = err?.response?.status || err.status || 500;
     const data = err?.response?.data || null;
-    const message =
-      (data && (data.errors || data.error)) ||
-      err.message ||
-      'Request failed';
+    const message = (data && (data.errors || data.error)) || err.message || 'Request failed';
 
     return res.status(status).json({
       success: false,
       message: 'Failed to register Shopify webhook',
       error: typeof message === 'string' ? message : JSON.stringify(message),
-      details: data || undefined
+      details: data || undefined,
     });
   }
 };
@@ -5458,14 +5610,19 @@ const registerShopifyOrderCreateWebhook = async (req, res) => {
     if (!accessToken || !storeName) {
       return res.status(400).json({
         success: false,
-        message: 'Missing required parameters: access_token and storeName (or shop)'
+        message: 'Missing required parameters: access_token and storeName (or shop)',
       });
     }
 
-    if (!address || typeof address !== 'string' || !address.trim().toLowerCase().startsWith('https://')) {
+    if (
+      !address ||
+      typeof address !== 'string' ||
+      !address.trim().toLowerCase().startsWith('https://')
+    ) {
       return res.status(400).json({
         success: false,
-        message: 'Missing or invalid webhook address. Provide body.address or set SHOPIFY_ORDER_CREATE_WEBHOOK_URL (must be https).'
+        message:
+          'Missing or invalid webhook address. Provide body.address or set SHOPIFY_ORDER_CREATE_WEBHOOK_URL (must be https).',
       });
     }
 
@@ -5473,7 +5630,7 @@ const registerShopifyOrderCreateWebhook = async (req, res) => {
     if (!shopDomain || !shopDomain.match(/^[a-z0-9][a-z0-9-]*\.myshopify\.com$/)) {
       return res.status(400).json({
         success: false,
-        message: 'Invalid storeName. Expected shopname or shopname.myshopify.com'
+        message: 'Invalid storeName. Expected shopname or shopname.myshopify.com',
       });
     }
 
@@ -5481,7 +5638,7 @@ const registerShopifyOrderCreateWebhook = async (req, res) => {
     const headers = {
       'X-Shopify-Access-Token': accessToken,
       'Content-Type': 'application/json',
-      Accept: 'application/json'
+      Accept: 'application/json',
     };
 
     const resp = await axios.post(
@@ -5491,21 +5648,21 @@ const registerShopifyOrderCreateWebhook = async (req, res) => {
         variables: {
           topic: 'ORDERS_CREATE',
           webhookSubscription: {
-            uri: address.trim()
-          }
-        }
+            uri: address.trim(),
+          },
+        },
       },
       { headers }
     );
 
     if (resp.data.errors) {
       const message = Array.isArray(resp.data.errors)
-        ? resp.data.errors.map(e => e.message).join('; ')
+        ? resp.data.errors.map((e) => e.message).join('; ')
         : 'Unknown GraphQL error';
       return res.status(502).json({
         success: false,
         message: 'Shopify API error',
-        error: message
+        error: message,
       });
     }
 
@@ -5513,18 +5670,18 @@ const registerShopifyOrderCreateWebhook = async (req, res) => {
     if (!payload) {
       return res.status(502).json({
         success: false,
-        message: 'Invalid Shopify response for webhookSubscriptionCreate'
+        message: 'Invalid Shopify response for webhookSubscriptionCreate',
       });
     }
 
     if (Array.isArray(payload.userErrors) && payload.userErrors.length > 0) {
       const message = payload.userErrors
-        .map(e => `${e.field ? e.field.join('.') : 'error'}: ${e.message}`)
+        .map((e) => `${e.field ? e.field.join('.') : 'error'}: ${e.message}`)
         .join('; ');
       return res.status(400).json({
         success: false,
         message,
-        userErrors: payload.userErrors
+        userErrors: payload.userErrors,
       });
     }
 
@@ -5532,20 +5689,17 @@ const registerShopifyOrderCreateWebhook = async (req, res) => {
       success: true,
       topic: 'orders/create',
       shopDomain,
-      webhookSubscription: payload.webhookSubscription || null
+      webhookSubscription: payload.webhookSubscription || null,
     });
   } catch (err) {
     const status = err?.response?.status || 500;
     const data = err?.response?.data || null;
-    const message =
-      (data && (data.errors || data.error)) ||
-      err.message ||
-      'Request failed';
+    const message = (data && (data.errors || data.error)) || err.message || 'Request failed';
     return res.status(status).json({
       success: false,
       message: 'Failed to register order creation webhook',
       error: typeof message === 'string' ? message : JSON.stringify(message),
-      details: data || undefined
+      details: data || undefined,
     });
   }
 };
@@ -5575,7 +5729,7 @@ const listShopifyWebhooks = async (req, res) => {
     if (!accessToken || !storeName) {
       return res.status(400).json({
         success: false,
-        message: 'Missing required parameters: access_token and storeName'
+        message: 'Missing required parameters: access_token and storeName',
       });
     }
 
@@ -5583,36 +5737,33 @@ const listShopifyWebhooks = async (req, res) => {
     if (!shopDomain || !shopDomain.match(/^[a-z0-9][a-z0-9-]*\.myshopify\.com$/)) {
       return res.status(400).json({
         success: false,
-        message: 'Invalid storeName. Expected shopname or shopname.myshopify.com'
+        message: 'Invalid storeName. Expected shopname or shopname.myshopify.com',
       });
     }
 
     const endpoint = `https://${shopDomain}/admin/api/${apiVersion}/webhooks.json`;
     const headers = {
       'X-Shopify-Access-Token': accessToken,
-      Accept: 'application/json'
+      Accept: 'application/json',
     };
-    console.log("came herererererer")
+    console.log('came herererererer');
     const resp = await axios.get(endpoint, { headers });
 
     return res.status(200).json({
       success: true,
       shopDomain,
-      webhooks: resp.data?.webhooks || []
+      webhooks: resp.data?.webhooks || [],
     });
   } catch (err) {
     const status = err?.response?.status || err.status || 500;
     const data = err?.response?.data || null;
-    const message =
-      (data && (data.errors || data.error)) ||
-      err.message ||
-      'Request failed';
+    const message = (data && (data.errors || data.error)) || err.message || 'Request failed';
 
     return res.status(status).json({
       success: false,
       message: 'Failed to list Shopify webhooks',
       error: typeof message === 'string' ? message : JSON.stringify(message),
-      details: data || undefined
+      details: data || undefined,
     });
   }
 };
@@ -5651,14 +5802,14 @@ const deleteShopifyWebhookById = async (req, res) => {
     if (!accessToken || !storeName) {
       return res.status(400).json({
         success: false,
-        message: 'Missing required parameters: access_token and storeName'
+        message: 'Missing required parameters: access_token and storeName',
       });
     }
 
     if (!webhookIdRaw) {
       return res.status(400).json({
         success: false,
-        message: 'Missing required parameter: webhook_id'
+        message: 'Missing required parameter: webhook_id',
       });
     }
 
@@ -5666,7 +5817,7 @@ const deleteShopifyWebhookById = async (req, res) => {
     if (!/^\d+$/.test(webhookId)) {
       return res.status(400).json({
         success: false,
-        message: 'webhook_id must be a numeric id'
+        message: 'webhook_id must be a numeric id',
       });
     }
 
@@ -5674,14 +5825,14 @@ const deleteShopifyWebhookById = async (req, res) => {
     if (!shopDomain || !shopDomain.match(/^[a-z0-9][a-z0-9-]*\.myshopify\.com$/)) {
       return res.status(400).json({
         success: false,
-        message: 'Invalid storeName. Expected shopname or shopname.myshopify.com'
+        message: 'Invalid storeName. Expected shopname or shopname.myshopify.com',
       });
     }
 
     const endpoint = `https://${shopDomain}/admin/api/${apiVersion}/webhooks/${webhookId}.json`;
     const headers = {
       'X-Shopify-Access-Token': accessToken,
-      Accept: 'application/json'
+      Accept: 'application/json',
     };
 
     await axios.delete(endpoint, { headers });
@@ -5689,21 +5840,18 @@ const deleteShopifyWebhookById = async (req, res) => {
     return res.status(200).json({
       success: true,
       shopDomain,
-      deleted_webhook_id: webhookId
+      deleted_webhook_id: webhookId,
     });
   } catch (err) {
     const status = err?.response?.status || err.status || 500;
     const data = err?.response?.data || null;
-    const message =
-      (data && (data.errors || data.error)) ||
-      err.message ||
-      'Request failed';
+    const message = (data && (data.errors || data.error)) || err.message || 'Request failed';
 
     return res.status(status).json({
       success: false,
       message: 'Failed to delete Shopify webhook',
       error: typeof message === 'string' ? message : JSON.stringify(message),
-      details: data || undefined
+      details: data || undefined,
     });
   }
 };
@@ -5825,7 +5973,7 @@ const fetchOrderById = async ({ shopDomain, accessToken, apiVersion, orderId }) 
   const endpoint = `https://${shopDomain}/admin/api/${apiVersion}/graphql.json`;
   const headers = {
     'X-Shopify-Access-Token': accessToken,
-    'Content-Type': 'application/json'
+    'Content-Type': 'application/json',
   };
   const gid = orderId.startsWith('gid://') ? orderId : `gid://shopify/Order/${orderId}`;
   const resp = await axios.post(
@@ -5835,7 +5983,7 @@ const fetchOrderById = async ({ shopDomain, accessToken, apiVersion, orderId }) 
   );
   if (resp.data.errors) {
     const message = Array.isArray(resp.data.errors)
-      ? resp.data.errors.map(e => e.message).join('; ')
+      ? resp.data.errors.map((e) => e.message).join('; ')
       : 'Unknown GraphQL error';
     const err = new Error(message);
     err.status = 502;
@@ -5857,131 +6005,50 @@ const fetchOrderById = async ({ shopDomain, accessToken, apiVersion, orderId }) 
 // - In Shopify, once a product is deleted, fetching it from the Admin API can return null/404.
 // - When an access token is available (body/header/env), we try to fetch anyway.
 // - Otherwise we return the webhook payload as the best available "details".
-const PRODUCT_DETAILS_QUERY = `
-  query productDetails($id: ID!) {
-    product(id: $id) {
-      id
-      title
-      handle
-      status
-      vendor
-      productType
-      createdAt
-      updatedAt
-      variants(first: 100) {
-        nodes {
-          id
-          sku
-          title
-          price
-          availableForSale
-          sellableOnlineQuantity
-          inventoryQuantity
-          inventoryPolicy
-          selectedOptions {
-            name
-            value
-          }
-          inventoryItem {
-            id
-            tracked
-          }
-        }
-      }
-    }
-  }
-`;
-
-const fetchProductDetailsById = async ({ shopDomain, accessToken, apiVersion, productNumericId }) => {
-  log('fetchProductDetailsById hit shopDomain=%s accessToken=%s productNumericId=%s apiVersion=%s' , shopDomain, accessToken, productNumericId, apiVersion);
-  if (!shopDomain || !accessToken || !productNumericId) return null;
-
-  const endpoint = `https://${shopDomain}/admin/api/${apiVersion}/graphql.json`;
-  log('endpoint=%s', endpoint);
-  const headers = {
-    'X-Shopify-Access-Token': accessToken,
-    'Content-Type': 'application/json'
-  };
-log('headers=%s', JSON.stringify(headers));
-  const gid = `gid://shopify/Product/${productNumericId}`;
-  log('gid=%s', gid);
-  const resp = await axios.post(
-    endpoint,
-    {
-      query: PRODUCT_DETAILS_QUERY,
-      variables: { id: gid }
-    },
-    { headers }
-  );
-log('resp=%s', JSON.stringify(resp.data));
-  if (resp.data.errors) {
-    const message = Array.isArray(resp.data.errors)
-      ? resp.data.errors.map(e => e.message).join('; ')
-      : 'Unknown GraphQL error';
-    const error = new Error(message);
-    error.status = 502;
-    throw error;
-  }
-
-  return resp.data?.data?.product || null;
-};
 
 const ACCOUNT_INFO_URL =
-  process.env.SHOPIFY_ACCOUNT_INFO_URL ||
-  'https://shopify.finerworks.com/api/account-info';
+  process.env.SHOPIFY_ACCOUNT_INFO_URL || 'https://shopify.finerworks.com/api/account-info';
 
 const ACCOUNT_INFO_SECRET = 'XSiLA7OpH5RdUsljgBD9VaJ1kr6euQz3F4Ny0Iq2tcCEnoYG';
 
 const fetchAccountInfoByShop = async () => {
-  console.log("entererererer")
+  console.log('entererererer');
   const resp = await axios.post(
     ACCOUNT_INFO_URL,
     { secret: ACCOUNT_INFO_SECRET },
     {
       headers: { 'Content-Type': 'application/json' },
-      timeout: 10000
+      timeout: 10000,
     }
   );
-  console.log("resp=====",resp);
+  console.log('resp=====', resp);
   return resp?.data || null;
 };
 
 const fetchAccountInfoByShopV2 = async (shop) => {
-  console.log("entererererer")
+  console.log('entererererer');
   const resp = await axios.post(
     ACCOUNT_INFO_URL,
     { shop: shop },
     {
       headers: { 'Content-Type': 'application/json' },
-      timeout: 10000
+      timeout: 10000,
     }
   );
-  console.log("resp=====",resp);
+  console.log('resp=====', resp);
   return resp?.data || null;
 };
 
 /** Fetch account info (access_token, account_key) for a specific shop. Used by webhooks that have X-Shopify-Shop-Domain. */
 const fetchAccountInfoByShopDomain = async (shopDomain) => {
-  console.log("herererererererere",shopDomain)
+  console.log('herererererererere', shopDomain);
   if (!shopDomain) return null;
   const resp = await axios.post(
     ACCOUNT_INFO_URL,
-    {  shop: shopDomain },
+    { shop: shopDomain },
     { headers: { 'Content-Type': 'application/json' }, timeout: 10000 }
   );
   return resp?.data || null;
-};
-
-const extractSkusFromShopifyProductDetails = (productDetails) => {
-  const skus = new Set();
-  const nodes = productDetails?.variants?.nodes;
-  if (Array.isArray(nodes)) {
-    for (const v of nodes) {
-      const sku = v?.sku != null ? String(v.sku).trim() : '';
-      if (sku) skus.add(sku);
-    }
-  }
-  return Array.from(skus);
 };
 
 const clearShopifyGraphqlProductIdForSkus = async ({ accountKey, skus }) => {
@@ -5997,7 +6064,7 @@ const clearShopifyGraphqlProductIdForSkus = async ({ accountKey, skus }) => {
       // Fetch current virtual inventory record so we don't overwrite anything unintentionally.
       const listPayload = {
         sku_filter: [sku],
-        account_key: accountKey
+        account_key: accountKey,
       };
       log('listPayload=%s', JSON.stringify(listPayload));
       const listResp = await finerworksService.LIST_VIRTUAL_INVENTORY(listPayload);
@@ -6013,33 +6080,33 @@ const clearShopifyGraphqlProductIdForSkus = async ({ accountKey, skus }) => {
             track_inventory: current.track_inventory ?? true,
             third_party_integrations: {
               ...(current.third_party_integrations || {}),
-              shopify_graphql_product_id: null
-            }
+              shopify_graphql_product_id: null,
+            },
           }
         : {
             sku,
             third_party_integrations: {
-              shopify_graphql_product_id: null
-            }
+              shopify_graphql_product_id: null,
+            },
           };
 
       const updatePayload = {
         virtual_inventory: [item],
-        account_key: accountKey
+        account_key: accountKey,
       };
-      console.log("updatePayload",updatePayload);
+      console.log('updatePayload', updatePayload);
       const updateResp = await finerworksService.UPDATE_VIRTUAL_INVENTORY(updatePayload);
 
       results.push({
         sku,
         updated: true,
-        result: updateResp
+        result: updateResp,
       });
     } catch (err) {
       errors.push({
         sku,
         updated: false,
-        error: err?.message || 'Unknown error'
+        error: err?.message || 'Unknown error',
       });
     }
   }
@@ -6049,7 +6116,12 @@ const clearShopifyGraphqlProductIdForSkus = async ({ accountKey, skus }) => {
 
 /** Returns true if the line item (or its variant) has a SKU that starts with "AP". */
 const lineItemSkuStartsWithAP = (node) => {
-  const sku = (node?.sku != null ? String(node.sku) : node?.variant?.sku != null ? String(node.variant.sku) : '') || '';
+  const sku =
+    (node?.sku != null
+      ? String(node.sku)
+      : node?.variant?.sku != null
+        ? String(node.variant.sku)
+        : '') || '';
   return sku.trim().toUpperCase().startsWith('AP');
 };
 
@@ -6081,14 +6153,13 @@ const transformShopifyOrderToOrdersPayload = (order) => {
     country_code: (addr.countryCodeV2 || '').toLowerCase() || null,
     phone: addr.phone ?? cust.phone ?? null,
     email: order?.email ?? cust.email ?? null,
-    address_order_po: orderPoDisplay
+    address_order_po: orderPoDisplay,
   };
 
   const orderItems = (order?.lineItems?.edges || []).map((edge) => {
     const node = edge?.node || {};
     const variant = node?.variant || {};
     const product = variant?.product || {};
-    const imageUrl = variant?.image?.url ?? product?.featuredImage?.url ?? null;
     return {
       product_order_po: orderPoDisplay || null,
       product_qty: node.quantity ?? 0,
@@ -6097,15 +6168,15 @@ const transformShopifyOrderToOrdersPayload = (order) => {
       product_image: {
         pixel_width: 600,
         pixel_height: 600,
-        product_url_file: "https://via.placeholder.com/150",
-        product_url_thumbnail: "https://via.placeholder.com/150"
+        product_url_file: 'https://via.placeholder.com/150',
+        product_url_thumbnail: 'https://via.placeholder.com/150',
       },
       product_title: node.title ?? product?.title ?? null,
       template: null,
       product_guid: product.product_guid ?? null,
       custom_data_1: null,
       custom_data_2: null,
-      custom_data_3: null
+      custom_data_3: null,
     };
   });
 
@@ -6130,7 +6201,7 @@ const transformShopifyOrderToOrdersPayload = (order) => {
     custom_data_1: null,
     custom_data_2: null,
     custom_data_3: null,
-    source: null
+    source: null,
   };
 };
 
@@ -6155,7 +6226,7 @@ const shopifyOrdersCreateWebhook = async (req, res) => {
     if (!shopDomain) {
       return res.status(400).json({
         success: false,
-        message: 'Missing X-Shopify-Shop-Domain header'
+        message: 'Missing X-Shopify-Shop-Domain header',
       });
     }
 
@@ -6164,14 +6235,14 @@ const shopifyOrdersCreateWebhook = async (req, res) => {
     if (!orderId) {
       return res.status(400).json({
         success: false,
-        message: 'Missing order id in webhook body (id or admin_graphql_api_id)'
+        message: 'Missing order id in webhook body (id or admin_graphql_api_id)',
       });
     }
 
     let accountInfo = null;
     try {
       accountInfo = await fetchAccountInfoByShopDomain(shopDomain);
-      console.log("accountInfo===",accountInfo);
+      console.log('accountInfo===', accountInfo);
       if (!accountInfo?.access_token) {
         accountInfo = await fetchAccountInfoByShop();
       }
@@ -6182,7 +6253,7 @@ const shopifyOrdersCreateWebhook = async (req, res) => {
         success: false,
         message: 'Failed to fetch account info for shop',
         shopDomain,
-        error: lookupErr?.message || 'Request failed'
+        error: lookupErr?.message || 'Request failed',
       });
     }
 
@@ -6191,7 +6262,7 @@ const shopifyOrdersCreateWebhook = async (req, res) => {
       return res.status(401).json({
         success: false,
         message: 'No access_token for shop',
-        shopDomain
+        shopDomain,
       });
     }
 
@@ -6201,7 +6272,7 @@ const shopifyOrdersCreateWebhook = async (req, res) => {
         shopDomain,
         accessToken,
         apiVersion,
-        orderId
+        orderId,
       });
     } catch (fetchErr) {
       const status = fetchErr?.status || fetchErr?.response?.status || 502;
@@ -6211,7 +6282,7 @@ const shopifyOrdersCreateWebhook = async (req, res) => {
         message: 'Failed to fetch order from Shopify',
         shopDomain,
         orderId,
-        error: fetchErr?.message || 'Request failed'
+        error: fetchErr?.message || 'Request failed',
       });
     }
 
@@ -6220,7 +6291,7 @@ const shopifyOrdersCreateWebhook = async (req, res) => {
         success: false,
         message: 'Order not found',
         shopDomain,
-        orderId
+        orderId,
       });
     }
 
@@ -6230,13 +6301,13 @@ const shopifyOrdersCreateWebhook = async (req, res) => {
       ...order,
       lineItems: {
         ...order.lineItems,
-        edges: filteredEdges
-      }
+        edges: filteredEdges,
+      },
     };
 
     const shippingOptions = await finerworksService.SHIPPING_OPTIONS_LIST();
     log('shippingOptions====>>', shippingOptions);
-    console.log("shippingOptions====>>>",shippingOptions);
+    console.log('shippingOptions====>>>', shippingOptions);
 
     [filteredOrder].forEach((o) => {
       (o.shippingLines?.edges || []).forEach((edge) => {
@@ -6274,7 +6345,7 @@ const shopifyOrdersCreateWebhook = async (req, res) => {
       orders: [transformedOrder],
       validate_only: false,
       payment_token: 'xxxx',
-      account_key: accountKey
+      account_key: accountKey,
     };
 
     let submitData = null;
@@ -6287,7 +6358,7 @@ const shopifyOrdersCreateWebhook = async (req, res) => {
       //   // orderId: order.id,
       //   payload: finalPayload
       // });
-      
+
       submitData = await finerworksService.SUBMIT_ORDERS(finalPayload);
       log('FinerWorks SUBMIT_ORDERS response: %s', JSON.stringify(submitData));
 
@@ -6300,7 +6371,7 @@ const shopifyOrdersCreateWebhook = async (req, res) => {
           orderId: order.id,
           namespace: 'custom',
           key: 'submittedToFinerWorks',
-          value: true
+          value: true,
         });
       } catch (metafieldErr) {
         log('updateOrderBooleanMetafield failed: %s', metafieldErr?.message);
@@ -6323,21 +6394,21 @@ const shopifyOrdersCreateWebhook = async (req, res) => {
           accessToken,
           apiVersion,
           orderId: order.id,
-          noteToAppend
+          noteToAppend,
         });
       } catch (noteErr) {
         log('appendOrderNote failed: %s', noteErr?.message);
       }
     } catch (submitErr) {
       log('SUBMIT_ORDERS failed: %s', submitErr?.message);
-      console.log(JSON.stringify(submitErr))
+      console.log(JSON.stringify(submitErr));
       return res.status(502).json({
         success: false,
         message: 'Order submitted to FinerWorks failed',
         shopDomain,
         orderId: order.id,
         payload: finalPayload,
-        error: submitErr?.message || submitErr?.response?.data || 'Unknown error'
+        error: submitErr?.message || submitErr?.response?.data || 'Unknown error',
       });
     }
 
@@ -6347,21 +6418,20 @@ const shopifyOrdersCreateWebhook = async (req, res) => {
       validate_only: finalPayload.validate_only,
       payment_token: finalPayload.payment_token,
       account_key: accountKey,
-      submitData
+      submitData,
     });
   } catch (err) {
     log('shopifyOrdersCreateWebhook error: %s', err?.message);
     return res.status(500).json({
       success: false,
       message: 'Webhook handler failed',
-      error: err?.message || 'Unknown error'
+      error: err?.message || 'Unknown error',
     });
   }
 };
 
 const shopifyProductDeleteWebhook = async (req, res) => {
   try {
-    const apiVersion = process.env.SHOPIFY_API_VERSION || '2025-10';
     log('shopifyProductDeleteWebhook hit');
 
     // Shopify webhook headers (shop domain is here)
@@ -6378,7 +6448,7 @@ const shopifyProductDeleteWebhook = async (req, res) => {
     if (!shopDomain) {
       return res.status(400).json({
         success: false,
-        message: 'Missing X-Shopify-Shop-Domain header'
+        message: 'Missing X-Shopify-Shop-Domain header',
       });
     }
 
@@ -6390,7 +6460,7 @@ const shopifyProductDeleteWebhook = async (req, res) => {
     if (!productId || !/^\d+$/.test(productId)) {
       return res.status(400).json({
         success: false,
-        message: 'Missing/invalid product id. Expected numeric `id` in webhook body.'
+        message: 'Missing/invalid product id. Expected numeric `id` in webhook body.',
       });
     }
 
@@ -6399,7 +6469,7 @@ const shopifyProductDeleteWebhook = async (req, res) => {
     try {
       log('fetching account info');
       accountInfo = await fetchAccountInfoByShopV2(shopDomain);
-      console.log("accountInfo====",accountInfo);
+      console.log('accountInfo====', accountInfo);
       log('account info fetched success=%s', accountInfo?.success);
     } catch (lookupErr) {
       const status = lookupErr?.response?.status || 500;
@@ -6409,16 +6479,13 @@ const shopifyProductDeleteWebhook = async (req, res) => {
         message: 'Failed to fetch account info for shop',
         shopDomain,
         error:
-          (lookupErr?.response?.data && (lookupErr.response.data.errors || lookupErr.response.data.error)) ||
+          (lookupErr?.response?.data &&
+            (lookupErr.response.data.errors || lookupErr.response.data.error)) ||
           lookupErr?.message ||
-          'Request failed'
+          'Request failed',
       });
     }
 
-    const accessToken =
-      accountInfo?.success === true && accountInfo?.access_token
-        ? String(accountInfo.access_token)
-        : null;
     const accountKey =
       accountInfo?.success === true && accountInfo?.account_key
         ? String(accountInfo.account_key)
@@ -6430,7 +6497,7 @@ const shopifyProductDeleteWebhook = async (req, res) => {
         success: false,
         message: 'No account_key returned for shop from account-info service',
         shopDomain,
-        accountInfo
+        accountInfo,
       });
     }
     log('account_key=%s', accountKey);
@@ -6439,12 +6506,12 @@ const shopifyProductDeleteWebhook = async (req, res) => {
     let listResp = null;
     try {
       log('listing virtual inventory by third_party_connections_filter=%s', productId);
-      console.log("productId=====",productId);
+      console.log('productId=====', productId);
       listResp = await finerworksService.LIST_VIRTUAL_INVENTORY({
         third_party_connections_filter: String(productId),
-        account_key: accountKey
+        account_key: accountKey,
       });
-      console.log("listResp===",listResp);
+      console.log('listResp===', listResp);
     } catch (listErr) {
       log('list virtual inventory failed message=%s', listErr?.message);
       return res.status(listErr?.response?.status || 500).json({
@@ -6452,7 +6519,7 @@ const shopifyProductDeleteWebhook = async (req, res) => {
         message: 'Failed to list virtual inventory by product id',
         shopDomain,
         id: Number(productId),
-        error: listErr?.message || 'Request failed'
+        error: listErr?.message || 'Request failed',
       });
     }
 
@@ -6462,11 +6529,11 @@ const shopifyProductDeleteWebhook = async (req, res) => {
       .filter((s) => s.length > 0);
     log('sku count=%s from list', skus.length);
 
-    const virtualInventoryClear =
-      skus.length
-        ? await clearShopifyGraphqlProductIdForSkus({ accountKey, skus })
-        : { results: [], errors: [] };
-    log('virtual inventory cleared updated=%s errors=%s',
+    const virtualInventoryClear = skus.length
+      ? await clearShopifyGraphqlProductIdForSkus({ accountKey, skus })
+      : { results: [], errors: [] };
+    log(
+      'virtual inventory cleared updated=%s errors=%s',
       Array.isArray(virtualInventoryClear?.results) ? virtualInventoryClear.results.length : 0,
       Array.isArray(virtualInventoryClear?.errors) ? virtualInventoryClear.errors.length : 0
     );
@@ -6479,13 +6546,13 @@ const shopifyProductDeleteWebhook = async (req, res) => {
       id: Number(productId),
       skus,
       virtualInventoryClear,
-      webhook_payload: req.body || null
+      webhook_payload: req.body || null,
     });
   } catch (err) {
     return res.status(500).json({
       success: false,
       message: 'Webhook handler failed',
-      error: err?.message || 'Unknown error'
+      error: err?.message || 'Unknown error',
     });
   }
 };
@@ -6507,5 +6574,5 @@ module.exports = {
   deleteShopifyWebhookById,
   shopifyProductDeleteWebhook,
   shopifyOrdersCreateWebhook,
-  createUsCanadaShippingProfile
+  createUsCanadaShippingProfile,
 };

@@ -12,21 +12,12 @@ function maskSecret(s) {
   return `${str.slice(0, 6)}***${str.slice(-4)}`;
 }
 
-function base64UrlEncode(input) {
-  const b64 = Buffer.from(String(input), 'utf8').toString('base64');
-  return b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
-}
-
 function base64UrlDecode(input) {
-  const b64 = String(input || '').replace(/-/g, '+').replace(/_/g, '/');
+  const b64 = String(input || '')
+    .replace(/-/g, '+')
+    .replace(/_/g, '/');
   const pad = b64.length % 4 === 0 ? '' : '='.repeat(4 - (b64.length % 4));
   return Buffer.from(b64 + pad, 'base64').toString('utf8');
-}
-
-function normalizeBearer(token) {
-  const t = String(token || '').trim();
-  if (!t) return '';
-  return /^Bearer\s+/i.test(t) ? t : `Bearer ${t}`;
 }
 
 function safeJsonParse(s) {
@@ -48,25 +39,23 @@ function jwtPayloadDecode(token) {
   return safeJsonParse(json);
 }
 
-const getApiBaseUrl = (req) => (req.baseUrl ? req.baseUrl : '/api');
-
-const buildWixRedirectUri = (req) => {
+const buildWixRedirectUri = () => {
   // Keep redirect_uri consistent between initiate + callback.
-  return "https://d7z22w3j4h.execute-api.us-east-1.amazonaws.com/Prod/api/wix/oauth/callback";
-  return (
-    process.env.WIX_REDIRECT_URI ||
-    `${req.protocol}://${req.get('host')}${getApiBaseUrl(req)}/wix/oauth/callback`
-  );
+  return 'https://d7z22w3j4h.execute-api.us-east-1.amazonaws.com/Prod/api/wix/oauth/callback';
 };
 
 /**
  * Browser redirect after install (GET). Must match Wix Dev Center **exactly** (path only, no ?query):
  * e.g. https://xxx.execute-api.region.amazonaws.com/Prod/api/wix/oauth/install-return
  */
-const buildWixInstallReturnUri = (req) => {
-  const fromEnv = process.env.WIX_INSTALL_RETURN_URL && String(process.env.WIX_INSTALL_RETURN_URL).trim();
+const buildWixInstallReturnUri = (_req) => {
+  const fromEnv =
+    process.env.WIX_INSTALL_RETURN_URL && String(process.env.WIX_INSTALL_RETURN_URL).trim();
   if (fromEnv) return fromEnv.split('?')[0].replace(/\/$/, '');
-  return String(buildWixRedirectUri(req)).replace(/\/wix\/oauth\/callback\/?$/i, '/wix/oauth/install-return');
+  return String(buildWixRedirectUri()).replace(
+    /\/wix\/oauth\/callback\/?$/i,
+    '/wix/oauth/install-return'
+  );
 };
 
 /**
@@ -88,7 +77,7 @@ const getWixInstallLink = async (req, res) => {
     return res.status(500).json({
       success: false,
       message:
-        'WIX_INSTALL_URL not configured. Create/share an install link for your Wix App in Wix Dev Center (Distribution) and set it as WIX_INSTALL_URL.'
+        'WIX_INSTALL_URL not configured. Create/share an install link for your Wix App in Wix Dev Center (Distribution) and set it as WIX_INSTALL_URL.',
     });
   }
 
@@ -121,7 +110,9 @@ const connectWixFromInstance = async (req, res) => {
       req.body?.accountKey;
 
     if (!account_key || !String(account_key).trim()) {
-      return res.status(400).json({ success: false, message: 'Missing required parameter: account_key' });
+      return res
+        .status(400)
+        .json({ success: false, message: 'Missing required parameter: account_key' });
     }
 
     const instanceToken = req.query?.instance || req.body?.instance || null;
@@ -132,11 +123,7 @@ const connectWixFromInstance = async (req, res) => {
       req.body?.instance_id ||
       null;
     const siteIdRaw =
-      req.query?.siteId ||
-      req.query?.site_id ||
-      req.body?.siteId ||
-      req.body?.site_id ||
-      null;
+      req.query?.siteId || req.query?.site_id || req.body?.siteId || req.body?.site_id || null;
 
     let instance_id = instanceIdRaw ? String(instanceIdRaw).trim() : '';
     let site_id = siteIdRaw ? String(siteIdRaw).trim() : '';
@@ -144,21 +131,27 @@ const connectWixFromInstance = async (req, res) => {
     if ((!instance_id || !site_id) && instanceToken) {
       const payload = jwtPayloadDecode(instanceToken);
       // Payload keys vary; we try common ones.
-      if (!instance_id) instance_id = String(payload?.instanceId || payload?.instance_id || payload?.inst || '').trim();
-      if (!site_id) site_id = String(payload?.siteId || payload?.site_id || payload?.metaSiteId || '').trim();
+      if (!instance_id)
+        instance_id = String(
+          payload?.instanceId || payload?.instance_id || payload?.inst || ''
+        ).trim();
+      if (!site_id)
+        site_id = String(payload?.siteId || payload?.site_id || payload?.metaSiteId || '').trim();
     }
 
     if (!instance_id) {
       return res.status(400).json({
         success: false,
         message:
-          'Missing Wix instance id. Provide `instanceId` or provide `instance` (JWT) so the server can extract instanceId.'
+          'Missing Wix instance id. Provide `instanceId` or provide `instance` (JWT) so the server can extract instanceId.',
       });
     }
 
     // Persist the site binding (instance id) even if we don't yet have a minted access token.
     // Keep `id` as-is if Wix connection exists, else store empty string.
-    const getInformation = await finerworksService.GET_INFO({ account_key: String(account_key).trim() });
+    const getInformation = await finerworksService.GET_INFO({
+      account_key: String(account_key).trim(),
+    });
     const connections = Array.isArray(getInformation?.user_account?.connections)
       ? JSON.parse(JSON.stringify(getInformation.user_account.connections))
       : [];
@@ -166,7 +159,11 @@ const connectWixFromInstance = async (req, res) => {
     const existing = idx !== -1 ? connections[idx] : null;
     let existingData = {};
     try {
-      existingData = existing?.data ? (typeof existing.data === 'string' ? JSON.parse(existing.data) : existing.data) : {};
+      existingData = existing?.data
+        ? typeof existing.data === 'string'
+          ? JSON.parse(existing.data)
+          : existing.data
+        : {};
     } catch (_) {
       existingData = {};
     }
@@ -177,20 +174,20 @@ const connectWixFromInstance = async (req, res) => {
       instance_id,
       site_id: site_id || existingData?.site_id || null,
       instance_token_present: Boolean(instanceToken),
-      connected_at: new Date().toISOString()
+      connected_at: new Date().toISOString(),
     };
 
     const conn = {
       name: 'Wix',
       id: existing?.id || '',
-      data: JSON.stringify(nextData)
+      data: JSON.stringify(nextData),
     };
     if (idx !== -1) connections[idx] = conn;
     else connections.push(conn);
 
     await finerworksService.UPDATE_INFO({
       account_key: String(account_key).trim(),
-      connections
+      connections,
     });
 
     const return_url = req.query?.return_url || req.body?.return_url || null;
@@ -204,21 +201,23 @@ const connectWixFromInstance = async (req, res) => {
       message: 'Wix instance connected successfully',
       wix: {
         instance_id,
-        site_id: nextData.site_id || null
-      }
+        site_id: nextData.site_id || null,
+      },
     });
   } catch (err) {
     const status = err?.response?.status || 500;
     return res.status(status).json({
       success: false,
       message: 'Failed to connect Wix from instance',
-      error: err?.response?.data || err?.message || 'Unknown error'
+      error: err?.response?.data || err?.message || 'Unknown error',
     });
   }
 };
 
 async function upsertWixConnection({ account_key, id, data }) {
-  const getInformation = await finerworksService.GET_INFO({ account_key: String(account_key).trim() });
+  const getInformation = await finerworksService.GET_INFO({
+    account_key: String(account_key).trim(),
+  });
   const connections = Array.isArray(getInformation?.user_account?.connections)
     ? JSON.parse(JSON.stringify(getInformation.user_account.connections))
     : [];
@@ -227,7 +226,7 @@ async function upsertWixConnection({ account_key, id, data }) {
   const conn = {
     name: 'Wix',
     id,
-    data: JSON.stringify(data || {})
+    data: JSON.stringify(data || {}),
   };
 
   if (idx !== -1) connections[idx] = conn;
@@ -235,7 +234,7 @@ async function upsertWixConnection({ account_key, id, data }) {
 
   await finerworksService.UPDATE_INFO({
     account_key: String(account_key).trim(),
-    connections
+    connections,
   });
 
   return conn;
@@ -264,7 +263,7 @@ async function createWixAccessTokenFromInstance({ instance_id }) {
       grant_type: 'client_credentials',
       client_id: String(clientId).trim(),
       client_secret: String(clientSecret).trim(),
-      instance_id: String(instance_id).trim()
+      instance_id: String(instance_id).trim(),
     },
     { timeout: 20000 }
   );
@@ -272,7 +271,12 @@ async function createWixAccessTokenFromInstance({ instance_id }) {
   return resp?.data || {};
 }
 
-async function persistWixClientCredentialsConnection(account_key, instance_id, site_id, extraData = null) {
+async function persistWixClientCredentialsConnection(
+  account_key,
+  instance_id,
+  site_id,
+  extraData = null
+) {
   const tokenData = await createWixAccessTokenFromInstance({ instance_id });
   const access_token = tokenData?.access_token;
   const expires_in = tokenData?.expires_in;
@@ -283,7 +287,9 @@ async function persistWixClientCredentialsConnection(account_key, instance_id, s
     throw err;
   }
   const now = Date.now();
-  const expires_at = Number.isFinite(Number(expires_in)) ? new Date(now + Number(expires_in) * 1000).toISOString() : null;
+  const expires_at = Number.isFinite(Number(expires_in))
+    ? new Date(now + Number(expires_in) * 1000).toISOString()
+    : null;
   const baseData = {
     auth_type: 'oauth_client_credentials',
     instance_id: String(instance_id).trim(),
@@ -291,18 +297,18 @@ async function persistWixClientCredentialsConnection(account_key, instance_id, s
     access_token,
     expires_in: expires_in ?? null,
     expires_at,
-    connected_at: new Date().toISOString()
+    connected_at: new Date().toISOString(),
   };
   await upsertWixConnection({
     account_key: String(account_key).trim(),
     id: access_token,
-    data: extraData && typeof extraData === 'object' ? { ...baseData, ...extraData } : baseData
+    data: extraData && typeof extraData === 'object' ? { ...baseData, ...extraData } : baseData,
   });
   return {
     access_token,
     expires_at,
     instance_id: String(instance_id).trim(),
-    site_id: site_id ? String(site_id).trim() : null
+    site_id: site_id ? String(site_id).trim() : null,
   };
 }
 
@@ -327,7 +333,7 @@ async function exchangeWixAuthorizationCode({ code }) {
       grant_type: 'authorization_code',
       client_id: String(clientId).trim(),
       client_secret: String(clientSecret).trim(),
-      code: String(code).trim()
+      code: String(code).trim(),
     },
     { timeout: 20000 }
   );
@@ -352,7 +358,7 @@ async function exchangeWixAuthorizationCode({ code }) {
  */
 const handleWixAuthStart = async (req, res) => {
   try {
-    log("handleWixAuthStart==========>>>>>>>>>>>", req.query);
+    log('handleWixAuthStart==========>>>>>>>>>>>', req.query);
     const account_key =
       req.query?.account_key ||
       req.query?.accountKey ||
@@ -360,7 +366,9 @@ const handleWixAuthStart = async (req, res) => {
       req.body?.accountKey;
 
     if (!account_key || !String(account_key).trim()) {
-      return res.status(400).json({ success: false, message: 'Missing required parameter: account_key' });
+      return res
+        .status(400)
+        .json({ success: false, message: 'Missing required parameter: account_key' });
     }
 
     const clientId = process.env.WIX_CLIENT_ID;
@@ -373,7 +381,7 @@ const handleWixAuthStart = async (req, res) => {
       return res.status(500).json({
         success: false,
         message:
-          'Set WIX_CLIENT_SECRET or WIX_INSTALL_CTX_SECRET to sign install `state` (carries account_key).'
+          'Set WIX_CLIENT_SECRET or WIX_INSTALL_CTX_SECRET to sign install `state` (carries account_key).',
       });
     }
 
@@ -385,7 +393,7 @@ const handleWixAuthStart = async (req, res) => {
         purpose: 'wix_install_return',
         account_key: String(account_key).trim(),
         nonce,
-        ...(return_url ? { return_url: String(return_url).trim() } : {})
+        ...(return_url ? { return_url: String(return_url).trim() } : {}),
       },
       String(ctxSecret).trim(),
       { expiresIn: '24h' }
@@ -405,20 +413,21 @@ const handleWixAuthStart = async (req, res) => {
       const qs = new URLSearchParams({
         appId: String(clientId).trim(),
         redirectUrl: installReturnBase,
-        state
+        state,
       });
       installUrl = `${installerBase}?${qs.toString()}`;
     } else {
       installUrl = `${installerBase}?appId=${encodeURIComponent(String(clientId).trim())}&postInstallationUrl=${encodeURIComponent(postInstallationUrl)}`;
     }
 
-    log("installUrl==========>>>>>>>>>>>", installUrl);
+    log('installUrl==========>>>>>>>>>>>', installUrl);
+    console.log('installUrl==========>>>>>>>>>>>', installUrl);
     return res.redirect(installUrl);
   } catch (err) {
     return res.status(500).json({
       success: false,
       message: 'Failed to initiate Wix auth',
-      error: err?.message || 'Unknown error'
+      error: err?.message || 'Unknown error',
     });
   }
 };
@@ -448,7 +457,7 @@ const connectWix = async (req, res) => {
     if (!account_key || !String(account_key).trim()) {
       return res.status(400).json({
         success: false,
-        message: 'Missing required parameter: account_key'
+        message: 'Missing required parameter: account_key',
       });
     }
 
@@ -458,7 +467,7 @@ const connectWix = async (req, res) => {
     if (!apiKey || !siteId) {
       return res.status(500).json({
         success: false,
-        message: 'Wix credentials not configured (WIX_API_KEY, WIX_SITE_ID)'
+        message: 'Wix credentials not configured (WIX_API_KEY, WIX_SITE_ID)',
       });
     }
 
@@ -470,7 +479,7 @@ const connectWix = async (req, res) => {
       Authorization: String(apiKey).trim(),
       'wix-site-id': String(siteId).trim(),
       'Content-Type': 'application/json',
-      Accept: 'application/json, text/plain, */*'
+      Accept: 'application/json, text/plain, */*',
     };
 
     const validateResp = await axios.post(
@@ -480,13 +489,14 @@ const connectWix = async (req, res) => {
       {
         headers: wixHeaders,
         timeout: 20000,
-        validateStatus: () => true
+        validateStatus: () => true,
       }
     );
 
     if (validateResp.status < 200 || validateResp.status >= 300) {
       const wixMsg = validateResp?.data?.message;
-      const permissionMatch = typeof wixMsg === 'string' ? wixMsg.match(/perform\s+([a-z0-9.-_]+)\s+on\s+site/i) : null;
+      const permissionMatch =
+        typeof wixMsg === 'string' ? wixMsg.match(/perform\s+([a-z0-9.-_]+)\s+on\s+site/i) : null;
       const requiredPermission = permissionMatch?.[1] || null;
       return res.status(validateResp.status || 401).json({
         success: false,
@@ -495,11 +505,13 @@ const connectWix = async (req, res) => {
           : 'Failed to validate Wix API key/site id',
         status: validateResp.status,
         requiredPermission,
-        wixError: validateResp.data
+        wixError: validateResp.data,
       });
     }
 
-    const getInformation = await finerworksService.GET_INFO({ account_key: String(account_key).trim() });
+    const getInformation = await finerworksService.GET_INFO({
+      account_key: String(account_key).trim(),
+    });
     const connections = Array.isArray(getInformation?.user_account?.connections)
       ? JSON.parse(JSON.stringify(getInformation.user_account.connections))
       : [];
@@ -518,9 +530,9 @@ const connectWix = async (req, res) => {
         validation: {
           endpoint: 'POST https://www.wixapis.com/stores/v3/products/query',
           status: validateResp.status,
-          sample: validateResp?.data || null
-        }
-      })
+          sample: validateResp?.data || null,
+        },
+      }),
     };
 
     if (idx !== -1) connections[idx] = conn;
@@ -528,7 +540,7 @@ const connectWix = async (req, res) => {
 
     await finerworksService.UPDATE_INFO({
       account_key: String(account_key).trim(),
-      connections
+      connections,
     });
 
     return res.status(200).json({
@@ -536,15 +548,15 @@ const connectWix = async (req, res) => {
       message: 'Wix connection added successfully',
       wix: {
         site_id: String(siteId).trim(),
-        access_token: maskSecret(apiKey)
-      }
+        access_token: maskSecret(apiKey),
+      },
     });
   } catch (err) {
     const status = err?.response?.status || 500;
     return res.status(status).json({
       success: false,
       message: 'Failed to connect Wix',
-      error: err?.response?.data || err?.message || 'Unknown error'
+      error: err?.response?.data || err?.message || 'Unknown error',
     });
   }
 };
@@ -575,17 +587,17 @@ const connectWixOAuth = async (req, res) => {
       req.query?.instanceId;
 
     const site_id =
-      req.body?.site_id ||
-      req.body?.siteId ||
-      req.query?.site_id ||
-      req.query?.siteId ||
-      null;
+      req.body?.site_id || req.body?.siteId || req.query?.site_id || req.query?.siteId || null;
 
     if (!account_key || !String(account_key).trim()) {
-      return res.status(400).json({ success: false, message: 'Missing required parameter: account_key' });
+      return res
+        .status(400)
+        .json({ success: false, message: 'Missing required parameter: account_key' });
     }
     if (!instance_id || !String(instance_id).trim()) {
-      return res.status(400).json({ success: false, message: 'Missing required parameter: instance_id' });
+      return res
+        .status(400)
+        .json({ success: false, message: 'Missing required parameter: instance_id' });
     }
 
     const out = await persistWixClientCredentialsConnection(
@@ -601,8 +613,8 @@ const connectWixOAuth = async (req, res) => {
         instance_id: out.instance_id,
         site_id: out.site_id,
         access_token: maskSecret(out.access_token),
-        expires_at: out.expires_at
-      }
+        expires_at: out.expires_at,
+      },
     });
   } catch (err) {
     const status = err?.statusCode || err?.response?.status || 500;
@@ -610,7 +622,7 @@ const connectWixOAuth = async (req, res) => {
       success: false,
       message: 'Failed to connect Wix via OAuth',
       error: err?.response?.data || err?.message || 'Unknown error',
-      ...(err?.tokenData ? { data: err.tokenData } : {})
+      ...(err?.tokenData ? { data: err.tokenData } : {}),
     });
   }
 };
@@ -622,11 +634,11 @@ const connectWixOAuth = async (req, res) => {
 const handleWixOAuthInstallReturn = async (req, res) => {
   try {
     const secret = process.env.WIX_INSTALL_CTX_SECRET || process.env.WIX_CLIENT_SECRET;
-    log("handleWixOAuthInstallReturn==========>>>>>>>>>>>", req.query);
+    log('handleWixOAuthInstallReturn==========>>>>>>>>>>>', req.query);
     if (!secret || !String(secret).trim()) {
       return res.status(500).json({
         success: false,
-        message: 'Set WIX_INSTALL_CTX_SECRET or WIX_CLIENT_SECRET to verify install state.'
+        message: 'Set WIX_INSTALL_CTX_SECRET or WIX_CLIENT_SECRET to verify install state.',
       });
     }
 
@@ -668,23 +680,26 @@ const handleWixOAuthInstallReturn = async (req, res) => {
       return res.status(400).json({
         success: false,
         message:
-          'Missing install context. Start from GET /wix/oauth/start?account_key=... (Wix must return `state` on this redirect).'
+          'Missing install context. Start from GET /wix/oauth/start?account_key=... (Wix must return `state` on this redirect).',
       });
     }
     const instanceToken = req.query?.instance || null;
     const instanceIdRaw = req.query?.instanceId || req.query?.instance_id;
     let instance_id = instanceIdRaw ? String(instanceIdRaw).trim() : '';
-    let site_id =
-      (req.query?.siteId || req.query?.site_id || '').trim() || null;
+    let site_id = (req.query?.siteId || req.query?.site_id || '').trim() || null;
 
     if (!instance_id && instanceToken) {
       const instPayload = jwtPayloadDecode(instanceToken);
       if (!instance_id) {
-        instance_id = String(instPayload?.instanceId || instPayload?.instance_id || instPayload?.inst || '').trim();
+        instance_id = String(
+          instPayload?.instanceId || instPayload?.instance_id || instPayload?.inst || ''
+        ).trim();
       }
       if (!site_id) {
         site_id =
-          String(instPayload?.siteId || instPayload?.site_id || instPayload?.metaSiteId || '').trim() || null;
+          String(
+            instPayload?.siteId || instPayload?.site_id || instPayload?.metaSiteId || ''
+          ).trim() || null;
       }
     }
 
@@ -692,11 +707,11 @@ const handleWixOAuthInstallReturn = async (req, res) => {
       return res.status(400).json({
         success: false,
         message:
-          'Missing Wix instance. Wix should redirect with `instance` or `instanceId` after install. If not, open the installed app from the site dashboard or use the App installed webhook plus POST /wix/oauth/connect.'
+          'Missing Wix instance. Wix should redirect with `instance` or `instanceId` after install. If not, open the installed app from the site dashboard or use the App installed webhook plus POST /wix/oauth/connect.',
       });
     }
 
-    const out = await persistWixClientCredentialsConnection(account_key, instance_id, site_id);
+    await persistWixClientCredentialsConnection(account_key, instance_id, site_id);
 
     const return_url = req.query?.return_url || return_url_from_state;
     if (return_url) {
@@ -706,7 +721,7 @@ const handleWixOAuthInstallReturn = async (req, res) => {
 
     return res.status(200).json({
       success: true,
-      message: 'Wix connected after install redirect'
+      message: 'Wix connected after install redirect',
     });
   } catch (err) {
     const status = err?.statusCode || err?.response?.status || 500;
@@ -714,7 +729,7 @@ const handleWixOAuthInstallReturn = async (req, res) => {
       success: false,
       message: 'Failed to complete Wix install return',
       error: err?.response?.data || err?.message || 'Unknown error',
-      ...(err?.tokenData ? { data: err.tokenData } : {})
+      ...(err?.tokenData ? { data: err.tokenData } : {}),
     });
   }
 };
@@ -735,7 +750,14 @@ const handleWixOAuthCallback = async (req, res) => {
     const code = req.query?.code;
     const state = req.query?.state;
     const return_url = req.query?.return_url;
-    const error = req.query?.error;
+    const oauthError = req.query?.error;
+
+    if (oauthError) {
+      return res.status(400).json({
+        success: false,
+        message: String(oauthError),
+      });
+    }
 
     const rawBody =
       typeof req.body === 'string'
@@ -754,7 +776,7 @@ const handleWixOAuthCallback = async (req, res) => {
       return res.status(400).json({
         success: false,
         message:
-          'Missing OAuth query params code and state, and body is not a Wix JWT. For App installed, POST a JWT body (or use legacy ?code=&state=).'
+          'Missing OAuth query params code and state, and body is not a Wix JWT. For App installed, POST a JWT body (or use legacy ?code=&state=).',
       });
     }
 
@@ -766,7 +788,9 @@ const handleWixOAuthCallback = async (req, res) => {
     }
     const account_key = stateObj?.account_key;
     if (!account_key) {
-      return res.status(400).json({ success: false, message: 'Invalid state: missing account_key' });
+      return res
+        .status(400)
+        .json({ success: false, message: 'Invalid state: missing account_key' });
     }
 
     const tokenData = await exchangeWixAuthorizationCode({ code });
@@ -774,7 +798,7 @@ const handleWixOAuthCallback = async (req, res) => {
       return res.status(400).json({
         success: false,
         message: 'Token exchange succeeded but access_token missing',
-        data: tokenData
+        data: tokenData,
       });
     }
 
@@ -785,8 +809,8 @@ const handleWixOAuthCallback = async (req, res) => {
         ...tokenData,
         auth_type: 'custom_auth_legacy',
         state_nonce: stateObj?.nonce || null,
-        connected_at: new Date().toISOString()
-      }
+        connected_at: new Date().toISOString(),
+      },
     });
 
     if (return_url) {
@@ -800,7 +824,7 @@ const handleWixOAuthCallback = async (req, res) => {
     return res.status(status).json({
       success: false,
       message: 'Failed to process Wix OAuth callback',
-      error: err?.response?.data || err?.message || 'Unknown error'
+      error: err?.response?.data || err?.message || 'Unknown error',
     });
   }
 };
@@ -814,6 +838,5 @@ module.exports = {
   persistWixClientCredentialsConnection,
   maskSecret,
   getWixInstallLink,
-  connectWixFromInstance
+  connectWixFromInstance,
 };
-

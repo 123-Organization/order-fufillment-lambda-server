@@ -20,12 +20,25 @@ function parseMaybeJsonString(v) {
 function extractWixAppInstalledFields(payload) {
   if (!payload || typeof payload !== 'object') return null;
 
-  const outerData = parseMaybeJsonString(payload.data) || (typeof payload.data === 'object' ? payload.data : null) || {};
-  const metadata = parseMaybeJsonString(payload.metadata) || (typeof payload.metadata === 'object' ? payload.metadata : null) || {};
-  const innerData = parseMaybeJsonString(outerData.data) || (typeof outerData.data === 'object' ? outerData.data : null) || {};
+  const outerData =
+    parseMaybeJsonString(payload.data) ||
+    (typeof payload.data === 'object' ? payload.data : null) ||
+    {};
+  const metadata =
+    parseMaybeJsonString(payload.metadata) ||
+    (typeof payload.metadata === 'object' ? payload.metadata : null) ||
+    {};
+  const innerData =
+    parseMaybeJsonString(outerData.data) ||
+    (typeof outerData.data === 'object' ? outerData.data : null) ||
+    {};
 
   const instanceId =
-    outerData.instanceId || metadata.instanceId || payload.instanceId || innerData.instanceId || null;
+    outerData.instanceId ||
+    metadata.instanceId ||
+    payload.instanceId ||
+    innerData.instanceId ||
+    null;
 
   const accountInfo =
     metadata.accountInfo && typeof metadata.accountInfo === 'object'
@@ -33,10 +46,16 @@ function extractWixAppInstalledFields(payload) {
       : parseMaybeJsonString(metadata.accountInfo) || {};
 
   const siteId =
-    accountInfo.siteId || metadata.siteId || outerData.siteId || payload.siteId || innerData.siteId || null;
+    accountInfo.siteId ||
+    metadata.siteId ||
+    outerData.siteId ||
+    payload.siteId ||
+    innerData.siteId ||
+    null;
 
   const appId = innerData.appId || outerData.appId || payload.appId || null;
-  const originInstanceId = innerData.originInstanceId || outerData.originInstanceId || payload.originInstanceId || null;
+  const originInstanceId =
+    innerData.originInstanceId || outerData.originInstanceId || payload.originInstanceId || null;
 
   const eventType = outerData.eventType || metadata.eventType || payload.eventType || null;
 
@@ -68,13 +87,17 @@ const handleWixJwtBodyAsAppInstall = async (req, res) => {
 
     const token = String(raw || '').trim();
     if (!token) {
-      return res.status(400).json({ success: false, message: 'Empty webhook body (expected JWT string)' });
+      return res
+        .status(400)
+        .json({ success: false, message: 'Empty webhook body (expected JWT string)' });
     }
 
     const decoded = jwt.decode(token, { complete: true });
     const payload = decoded && typeof decoded === 'object' ? decoded.payload : null;
     if (!payload || typeof payload !== 'object') {
-      return res.status(400).json({ success: false, message: 'Could not decode Wix webhook JWT payload' });
+      return res
+        .status(400)
+        .json({ success: false, message: 'Could not decode Wix webhook JWT payload' });
     }
 
     const extracted = extractWixAppInstalledFields(payload);
@@ -88,14 +111,11 @@ const handleWixJwtBodyAsAppInstall = async (req, res) => {
       siteId,
       appId,
       originInstanceId,
-      eventType: extracted?.eventType
+      eventType: extracted?.eventType,
     });
 
     let account_key =
-      req.query?.account_key ||
-      req.query?.accountKey ||
-      req.headers['x-account-key'] ||
-      null;
+      req.query?.account_key || req.query?.accountKey || req.headers['x-account-key'] || null;
 
     // Optional: same signed ctx used on GET /wix/oauth/install-return (only if you append ?ctx= to the webhook URL via a proxy).
     if ((!account_key || !String(account_key).trim()) && req.query?.ctx) {
@@ -115,7 +135,8 @@ const handleWixJwtBodyAsAppInstall = async (req, res) => {
     if (!instanceId || !String(instanceId).trim()) {
       return res.status(400).json({
         success: false,
-        message: 'Missing instanceId in decoded JWT (expected instanceId inside payload.data or metadata)'
+        message:
+          'Missing instanceId in decoded JWT (expected instanceId inside payload.data or metadata)',
       });
     }
 
@@ -128,8 +149,8 @@ const handleWixJwtBodyAsAppInstall = async (req, res) => {
           instance_id: String(instanceId).trim(),
           site_id: siteId ? String(siteId).trim() : null,
           app_id: appId ? String(appId).trim() : null,
-          origin_instance_id: originInstanceId ? String(originInstanceId).trim() : null
-        }
+          origin_instance_id: originInstanceId ? String(originInstanceId).trim() : null,
+        },
       });
     }
 
@@ -141,7 +162,7 @@ const handleWixJwtBodyAsAppInstall = async (req, res) => {
       {
         app_id: appId ? String(appId).trim() : null,
         origin_instance_id: originInstanceId ? String(originInstanceId).trim() : null,
-        installed_via: 'wix_webhook'
+        installed_via: 'wix_webhook',
       }
     );
 
@@ -153,15 +174,15 @@ const handleWixJwtBodyAsAppInstall = async (req, res) => {
         site_id: out.site_id,
         app_id: appId ? String(appId).trim() : null,
         access_token: maskSecret(out.access_token),
-        expires_at: out.expires_at
-      }
+        expires_at: out.expires_at,
+      },
     });
   } catch (err) {
     const status = err?.response?.status || 500;
     return res.status(status).json({
       success: false,
       message: 'Failed to process Wix app instance installed webhook',
-      error: err?.response?.data || err?.message || 'Unknown error'
+      error: err?.response?.data || err?.message || 'Unknown error',
     });
   }
 };
@@ -170,6 +191,5 @@ const handleWixAppInstanceInstalled = handleWixJwtBodyAsAppInstall;
 
 module.exports = {
   handleWixAppInstanceInstalled,
-  handleWixJwtBodyAsAppInstall
+  handleWixJwtBodyAsAppInstall,
 };
-
