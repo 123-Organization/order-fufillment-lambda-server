@@ -10,84 +10,6 @@ log("Orders");
 const axios = require('axios'); // Import axios for making HTTP requests
 
 
-
-// exports.viewAllOrders = async (req, res) => {
-//   try {
-//     // Validate request body format
-//     if (!req.body || typeof req.body !== "object") {
-//       return res.status(400).json({
-//         statusCode: 400,
-//         status: false,
-//         message: "Invalid request format. Expected a JSON object.",
-//       });
-//     }
-
-//     const { accountId } = req.body;
-//     if (!accountId) {
-//       return res.status(400).json({
-//         statusCode: 400,
-//         status: false,
-//         message: "Account ID is missing or invalid.",
-//       });
-//     }
-
-//     log("Request to get order details for", JSON.stringify(req.body));
-
-//     const selectPayload = {
-//       query: `SELECT * FROM ${process.env.FINER_fwAPI_FULFILLMENTS_TABLE} WHERE FulfillmentAccountID=${accountId} AND FulfillmentDeleted=0 ORDER BY FulfillmentID DESC`,
-//     };
-
-//     const selectData = await finerworksService.SELECT_QUERY_FINERWORKS(selectPayload);
-
-//     if (!selectData || !selectData.data || !Array.isArray(selectData.data)) {
-//       log("No orders found for account ID:", accountId);
-//       return res.status(200).json({
-//         statusCode: 200,
-//         status: false,
-//         message: "No orders found for the provided account ID.",
-//       });
-//     }
-//     console.log("selectPayload",selectData);
-//     // Process orders
-//     let allOrders = selectData.data.map((order) => {
-//       let orderData = urlDecodeJSON(order.FulfillmentData);
-//       orderData.orderFullFillmentId = order.FulfillmentID;
-//       return orderData;
-//     });
-
-//     // Handle empty order array case
-//     if (allOrders.length === 0) {
-//       log("No orders found after processing for account ID:", accountId);
-//       return res.status(200).json({
-//         statusCode: 200,
-//         status: false,
-//         message: "No orders available for this account.",
-//         data: [],
-//       });
-//     }
-
-//     res.status(200).json({
-//       statusCode: 200,
-//       status: true,
-//       message: "Orders found successfully.",
-//       data: allOrders,
-//     });
-
-//   } catch (err) {
-//     log("Error while fetching orders:", err?.message || JSON.stringify(err));
-
-//     res.status(500).json({
-//       statusCode: 500,
-//       status: false,
-//       message: "Internal server error. Please try again later.",
-//       error: err?.message || "Unknown error",
-//     });
-//   }
-// };
-
-
-
-
 exports.viewAllOrders = async (req, res) => {
   try {
     // Validate request body format
@@ -362,18 +284,6 @@ exports.updateOrderByProductSkuCode = async (req, res) => {
       }
     } else if (productCode) {
       console.log("got the entry 12121212")
-      // var payload = [{
-      //   // "product_order_po": "ORDER_PO_927668",
-      //   "product_qty": 1,
-      //   "product_sku": skuCode ? skuCode : productCode,
-      //   "product_image": {
-      //     "pixel_width": reqBody.pixel_width,
-      //     "pixel_height": reqBody.pixel_height,
-      //     "product_url_file": reqBody.product_url_file[0],
-      //     "product_url_thumbnail": reqBody.product_url_thumbnail[0],
-
-      //   }
-      // }];
       const payload = {
         products: [{
           product_qty: 1,
@@ -579,18 +489,6 @@ exports.updateOrderByValidProductSkuCode = async (req, res) => {
       }
     } else if (productCode) {
       console.log("got the entry 12121212")
-      // var payload = [{
-      //   // "product_order_po": "ORDER_PO_927668",
-      //   "product_qty": 1,
-      //   "product_sku": skuCode ? skuCode : productCode,
-      //   "product_image": {
-      //     "pixel_width": reqBody.pixel_width,
-      //     "pixel_height": reqBody.pixel_height,
-      //     "product_url_file": reqBody.product_url_file[0],
-      //     "product_url_thumbnail": reqBody.product_url_thumbnail[0],
-
-      //   }
-      // }];
       const payload = {
         products: [{
           product_qty: 1,
@@ -628,14 +526,6 @@ exports.updateOrderByValidProductSkuCode = async (req, res) => {
           pixel_width: reqBody.pixel_width ?? "",
           pixel_height: reqBody.pixel_height ?? "",
         }));
-
-        // if (previousOrder?.order_items) {
-        //   orderData.forEach((item, index) => {
-        //     previousOrder.order_items.push(item);
-        //   })
-        // }
-        // log("Previous order is", JSON.stringify(previousOrder));
-        // update order
 
         console.log("orderData====>>>>", orderData);
         console.log(previousOrder, "previousOrder");
@@ -806,71 +696,6 @@ exports.createNewOrder = async (req, res) => {
     });
   }
 };
-// exports.deleteOrder = async (req, res) => {
-//   try {
-//     const reqBody = JSON.parse(JSON.stringify(req.body));
-//     if (!reqBody.accountId || !reqBody.orderFullFillmentId) {
-//       res.status(400).json({
-//         statusCode: 400,
-//         status: false,
-//         message: "Account Id and order fullfillment Id are required.",
-//       });
-//     } else {
-//       const { orderFullFillmentId, accountId } = reqBody;
-//       log("Request comes to delete order for", JSON.stringify(reqBody));
-//       const selectPayload = {
-//         query: `SELECT * FROM ${process.env.FINER_fwAPI_FULFILLMENTS_TABLE} WHERE FulfillmentID=${orderFullFillmentId} AND FulfillmentAccountID = ${accountId}`,
-//       };
-//       const selectData = await finerworksService.SELECT_QUERY_FINERWORKS(
-//         selectPayload
-//       );
-//       if (selectData?.data.length) {
-//         const orderDetails = selectData?.data[0];
-//         if (orderDetails.FulfillmentDeleted) {
-//           res.status(400).json({
-//             statusCode: 400,
-//             status: false,
-//             message: "This order has already deleted.",
-//           });
-//         } else {
-//           const updatePayload = {
-//             tablename: process.env.FINER_fwAPI_FULFILLMENTS_TABLE,
-//             fieldupdates: `FulfillmentDeleted=1`,
-//             where: `FulfillmentID=${orderFullFillmentId}`,
-//           };
-//           const updateQueryExecute =
-//             await finerworksService.UPDATE_QUERY_FINERWORKS(updatePayload);
-//           if (updateQueryExecute) {
-//             log(
-//               "Order has been successfully deleted for",
-//               JSON.stringify(reqBody)
-//             );
-//             res.status(200).json({
-//               statusCode: 200,
-//               status: true,
-//               message: `Order with fulfillment ID ${orderFullFillmentId} has been successfully deleted.`,
-//             });
-//           } else {
-//             res.status(400).json({
-//               statusCode: 400,
-//               status: true,
-//               message: `Something went wrong while deleting the order of fulfillment ID ${orderFullFillmentId}`,
-//             });
-//           }
-//         }
-//       }
-//     }
-//   } catch (err) {
-//     log("Error comes while creating a new order", JSON.stringify(err), err);
-//     const errorMessage = err.response.data;
-//     res.status(400).json({
-//       statusCode: 400,
-//       status: false,
-//       message: errorMessage,
-//     });
-//   }
-// };
-
 
 exports.deleteOrder = async (req, res) => {
   try {
@@ -1161,78 +986,6 @@ exports.submitOrdersV2 = async (req, res) => {
     });
   }
 };
-// exports.orderSubmitStatus = async (req, res) => {
-//   try {
-//     const reqBody = JSON.parse(JSON.stringify(req.body));
-//     if (!reqBody.accountId || !reqBody.orderFullFillmentId) {
-//       res.status(400).json({
-//         statusCode: 400,
-//         status: false,
-//         message: "Account Id and order fullfillment Id are required.",
-//       });
-//     } else {
-//       const { orderFullFillmentId, accountId, account_key, orderId } = reqBody;
-//       log("Request comes to delete order for", JSON.stringify(reqBody));
-
-//       const selectPayload = {
-//         query: `SELECT * FROM ${process.env.FINER_fwAPI_FULFILLMENTS_TABLE} WHERE FulfillmentID=${orderFullFillmentId} AND FulfillmentAccountID = ${accountId}`,
-//       };
-//       const selectData = await finerworksService.SELECT_QUERY_FINERWORKS(
-//         selectPayload
-//       );
-//       const selectOrderId = {
-//         "order_ids": [
-//           orderId
-//         ],
-//         "account_key": account_key
-//       }
-//       console.log("selectOrderId=================>>>>>>>>>>>", selectOrderId);
-//       const orderStatusData = await finerworksService.GET_ORDER_STATUS(
-//         selectOrderId
-//       );
-//       console.log("orderStatusData===============", orderStatusData);
-//       if (selectData?.data.length) {
-//         const orderDetails = selectData?.data[0];
-//         const orderDetail = urlDecodeJSON(orderDetails.FulfillmentData);
-//         if (orderDetails.FulfillmentDeleted) {
-//           res.status(400).json({
-//             statusCode: 400,
-//             status: false,
-//             message: "This is a deleted order.",
-//           });
-//         } else if (orderDetails.FulfillmentSubmitted) {
-//           log(
-//             "Order has been successfully deleted for",
-//             JSON.stringify(reqBody)
-//           );
-//           res.status(200).json({
-//             statusCode: 200,
-//             status: true,
-//             createdAt: orderDetail?.createdAt ?? "N/A",
-//             submittedAt: orderDetail?.submittedAt ?? "N/A",
-//             orderStatus: true,
-//           });
-//         } else {
-//           res.status(200).json({
-//             statusCode: 200,
-//             status: true,
-//             createdAt: orderDetail?.createdAt,
-//             submittedAt: orderDetail?.submittedAt ?? "N/A",
-//             orderStatus: false,
-//           });
-//         }
-//       }
-//     }
-//   } catch (err) {
-//     log("Error comes while creating a new order", JSON.stringify(err), err);
-//     const errorMessage = err;
-//     res.status(400).json({
-//       statusCode: 400,
-//       status: false,
-//       message: errorMessage,
-//     });
-//   }
-// };
 
 exports.orderSubmitStatus = async (req, res) => {
   try {
@@ -1247,12 +1000,6 @@ exports.orderSubmitStatus = async (req, res) => {
       const { orderFullFillmentId, accountId, account_key, orderId } = reqBody;
       log("Request comes to delete order for", JSON.stringify(reqBody));
 
-      // const selectPayload = {
-      //   query: `SELECT * FROM ${process.env.FINER_fwAPI_FULFILLMENTS_TABLE} WHERE FulfillmentID=${orderFullFillmentId} AND FulfillmentAccountID = ${accountId}`,
-      // };
-      // const selectData = await finerworksService.SELECT_QUERY_FINERWORKS(
-      //   selectPayload
-      // );
       const selectOrderId = {
         "order_ids": [
           orderId
@@ -1343,11 +1090,6 @@ exports.getOrderDetailsById = async (req, res) => {
     console.log("platformName===========>>>>", platformName);
     console.log("accountId===========>>>>", accountId);
 
-    // Modified query based on your new requirements
-    // const selectPayload = {
-    //   query: `SELECT * FROM fwAPI_FULFILLMENTS WHERE FulfillmentAccountID=${accountId} AND FulfillmentAppName = 'excel' AND FulfillmentSubmitted=1 AND FulfillmentDeleted=0 AND FulfillmentPO IN ('${orderIds.join("', '")}') ORDER BY FulfillmentID DESC`,
-    // };
-
     const selectPayload = {
       query: `SELECT * FROM ${process.env.FINER_fwAPI_FULFILLMENTS_TABLE} WHERE FulfillmentAccountID=${accountId} AND FulfillmentDeleted=0 AND FulfillmentSubmitted=0 ORDER BY FulfillmentID DESC`,
     };
@@ -1403,82 +1145,11 @@ exports.getOrderDetailsById = async (req, res) => {
   }
 };
 
-// // Helper function to call the API for missing orders
-// const callApiWithMissingOrders = async (missingOrders, platformName, res) => {
-//   try {
-//     let allOrderDetails = [];
-
-//     if (platformName === 'woocommerce') {
-//       // Using async/await in the loop for WooCommerce
-//       for (const order of missingOrders) {
-//         try {
-//           const response = await axios.post(
-//             'https://artsafenet.com/wp-json/finerworks-media/v1/get-order-by-id',
-//             { orderid: order }  // Pass the orderid with 'WC_' prefix
-//           );
-//           allOrderDetails.push(response.data);
-//         } catch (error) {
-//           allOrderDetails.push({ order, error: error.message });  // Handle errors for each failed order
-//         }
-//       }
-
-//       return res.status(200).json({
-//         statusCode: 200,
-//         status: true,
-//         message: "Fetched missing order details from WooCommerce",
-//         orderDetails: allOrderDetails,  // Return the order details for missing orders
-//       });
-//     } else if (platformName === 'PlatformB') {
-//       // Using async/await in the loop for PlatformB
-//       for (const order of missingOrders) {
-//         try {
-//           const response = await axios.post(
-//             'https://platformb.com/api/get-order-by-id',
-//             { orderid: order }  // Assuming PlatformB uses order without the 'WC_' prefix
-//           );
-//           allOrderDetails.push(response.data);
-//         } catch (error) {
-//           allOrderDetails.push({ order, error: error.message });  // Handle errors for each failed order
-//         }
-//       }
-
-//       return res.status(200).json({
-//         statusCode: 200,
-//         status: true,
-//         message: `Fetched order details from ${platformName}`,
-//         orderDetails: allOrderDetails,  // Return the order details for missing orders
-//       });
-//     } else {
-//       return res.status(400).json({
-//         statusCode: 400,
-//         status: false,
-//         message: "Platform not supported",
-//       });
-//     }
-//   } catch (error) {
-//     return res.status(500).json({
-//       statusCode: 500,
-//       status: false,
-//       message: `Error fetching order details from ${platformName}`,
-//     });
-//   }
-// };
-
 const callApiWithMissingOrders = async (missingOrders, platformName, res, domainName) => {
   try {
     let allOrderDetails = [];
 
     if (platformName === 'woocommerce') {
-      // const wooCommerceUrl = process.env.FINERWORKS_WOOCOMMERCE_URL;
-      // const apiEndpoint = `https://${domainName}/wp-json/finerworks-media/v1/deauthorize`;
-      // console.log("wooCommerceUrl===========", wooCommerceUrl);
-      // if (!wooCommerceUrl) {
-      //   return res.status(500).json({
-      //     statusCode: 500,
-      //     status: false,
-      //     message: "WooCommerce URL is not configured in environment variables",
-      //   });
-      // }
       console.log("hererererererererererrrrrrrrrrrrrrrrrr", domainName);
       for (const order of missingOrders) {
         console.log("order======", order);
@@ -1615,95 +1286,6 @@ exports.softDeleteOrders = async (req, res) => {
     });
   }
 };
-
-
-
-// exports.disconnectAndProcess = async (req, res) => {
-//   try {
-//     const { client_id, platformName } = req.body;
-
-//     // Validate client_id
-//     if (!client_id) {
-//       return res.status(400).json({
-//         statusCode: 400,
-//         status: false,
-//         message: "client_id is missing or invalid.",
-//       });
-//     }
-
-//     console.log("Received client_id:", client_id);
-
-//     let internalApiResponse;
-
-//     if (platformName === 'woocommerce') {
-//       const apiEndpoint = `${process.env.FINERWORKS_WOOCOMMERCE_URL}deauthorize`;
-//       console.log("apiEndpoint=============+>>>>>>", apiEndpoint);
-//       if (!apiEndpoint) {
-//         return res.status(500).json({
-//           statusCode: 500,
-//           status: false,
-//           message: "Deauthorize API endpoint is not configured in environment variables.",
-//         });
-//       }
-
-//       internalApiResponse = await axios.post(apiEndpoint, { client_id });
-
-//       const getInformation = await finerworksService.GET_INFO({ account_key: client_id });
-//       console.log("getInformation==============>>>>>>>>>>", getInformation);
-
-//       // Defensive check if connections exist
-//       const connections = getInformation?.user_account?.connections || [];
-
-//       // Filter out objects with name === "WooCommerce"
-//       const filteredConnections = connections.filter(conn => conn.name !== "WooCommerce");
-
-//       console.log("Filtered connections:", filteredConnections);
-//       const payloadForCompanyInformation = {
-//         account_key: client_id,
-//         connections: filteredConnections,
-//       };
-
-//       console.log("payloadForCompanyInformation=========", payloadForCompanyInformation);
-//       await finerworksService.UPDATE_INFO(payloadForCompanyInformation);
-
-//     } else {
-//       // Handle other platformNames or return error if unsupported
-//       return res.status(400).json({
-//         statusCode: 400,
-//         status: false,
-//         message: `Unsupported platformName: ${platformName}`,
-//       });
-//     }
-
-//     if (internalApiResponse.status !== 200) {
-//       return res.status(500).json({
-//         statusCode: 500,
-//         status: false,
-//         message: "Failed to deauthorize client_id with internal API.",
-//       });
-//     }
-
-//     // Success
-//     return res.status(200).json({
-//       statusCode: 200,
-//       status: true,
-//       message: "Client successfully deauthorized.",
-//       data: internalApiResponse.data,
-//     });
-
-//   } catch (err) {
-//     console.error("Error while processing client_id:", err);
-
-//     return res.status(500).json({
-//       statusCode: 500,
-//       status: false,
-//       message: err?.response?.data?.message || "Internal server error. Please try again later.",
-//       error: err?.message || "Unknown error",
-//     });
-//   }
-// };
-
-
 
 exports.disconnectAndProcess = async (req, res) => {
   try {
@@ -1933,12 +1515,6 @@ exports.connectAndProcessOfa = async (req, res) => {
 
     const getInformation = await finerworksService.GET_INFO({ account_key: account_key });
     console.log("Fetched Information from Finerworks:", getInformation);
-    // return res.status(200).json({
-    //   statusCode: 200,
-    //   status: false,
-    //   message: "Authentication failed with the external service.",
-    //   data:getInformation
-    // });
 
     // Use getInformation.user_account for internal API payload
     const internalApiPayload = {
