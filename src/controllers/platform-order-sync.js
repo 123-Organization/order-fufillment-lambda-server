@@ -30,6 +30,7 @@ const {
   buildSquarespaceFulfillmentWebhookUrl,
 } = require('../helpers/squarespace-order-webhook');
 const debug = require('debug');
+const { sendApiError } = require('../helpers/api-error');
 const log = debug('app:platformOrderSync');
 
 const SUPPORTED_PLATFORMS = ['squarespace', 'wix', 'shopify'];
@@ -352,24 +353,22 @@ exports.setPlatformOrderSync = async (req, res) => {
 
     const { valid, error } = validateAccountKey(account_key);
     if (!valid) {
-      return res.status(400).json({ success: false, message: error.message });
+      return sendApiError(res, 400, error.message);
     }
 
     const trimmedKey = String(account_key).trim();
     const platformNorm = normalizePlatform(platform);
     const connectionName = connectionNameFromPlatform(platform);
     if (!connectionName || !SUPPORTED_PLATFORMS.includes(platformNorm)) {
-      return res.status(400).json({
-        success: false,
-        message: `Invalid platform. Expected one of: ${SUPPORTED_PLATFORMS.join(', ')}`,
-      });
+      return sendApiError(
+        res,
+        400,
+        `Invalid platform. Expected one of: ${SUPPORTED_PLATFORMS.join(', ')}`
+      );
     }
 
     if (order_sync === null) {
-      return res.status(400).json({
-        success: false,
-        message: 'Missing or invalid order_sync. Expected boolean true/false.',
-      });
+      return sendApiError(res, 400, 'Missing or invalid order_sync. Expected boolean true/false.');
     }
 
     const getInformation = await finerworksService.GET_INFO({ account_key: trimmedKey });
@@ -377,10 +376,7 @@ exports.setPlatformOrderSync = async (req, res) => {
     const idx = findConnectionIndex(connections, connectionName);
 
     if (idx === -1) {
-      return res.status(400).json({
-        success: false,
-        message: `${connectionName} connection not found for this account`,
-      });
+      return sendApiError(res, 400, `${connectionName} connection not found for this account`);
     }
 
     const existingConn = connections[idx];
@@ -454,20 +450,7 @@ exports.setPlatformOrderSync = async (req, res) => {
         : {}),
     });
   } catch (err) {
-    const status = err?.status || err?.response?.status || 500;
-    const data = err?.response?.data;
-    const errorDetail =
-      (typeof data?.message === 'string' && data.message) ||
-      (typeof data?.error === 'string' && data.error) ||
-      err?.message ||
-      'Unknown error';
-
-    return res.status(status).json({
-      success: false,
-      message: err?.status ? errorDetail : 'Failed to update platform order sync',
-      ...(err?.status ? {} : { error: errorDetail }),
-      ...(data && typeof data === 'object' && !err?.status ? { details: data } : {}),
-    });
+    return sendApiError(res, err);
   }
 };
 
@@ -484,7 +467,7 @@ exports.squarespaceOrderCreateWebhook = async (req, res) => {
     const account_key = req.query?.account_key || req.query?.accountKey;
     const { valid, error } = validateAccountKey(account_key);
     if (!valid) {
-      return res.status(400).json({ success: false, message: error.message });
+      return sendApiError(res, 400, error.message);
     }
 
     const trimmedKey = String(account_key).trim();
@@ -492,10 +475,11 @@ exports.squarespaceOrderCreateWebhook = async (req, res) => {
       req.body?.data?.orderId || req.body?.orderId || req.body?.data?.order_id || null;
 
     if (!squarespaceOrderId || !String(squarespaceOrderId).trim()) {
-      return res.status(400).json({
-        success: false,
-        message: 'Missing Squarespace order id in webhook payload (data.orderId)',
-      });
+      return sendApiError(
+        res,
+        400,
+        'Missing Squarespace order id in webhook payload (data.orderId)'
+      );
     }
 
     const getInformation = await finerworksService.GET_INFO({ account_key: trimmedKey });
@@ -521,22 +505,14 @@ exports.squarespaceOrderCreateWebhook = async (req, res) => {
         squarespaceOrder = await fetchSquarespaceOrderById(accessToken, squarespaceOrderId);
       });
     } catch (fetchErr) {
-      const status = fetchErr?.status || fetchErr?.response?.status || 502;
-      const data = fetchErr?.response?.data;
       log(
         'Failed to fetch Squarespace order orderId=%s: %s',
         squarespaceOrderId,
         fetchErr?.message
       );
-      return res.status(status).json({
-        success: false,
-        message: 'Failed to fetch Squarespace order details',
+      const status = fetchErr?.status || fetchErr?.response?.status || 502;
+      return sendApiError(res, status, 'Failed to fetch Squarespace order details', {
         orderId: String(squarespaceOrderId),
-        error:
-          (typeof data?.message === 'string' && data.message) ||
-          fetchErr?.message ||
-          'Unknown error',
-        ...(data && typeof data === 'object' ? { squarespaceError: data } : {}),
       });
     }
 
@@ -592,15 +568,11 @@ exports.squarespaceOrderCreateWebhook = async (req, res) => {
       submitData = await finerworksService.SUBMIT_ORDERS(finalPayload);
       console.log('submitData==============>>>>>>>', submitData);
     } catch (submitErr) {
-      const fwError = submitErr?.response?.data;
       log('SUBMIT_ORDERS failed: %s', submitErr?.message);
-      return res.status(submitErr?.response?.status === 400 ? 400 : 502).json({
-        success: false,
-        message: 'Failed to submit Squarespace order to FinerWorks',
+      const status = submitErr?.response?.status === 400 ? 400 : 502;
+      return sendApiError(res, status, 'Failed to submit Squarespace order to FinerWorks', {
         orderId: squarespaceOrder.id,
-        order_po: transformedOrder.order_po,
-        error: submitErr?.message || 'Unknown error',
-        ...(fwError && typeof fwError === 'object' ? { finerworksError: fwError } : {}),
+        orderNumber: transformedOrder.order_po,
       });
     }
 
@@ -620,10 +592,6 @@ exports.squarespaceOrderCreateWebhook = async (req, res) => {
     });
   } catch (err) {
     log('Squarespace order create webhook failed', err);
-    return res.status(500).json({
-      success: false,
-      message: 'Squarespace webhook handler failed',
-      error: err?.message || 'Unknown error',
-    });
+    return sendApiError(res, err);
   }
 };

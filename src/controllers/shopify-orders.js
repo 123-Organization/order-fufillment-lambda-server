@@ -1,6 +1,7 @@
 const axios = require('axios');
 const finerworksService = require('../helpers/finerworks-service');
 const debug = require('debug');
+const { sendApiError } = require('../helpers/api-error');
 const log = debug('app:shopifyOrders');
 
 const normalizeShopDomain = (shopInput) => {
@@ -639,18 +640,12 @@ const createUsCanadaShippingProfile = async (req, res) => {
     const apiVersion = process.env.SHOPIFY_API_VERSION || '2025-10';
 
     if (!accessToken || !storeName) {
-      return res.status(400).json({
-        success: false,
-        message: 'Missing required parameters: access_token and storeName',
-      });
+      return sendApiError(res, 400, "Missing required parameters: access_token and storeName");
     }
 
     const shopDomain = normalizeShopDomain(storeName);
     if (!shopDomain || !shopDomain.match(/^[a-z0-9][a-z0-9-]*\.myshopify\.com$/)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid storeName. Expected shopname or shopname.myshopify.com',
-      });
+      return sendApiError(res, 400, "Invalid storeName. Expected shopname or shopname.myshopify.com");
     }
 
     // Fetch primary location to attach to the delivery profile location group.
@@ -658,18 +653,11 @@ const createUsCanadaShippingProfile = async (req, res) => {
     try {
       primaryLocationId = await fetchPrimaryLocation({ shopDomain, accessToken, apiVersion });
     } catch (locErr) {
-      return res.status(locErr.status || 500).json({
-        success: false,
-        message: 'Failed to fetch Shopify locations for delivery profile',
-        error: locErr.message || 'Unknown error',
-      });
+      return sendApiError(res, locErr);
     }
 
     if (!primaryLocationId) {
-      return res.status(400).json({
-        success: false,
-        message: 'No Shopify locations found; cannot create delivery profile',
-      });
+      return sendApiError(res, 400, "No Shopify locations found; cannot create delivery profile");
     }
 
     const endpoint = `https://${shopDomain}/admin/api/${apiVersion}/graphql.json`;
@@ -803,20 +791,14 @@ const createUsCanadaShippingProfile = async (req, res) => {
 
     const payload = resp.data?.data?.deliveryProfileCreate;
     if (!payload) {
-      return res.status(502).json({
-        success: false,
-        message: 'Invalid Shopify response for deliveryProfileCreate',
-      });
+      return sendApiError(res, 502, "Invalid Shopify response for deliveryProfileCreate");
     }
 
     if (Array.isArray(payload.userErrors) && payload.userErrors.length > 0) {
       const message = payload.userErrors
         .map((e) => `${e.field ? e.field.join('.') : 'error'}: ${e.message}`)
         .join('; ');
-      return res.status(400).json({
-        success: false,
-        message,
-      });
+      return sendApiError(res, 400, message);
     }
 
     return res.status(200).json({
@@ -825,15 +807,7 @@ const createUsCanadaShippingProfile = async (req, res) => {
       profile: payload.profile,
     });
   } catch (err) {
-    const status = err?.status || err?.response?.status || 500;
-    const message =
-      (err?.response?.data && (err.response.data.errors || err.response.data.error)) ||
-      err.message ||
-      'Request failed';
-    return res.status(status).json({
-      success: false,
-      message: typeof message === 'string' ? message : JSON.stringify(message),
-    });
+    return sendApiError(res, err);
   }
 };
 
@@ -2278,19 +2252,13 @@ const getShopifyOrders = async (req, res) => {
     const apiVersion = process.env.SHOPIFY_API_VERSION || '2025-10';
 
     if (!accessToken || !storeName) {
-      return res.status(400).json({
-        success: false,
-        message: 'Missing required parameters: accessToken and storeName',
-      });
+      return sendApiError(res, 400, "Missing required parameters: accessToken and storeName");
     }
 
     const shopDomain = normalizeShopDomain(storeName);
     console.log('shopDomain==============', shopDomain);
     if (!shopDomain || !shopDomain.match(/^[a-z0-9][a-z0-9-]*\.myshopify\.com$/)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid storeName. Expected shopname or shopname.myshopify.com',
-      });
+      return sendApiError(res, 400, "Invalid storeName. Expected shopname or shopname.myshopify.com");
     }
     const shippingOptions = await finerworksService.SHIPPING_OPTIONS_LIST();
     console.log('shippingOptions====>>', shippingOptions);
@@ -2351,12 +2319,7 @@ const getShopifyOrders = async (req, res) => {
     });
     return res.status(200).json({ success: true, count: orders.length, orders });
   } catch (err) {
-    const status = err.status || 500;
-    return res.status(status).json({
-      success: false,
-      message: 'Failed to retrieve Shopify orders',
-      error: err.message || 'Unknown error',
-    });
+    return sendApiError(res, err);
   }
 };
 
@@ -3160,22 +3123,16 @@ const getShopifyOrderByName = async (req, res) => {
     const apiVersion = process.env.SHOPIFY_API_VERSION || '2025-10';
 
     if (!accessToken || !storeName || !orderName) {
-      return res.status(400).json({
-        success: false,
-        message: 'Missing required parameters: accessToken, storeName, orderName',
-      });
+      return sendApiError(res, 400, "Missing required parameters: accessToken, storeName, orderName");
     }
     const shopDomain = normalizeShopDomain(storeName);
     if (!shopDomain || !shopDomain.match(/^[a-z0-9][a-z0-9-]*\.myshopify\.com$/)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid storeName. Expected shopname or shopname.myshopify.com',
-      });
+      return sendApiError(res, 400, "Invalid storeName. Expected shopname or shopname.myshopify.com");
     }
 
     const order = await fetchOrderByName({ shopDomain, accessToken, apiVersion, orderName });
     if (!order) {
-      return res.status(404).json({ success: false, message: 'Order not found' });
+      return sendApiError(res, 404, "Order not found");
     }
 
     const orderMetafieldEdges = order?.metafields?.edges || [];
@@ -3183,20 +3140,12 @@ const getShopifyOrderByName = async (req, res) => {
       (edge) => edge?.node?.key === 'submittedToFinerWorks'
     );
     if (String(submittedToFinerworksMetafield?.node?.value).toLowerCase() === 'true') {
-      return res.status(200).json({
-        success: false,
-        message: 'This order is already submitted to FinerWorks',
-      });
+      return sendApiError(res, 200, "This order is already submitted to FinerWorks");
     }
 
     return res.status(200).json({ success: true, order });
   } catch (err) {
-    const status = err.status || 500;
-    return res.status(status).json({
-      success: false,
-      message: 'Failed to retrieve order by name',
-      error: err.message || 'Unknown error',
-    });
+    return sendApiError(res, err);
   }
 };
 
@@ -3528,18 +3477,12 @@ const fulfillShopifyOrder = async (req, res) => {
         req.query?.shop;
 
       if (!accessToken || !storeName) {
-        return res.status(400).json({
-          success: false,
-          message: 'Missing required parameters: accessToken and storeName',
-        });
+        return sendApiError(res, 400, "Missing required parameters: accessToken and storeName");
       }
 
       const shopDomain = normalizeShopDomain(storeName);
       if (!shopDomain || !shopDomain.match(/^[a-z0-9][a-z0-9-]*\.myshopify\.com$/)) {
-        return res.status(400).json({
-          success: false,
-          message: 'Invalid storeName. Expected shopname or shopname.myshopify.com',
-        });
+        return sendApiError(res, 400, "Invalid storeName. Expected shopname or shopname.myshopify.com");
       }
     }
 
@@ -3632,20 +3575,11 @@ const fulfillShopifyOrder = async (req, res) => {
       if (result.success) {
         return res.status(200).json(result);
       } else {
-        return res.status(400).json({
-          success: false,
-          message: 'Failed to fulfill order',
-          error: result.error || 'Unknown error',
-        });
+        return sendApiError(res, 400, 'Failed to fulfill order');
       }
     }
   } catch (err) {
-    const status = err.status || 500;
-    return res.status(status).json({
-      success: false,
-      message: 'Failed to fulfill order',
-      error: err.message || 'Unknown error',
-    });
+    return sendApiError(res, err);
   }
 };
 
@@ -4030,10 +3964,7 @@ const updateOrderReferenceNumbers = async (req, res) => {
 
     // Validate request body is an array
     if (!Array.isArray(req.body.orders)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Request body must contain an "orders" array',
-      });
+      return sendApiError(res, 400, "Request body must contain an \"orders\" array");
     }
 
     const orders = req.body.orders;
@@ -4048,25 +3979,16 @@ const updateOrderReferenceNumbers = async (req, res) => {
     const apiVersion = process.env.SHOPIFY_API_VERSION || '2025-10';
 
     if (!accessToken || !storeName) {
-      return res.status(400).json({
-        success: false,
-        message: 'Missing required parameters: accessToken and storeName',
-      });
+      return sendApiError(res, 400, "Missing required parameters: accessToken and storeName");
     }
 
     if (orders.length === 0) {
-      return res.status(400).json({
-        success: false,
-        message: 'Orders array cannot be empty',
-      });
+      return sendApiError(res, 400, "Orders array cannot be empty");
     }
 
     const shopDomain = normalizeShopDomain(storeName);
     if (!shopDomain || !shopDomain.match(/^[a-z0-9][a-z0-9-]*\.myshopify\.com$/)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid storeName. Expected shopname or shopname.myshopify.com',
-      });
+      return sendApiError(res, 400, "Invalid storeName. Expected shopname or shopname.myshopify.com");
     }
 
     // Process all orders
@@ -4172,12 +4094,7 @@ const updateOrderReferenceNumbers = async (req, res) => {
       failed: results.filter((r) => !r.success).length,
     });
   } catch (err) {
-    const status = err.status || 500;
-    return res.status(status).json({
-      success: false,
-      message: 'Failed to update order reference numbers',
-      error: err.message || 'Unknown error',
-    });
+    return sendApiError(res, err);
   }
 };
 
@@ -4245,18 +4162,12 @@ const updateOrderFulfillmentStatus = async (req, res) => {
     }
 
     if (!accessToken || !storeName || !orderNumber || !statusValue) {
-      return res.status(400).json({
-        success: false,
-        message: 'Missing required parameters: accessToken, storeName, orderNumber, status',
-      });
+      return sendApiError(res, 400, "Missing required parameters: accessToken, storeName, orderNumber, status");
     }
 
     const shopDomain = normalizeShopDomain(storeName);
     if (!shopDomain || !shopDomain.match(/^[a-z0-9][a-z0-9-]*\.myshopify\.com$/)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid storeName. Expected shopname or shopname.myshopify.com',
-      });
+      return sendApiError(res, 400, "Invalid storeName. Expected shopname or shopname.myshopify.com");
     }
 
     // Fetch order by name/number to get the GID
@@ -4270,10 +4181,7 @@ const updateOrderFulfillmentStatus = async (req, res) => {
     console.log('order=======>>>>', order);
 
     if (!order || !order.id) {
-      return res.status(404).json({
-        success: false,
-        message: 'Order not found',
-      });
+      return sendApiError(res, 404, "Order not found");
     }
 
     // If tracking info is present from FinerWorks, create a fulfillment with tracking on the Shopify order
@@ -4411,12 +4319,7 @@ const updateOrderFulfillmentStatus = async (req, res) => {
       fulfillment: fulfillmentResult,
     });
   } catch (err) {
-    const status = err.status || 500;
-    return res.status(status).json({
-      success: false,
-      message: 'Failed to update order fulfillment status',
-      error: err.message || 'Unknown error',
-    });
+    return sendApiError(res, err);
   }
 };
 
@@ -4511,25 +4414,16 @@ const syncShopifyProducts = async (req, res) => {
       req.body?.assignFinerWorksShippingProfile === true;
 
     if (!accessToken || !storeName) {
-      return res.status(400).json({
-        success: false,
-        message: 'Missing required parameters: accessToken and storeName',
-      });
+      return sendApiError(res, 400, "Missing required parameters: accessToken and storeName");
     }
 
     if (!rawProducts.length) {
-      return res.status(400).json({
-        success: false,
-        message: 'productsList must be a non-empty array',
-      });
+      return sendApiError(res, 400, "productsList must be a non-empty array");
     }
 
     const shopDomain = normalizeShopDomain(storeName);
     if (!shopDomain || !shopDomain.match(/^[a-z0-9][a-z0-9-]*\.myshopify\.com$/)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid storeName. Expected shopname or shopname.myshopify.com',
-      });
+      return sendApiError(res, 400, "Invalid storeName. Expected shopname or shopname.myshopify.com");
     }
 
     // Variant logic applies only when the "primary" field is present on at least one product.
@@ -4628,18 +4522,11 @@ const syncShopifyProducts = async (req, res) => {
       });
       primaryLocationId = onlineFulfillmentLocationIds[0] || null;
     } catch (locErr) {
-      return res.status(locErr.status || 500).json({
-        success: false,
-        message: 'Failed to fetch Shopify locations for inventory',
-        error: locErr.message || 'Unknown error',
-      });
+      return sendApiError(res, locErr);
     }
 
     if (!primaryLocationId) {
-      return res.status(400).json({
-        success: false,
-        message: 'No Shopify locations found; cannot set inventory quantity',
-      });
+      return sendApiError(res, 400, "No Shopify locations found; cannot set inventory quantity");
     }
 
     // Stock a single primary location so quantity_in_stock maps to total available units.
@@ -5178,12 +5065,7 @@ const syncShopifyProducts = async (req, res) => {
       results,
     });
   } catch (err) {
-    const status = err.status || 500;
-    return res.status(status).json({
-      success: false,
-      message: 'Failed to sync Shopify products',
-      error: err.message || 'Unknown error',
-    });
+    return sendApiError(res, err);
   }
 };
 
@@ -5222,18 +5104,12 @@ const createShopifyCarrierService = async (req, res) => {
     const carrierService = req.body?.carrier_service || req.body?.carrierService || null;
 
     if (!accessToken || !storeName || !carrierService) {
-      return res.status(400).json({
-        success: false,
-        message: 'Missing required parameters: accessToken, storeName, carrier_service',
-      });
+      return sendApiError(res, 400, "Missing required parameters: accessToken, storeName, carrier_service");
     }
 
     const shopDomain = normalizeShopDomain(storeName);
     if (!shopDomain || !shopDomain.match(/^[a-z0-9][a-z0-9-]*\.myshopify\.com$/)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid storeName. Expected shopname or shopname.myshopify.com',
-      });
+      return sendApiError(res, 400, "Invalid storeName. Expected shopname or shopname.myshopify.com");
     }
 
     // Per Shopify REST Admin API 2024-01:
@@ -5261,16 +5137,7 @@ const createShopifyCarrierService = async (req, res) => {
       raw: resp.data,
     });
   } catch (err) {
-    const status = err?.response?.status || err.status || 500;
-    const message =
-      (err?.response?.data && (err.response.data.errors || err.response.data.error)) ||
-      err.message ||
-      'Request failed';
-    return res.status(status).json({
-      success: false,
-      message: 'Failed to create Shopify carrier service',
-      error: typeof message === 'string' ? message : JSON.stringify(message),
-    });
+    return sendApiError(res, err);
   }
 };
 
@@ -5299,18 +5166,12 @@ const listShopifyCarrierServices = async (req, res) => {
       req.query?.shop;
 
     if (!accessToken || !storeName) {
-      return res.status(400).json({
-        success: false,
-        message: 'Missing required parameters: accessToken, storeName',
-      });
+      return sendApiError(res, 400, "Missing required parameters: accessToken, storeName");
     }
 
     const shopDomain = normalizeShopDomain(storeName);
     if (!shopDomain || !shopDomain.match(/^[a-z0-9][a-z0-9-]*\.myshopify\.com$/)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid storeName. Expected shopname or shopname.myshopify.com',
-      });
+      return sendApiError(res, 400, "Invalid storeName. Expected shopname or shopname.myshopify.com");
     }
 
     const endpoint = `https://${shopDomain}/admin/api/2024-01/carrier_services.json`;
@@ -5329,16 +5190,7 @@ const listShopifyCarrierServices = async (req, res) => {
       raw: resp.data,
     });
   } catch (err) {
-    const status = err?.response?.status || err.status || 500;
-    const message =
-      (err?.response?.data && (err.response.data.errors || err.response.data.error)) ||
-      err.message ||
-      'Request failed';
-    return res.status(status).json({
-      success: false,
-      message: 'Failed to list Shopify carrier services',
-      error: typeof message === 'string' ? message : JSON.stringify(message),
-    });
+    return sendApiError(res, err);
   }
 };
 
@@ -5373,18 +5225,12 @@ const deleteShopifyCarrierService = async (req, res) => {
       req.query?.id;
 
     if (!accessToken || !storeName || !carrierServiceId) {
-      return res.status(400).json({
-        success: false,
-        message: 'Missing required parameters: accessToken, storeName, carrier_service_id',
-      });
+      return sendApiError(res, 400, "Missing required parameters: accessToken, storeName, carrier_service_id");
     }
 
     const shopDomain = normalizeShopDomain(storeName);
     if (!shopDomain || !shopDomain.match(/^[a-z0-9][a-z0-9-]*\.myshopify\.com$/)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid storeName. Expected shopname or shopname.myshopify.com',
-      });
+      return sendApiError(res, 400, "Invalid storeName. Expected shopname or shopname.myshopify.com");
     }
 
     const endpoint = `https://${shopDomain}/admin/api/2024-01/carrier_services/${carrierServiceId}.json`;
@@ -5403,16 +5249,7 @@ const deleteShopifyCarrierService = async (req, res) => {
       message: 'Carrier service deleted successfully',
     });
   } catch (err) {
-    const status = err?.response?.status || err.status || 500;
-    const message =
-      (err?.response?.data && (err.response.data.errors || err.response.data.error)) ||
-      err.message ||
-      'Request failed';
-    return res.status(status).json({
-      success: false,
-      message: 'Failed to delete Shopify carrier service',
-      error: typeof message === 'string' ? message : JSON.stringify(message),
-    });
+    return sendApiError(res, err);
   }
 };
 
@@ -5864,51 +5701,32 @@ const registerShopifyWebhook = async (req, res) => {
     const apiVersion = process.env.SHOPIFY_API_VERSION || '2025-10';
 
     if (!accessToken || !storeName) {
-      return res.status(400).json({
-        success: false,
-        message: 'Missing required parameters: access_token and storeName',
-      });
+      return sendApiError(res, 400, "Missing required parameters: access_token and storeName");
     }
 
     if (!webhook || typeof webhook !== 'object') {
-      return res.status(400).json({
-        success: false,
-        message: 'Missing required object: webhook',
-      });
+      return sendApiError(res, 400, "Missing required object: webhook");
     }
 
     const topic = webhook.topic ? String(webhook.topic) : null;
     const address = webhook.address ? String(webhook.address) : null;
 
     if (!topic || !address) {
-      return res.status(400).json({
-        success: false,
-        message: 'webhook.topic and webhook.address are required',
-      });
+      return sendApiError(res, 400, "webhook.topic and webhook.address are required");
     }
 
     if (!address.toLowerCase().startsWith('https://')) {
-      return res.status(400).json({
-        success: false,
-        message: 'webhook.address must be an https URL',
-      });
+      return sendApiError(res, 400, "webhook.address must be an https URL");
     }
 
     const shopDomain = normalizeShopDomain(storeName);
     if (!shopDomain || !shopDomain.match(/^[a-z0-9][a-z0-9-]*\.myshopify\.com$/)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid storeName. Expected shopname or shopname.myshopify.com',
-      });
+      return sendApiError(res, 400, "Invalid storeName. Expected shopname or shopname.myshopify.com");
     }
 
     const gqlTopic = mapWebhookTopicToGraphql(topic);
     if (!gqlTopic) {
-      return res.status(400).json({
-        success: false,
-        message:
-          'Unsupported webhook.topic for GraphQL. Use "products/delete" or an enum like "PRODUCTS_DELETE".',
-      });
+      return sendApiError(res, 400, "Unsupported webhook.topic for GraphQL. Use \"products/delete\" or an enum like \"PRODUCTS_DELETE\".");
     }
 
     // GraphQL endpoint
@@ -5964,16 +5782,7 @@ const registerShopifyWebhook = async (req, res) => {
       webhookSubscription: payload.webhookSubscription || null,
     });
   } catch (err) {
-    const status = err?.response?.status || err.status || 500;
-    const data = err?.response?.data || null;
-    const message = (data && (data.errors || data.error)) || err.message || 'Request failed';
-
-    return res.status(status).json({
-      success: false,
-      message: 'Failed to register Shopify webhook',
-      error: typeof message === 'string' ? message : JSON.stringify(message),
-      details: data || undefined,
-    });
+    return sendApiError(res, err);
   }
 };
 
@@ -6006,10 +5815,7 @@ const registerShopifyOrderCreateWebhook = async (req, res) => {
     const apiVersion = process.env.SHOPIFY_API_VERSION || '2025-10';
 
     if (!accessToken || !storeName) {
-      return res.status(400).json({
-        success: false,
-        message: 'Missing required parameters: access_token and storeName (or shop)',
-      });
+      return sendApiError(res, 400, "Missing required parameters: access_token and storeName (or shop)");
     }
 
     if (
@@ -6017,19 +5823,12 @@ const registerShopifyOrderCreateWebhook = async (req, res) => {
       typeof address !== 'string' ||
       !address.trim().toLowerCase().startsWith('https://')
     ) {
-      return res.status(400).json({
-        success: false,
-        message:
-          'Missing or invalid webhook address. Provide body.address or set SHOPIFY_ORDER_CREATE_WEBHOOK_URL (must be https).',
-      });
+      return sendApiError(res, 400, "Missing or invalid webhook address. Provide body.address or set SHOPIFY_ORDER_CREATE_WEBHOOK_URL (must be https).");
     }
 
     const shopDomain = normalizeShopDomain(storeName);
     if (!shopDomain || !shopDomain.match(/^[a-z0-9][a-z0-9-]*\.myshopify\.com$/)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid storeName. Expected shopname or shopname.myshopify.com',
-      });
+      return sendApiError(res, 400, "Invalid storeName. Expected shopname or shopname.myshopify.com");
     }
 
     const endpoint = `https://${shopDomain}/admin/api/${apiVersion}/graphql.json`;
@@ -6057,30 +5856,19 @@ const registerShopifyOrderCreateWebhook = async (req, res) => {
       const message = Array.isArray(resp.data.errors)
         ? resp.data.errors.map((e) => e.message).join('; ')
         : 'Unknown GraphQL error';
-      return res.status(502).json({
-        success: false,
-        message: 'Shopify API error',
-        error: message,
-      });
+      return sendApiError(res, 502, message);
     }
 
     const payload = resp.data?.data?.webhookSubscriptionCreate;
     if (!payload) {
-      return res.status(502).json({
-        success: false,
-        message: 'Invalid Shopify response for webhookSubscriptionCreate',
-      });
+      return sendApiError(res, 502, "Invalid Shopify response for webhookSubscriptionCreate");
     }
 
     if (Array.isArray(payload.userErrors) && payload.userErrors.length > 0) {
       const message = payload.userErrors
         .map((e) => `${e.field ? e.field.join('.') : 'error'}: ${e.message}`)
         .join('; ');
-      return res.status(400).json({
-        success: false,
-        message,
-        userErrors: payload.userErrors,
-      });
+      return sendApiError(res, 400, message, { errors: payload.userErrors });
     }
 
     return res.status(200).json({
@@ -6090,15 +5878,7 @@ const registerShopifyOrderCreateWebhook = async (req, res) => {
       webhookSubscription: payload.webhookSubscription || null,
     });
   } catch (err) {
-    const status = err?.response?.status || 500;
-    const data = err?.response?.data || null;
-    const message = (data && (data.errors || data.error)) || err.message || 'Request failed';
-    return res.status(status).json({
-      success: false,
-      message: 'Failed to register order creation webhook',
-      error: typeof message === 'string' ? message : JSON.stringify(message),
-      details: data || undefined,
-    });
+    return sendApiError(res, err);
   }
 };
 
@@ -6125,18 +5905,12 @@ const listShopifyWebhooks = async (req, res) => {
     const apiVersion = process.env.SHOPIFY_API_VERSION || '2025-10';
 
     if (!accessToken || !storeName) {
-      return res.status(400).json({
-        success: false,
-        message: 'Missing required parameters: access_token and storeName',
-      });
+      return sendApiError(res, 400, "Missing required parameters: access_token and storeName");
     }
 
     const shopDomain = normalizeShopDomain(storeName);
     if (!shopDomain || !shopDomain.match(/^[a-z0-9][a-z0-9-]*\.myshopify\.com$/)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid storeName. Expected shopname or shopname.myshopify.com',
-      });
+      return sendApiError(res, 400, "Invalid storeName. Expected shopname or shopname.myshopify.com");
     }
 
     const endpoint = `https://${shopDomain}/admin/api/${apiVersion}/webhooks.json`;
@@ -6153,16 +5927,7 @@ const listShopifyWebhooks = async (req, res) => {
       webhooks: resp.data?.webhooks || [],
     });
   } catch (err) {
-    const status = err?.response?.status || err.status || 500;
-    const data = err?.response?.data || null;
-    const message = (data && (data.errors || data.error)) || err.message || 'Request failed';
-
-    return res.status(status).json({
-      success: false,
-      message: 'Failed to list Shopify webhooks',
-      error: typeof message === 'string' ? message : JSON.stringify(message),
-      details: data || undefined,
-    });
+    return sendApiError(res, err);
   }
 };
 
@@ -6198,33 +5963,21 @@ const deleteShopifyWebhookById = async (req, res) => {
     const apiVersion = process.env.SHOPIFY_API_VERSION || '2025-10';
 
     if (!accessToken || !storeName) {
-      return res.status(400).json({
-        success: false,
-        message: 'Missing required parameters: access_token and storeName',
-      });
+      return sendApiError(res, 400, "Missing required parameters: access_token and storeName");
     }
 
     if (!webhookIdRaw) {
-      return res.status(400).json({
-        success: false,
-        message: 'Missing required parameter: webhook_id',
-      });
+      return sendApiError(res, 400, "Missing required parameter: webhook_id");
     }
 
     const webhookId = String(webhookIdRaw).trim();
     if (!/^\d+$/.test(webhookId)) {
-      return res.status(400).json({
-        success: false,
-        message: 'webhook_id must be a numeric id',
-      });
+      return sendApiError(res, 400, "webhook_id must be a numeric id");
     }
 
     const shopDomain = normalizeShopDomain(storeName);
     if (!shopDomain || !shopDomain.match(/^[a-z0-9][a-z0-9-]*\.myshopify\.com$/)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid storeName. Expected shopname or shopname.myshopify.com',
-      });
+      return sendApiError(res, 400, "Invalid storeName. Expected shopname or shopname.myshopify.com");
     }
 
     const endpoint = `https://${shopDomain}/admin/api/${apiVersion}/webhooks/${webhookId}.json`;
@@ -6241,16 +5994,7 @@ const deleteShopifyWebhookById = async (req, res) => {
       deleted_webhook_id: webhookId,
     });
   } catch (err) {
-    const status = err?.response?.status || err.status || 500;
-    const data = err?.response?.data || null;
-    const message = (data && (data.errors || data.error)) || err.message || 'Request failed';
-
-    return res.status(status).json({
-      success: false,
-      message: 'Failed to delete Shopify webhook',
-      error: typeof message === 'string' ? message : JSON.stringify(message),
-      details: data || undefined,
-    });
+    return sendApiError(res, err);
   }
 };
 
@@ -6622,19 +6366,13 @@ const shopifyOrdersCreateWebhook = async (req, res) => {
 
     const shopDomain = normalizeShopDomain(String(shopFromHeader || '').trim());
     if (!shopDomain) {
-      return res.status(400).json({
-        success: false,
-        message: 'Missing X-Shopify-Shop-Domain header',
-      });
+      return sendApiError(res, 400, "Missing X-Shopify-Shop-Domain header");
     }
 
     const idRaw = req.body?.id ?? req.body?.admin_graphql_api_id ?? null;
     const orderId = idRaw != null ? String(idRaw).trim() : null;
     if (!orderId) {
-      return res.status(400).json({
-        success: false,
-        message: 'Missing order id in webhook body (id or admin_graphql_api_id)',
-      });
+      return sendApiError(res, 400, "Missing order id in webhook body (id or admin_graphql_api_id)");
     }
 
     let accountInfo = null;
@@ -6645,23 +6383,13 @@ const shopifyOrdersCreateWebhook = async (req, res) => {
         accountInfo = await fetchAccountInfoByShop();
       }
     } catch (lookupErr) {
-      const status = lookupErr?.response?.status || 500;
       log('account info fetch failed: %s', lookupErr?.message);
-      return res.status(status).json({
-        success: false,
-        message: 'Failed to fetch account info for shop',
-        shopDomain,
-        error: lookupErr?.message || 'Request failed',
-      });
+      return sendApiError(res, lookupErr);
     }
 
     const accessToken = accountInfo?.access_token ? String(accountInfo.access_token) : null;
     if (!accessToken) {
-      return res.status(401).json({
-        success: false,
-        message: 'No access_token for shop',
-        shopDomain,
-      });
+      return sendApiError(res, 401, "No access_token for shop");
     }
 
     let order = null;
@@ -6673,24 +6401,12 @@ const shopifyOrdersCreateWebhook = async (req, res) => {
         orderId,
       });
     } catch (fetchErr) {
-      const status = fetchErr?.status || fetchErr?.response?.status || 502;
       log('fetchOrderById failed: %s', fetchErr?.message);
-      return res.status(status).json({
-        success: false,
-        message: 'Failed to fetch order from Shopify',
-        shopDomain,
-        orderId,
-        error: fetchErr?.message || 'Request failed',
-      });
+      return sendApiError(res, fetchErr);
     }
 
     if (!order) {
-      return res.status(404).json({
-        success: false,
-        message: 'Order not found',
-        shopDomain,
-        orderId,
-      });
+      return sendApiError(res, 404, "Order not found");
     }
 
     const edges = order?.lineItems?.edges || [];
@@ -6800,14 +6516,7 @@ const shopifyOrdersCreateWebhook = async (req, res) => {
     } catch (submitErr) {
       log('SUBMIT_ORDERS failed: %s', submitErr?.message);
       console.log(JSON.stringify(submitErr));
-      return res.status(502).json({
-        success: false,
-        message: 'Order submitted to FinerWorks failed',
-        shopDomain,
-        orderId: order.id,
-        payload: finalPayload,
-        error: submitErr?.message || submitErr?.response?.data || 'Unknown error',
-      });
+      return sendApiError(res, 502, "Order submitted to FinerWorks failed");
     }
 
     return res.status(200).json({
@@ -6820,11 +6529,7 @@ const shopifyOrdersCreateWebhook = async (req, res) => {
     });
   } catch (err) {
     log('shopifyOrdersCreateWebhook error: %s', err?.message);
-    return res.status(500).json({
-      success: false,
-      message: 'Webhook handler failed',
-      error: err?.message || 'Unknown error',
-    });
+    return sendApiError(res, 500, "Webhook handler failed");
   }
 };
 
@@ -6844,10 +6549,7 @@ const shopifyProductDeleteWebhook = async (req, res) => {
     const shopDomain = normalizeShopDomain(String(shopFromHeader || '').trim());
     log('shopDomain=%s', shopDomain);
     if (!shopDomain) {
-      return res.status(400).json({
-        success: false,
-        message: 'Missing X-Shopify-Shop-Domain header',
-      });
+      return sendApiError(res, 400, "Missing X-Shopify-Shop-Domain header");
     }
 
     // Webhook payload product id (REST webhooks provide numeric id)
@@ -6856,10 +6558,7 @@ const shopifyProductDeleteWebhook = async (req, res) => {
     log('productId=%s', productId);
 
     if (!productId || !/^\d+$/.test(productId)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Missing/invalid product id. Expected numeric `id` in webhook body.',
-      });
+      return sendApiError(res, 400, "Missing/invalid product id. Expected numeric `id` in webhook body.");
     }
 
     // Shopify webhooks do NOT include an admin token. We look it up using our account-info service.
@@ -6870,18 +6569,8 @@ const shopifyProductDeleteWebhook = async (req, res) => {
       console.log('accountInfo====', accountInfo);
       log('account info fetched success=%s', accountInfo?.success);
     } catch (lookupErr) {
-      const status = lookupErr?.response?.status || 500;
-      log('account info fetch failed status=%s message=%s', status, lookupErr?.message);
-      return res.status(status).json({
-        success: false,
-        message: 'Failed to fetch account info for shop',
-        shopDomain,
-        error:
-          (lookupErr?.response?.data &&
-            (lookupErr.response.data.errors || lookupErr.response.data.error)) ||
-          lookupErr?.message ||
-          'Request failed',
-      });
+      log('account info fetch failed status=%s message=%s', lookupErr?.response?.status || 500, lookupErr?.message);
+      return sendApiError(res, lookupErr);
     }
 
     const accountKey =
@@ -6891,12 +6580,7 @@ const shopifyProductDeleteWebhook = async (req, res) => {
 
     if (!accountKey) {
       log('no account_key returned for shop');
-      return res.status(401).json({
-        success: false,
-        message: 'No account_key returned for shop from account-info service',
-        shopDomain,
-        accountInfo,
-      });
+      return sendApiError(res, 401, "No account_key returned for shop from account-info service");
     }
     log('account_key=%s', accountKey);
 
@@ -6912,13 +6596,7 @@ const shopifyProductDeleteWebhook = async (req, res) => {
       console.log('listResp===', listResp);
     } catch (listErr) {
       log('list virtual inventory failed message=%s', listErr?.message);
-      return res.status(listErr?.response?.status || 500).json({
-        success: false,
-        message: 'Failed to list virtual inventory by product id',
-        shopDomain,
-        id: Number(productId),
-        error: listErr?.message || 'Request failed',
-      });
+      return sendApiError(res, listErr);
     }
 
     const products = Array.isArray(listResp?.products) ? listResp.products : [];
@@ -6947,11 +6625,7 @@ const shopifyProductDeleteWebhook = async (req, res) => {
       webhook_payload: req.body || null,
     });
   } catch (err) {
-    return res.status(500).json({
-      success: false,
-      message: 'Webhook handler failed',
-      error: err?.message || 'Unknown error',
-    });
+    return sendApiError(res, err);
   }
 };
 

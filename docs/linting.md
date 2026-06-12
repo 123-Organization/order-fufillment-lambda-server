@@ -41,6 +41,8 @@ Recommended: install the [Prettier](https://marketplace.visualstudio.com/items?i
 
 Config lives in [`eslint.config.js`](../eslint.config.js) and [`.prettierrc`](../.prettierrc).
 
+For API error response conventions (`{ status: false, message, data }`), see [`api-errors.md`](./api-errors.md).
+
 ## Checklist for new platform APIs
 
 1. **File naming** — Put new code under `src/controllers/{platform}-*.js` or `src/helpers/{platform}-*.js` so it matches existing globs automatically.

@@ -1,5 +1,6 @@
 const axios = require('axios');
 const finerworksService = require('../helpers/finerworks-service');
+const { sendApiError } = require('../helpers/api-error');
 
 const SQUARESPACE_ORDERS_URL = 'https://api.squarespace.com/1.0/commerce/orders';
 
@@ -71,24 +72,15 @@ const getSquarespaceOrders = async (req, res) => {
 
     // validate the required parameters
     if (!startDate && !endDate) {
-      return res.status(400).json({
-        success: false,
-        message: 'Missing required parameter: startDate or endDate',
-      });
+      return sendApiError(res, 400, 'Missing required parameter: startDate or endDate');
     }
 
     if (!fulfillmentStatus) {
-      return res.status(400).json({
-        success: false,
-        message: 'Missing required parameter: fulfillmentStatus',
-      });
+      return sendApiError(res, 400, 'Missing required parameter: fulfillmentStatus');
     }
 
     if (!accessToken) {
-      return res.status(400).json({
-        success: false,
-        message: 'Missing required parameter: access_token',
-      });
+      return sendApiError(res, 400, 'Missing required parameter: access_token');
     }
 
     const orders = await fetchAllSquarespaceOrders({
@@ -105,18 +97,7 @@ const getSquarespaceOrders = async (req, res) => {
       orders,
     });
   } catch (err) {
-    const status = err?.response?.status || 500;
-    const data = err?.response?.data;
-    return res.status(status).json({
-      success: false,
-      message: 'Failed to retrieve Squarespace orders',
-      error:
-        (typeof data?.message === 'string' && data.message) ||
-        (typeof data?.error === 'string' && data.error) ||
-        err?.message ||
-        'Unknown error',
-      ...(data && typeof data === 'object' ? { squarespaceError: data } : {}),
-    });
+    return sendApiError(res, err);
   }
 };
 
@@ -137,10 +118,7 @@ const getSquarespaceOrderByNumber = async (req, res) => {
       req.query?.order_number;
 
     if (!accessToken || !orderNumberRaw) {
-      return res.status(400).json({
-        success: false,
-        message: 'Missing required parameters: access_token and orderNumber',
-      });
+      return sendApiError(res, 400, 'Missing required parameters: access_token and orderNumber');
     }
 
     const normalized = String(orderNumberRaw).replace('#', '').trim();
@@ -151,9 +129,8 @@ const getSquarespaceOrderByNumber = async (req, res) => {
       null;
 
     if (!order) {
-      return res.status(404).json({
-        success: false,
-        message: `Order not found for orderNumber: ${orderNumberRaw}`,
+      return sendApiError(res, 404, `Order not found for orderNumber: ${orderNumberRaw}`, {
+        orderNumber: orderNumberRaw,
       });
     }
 
@@ -162,18 +139,7 @@ const getSquarespaceOrderByNumber = async (req, res) => {
       order,
     });
   } catch (err) {
-    const status = err?.response?.status || 500;
-    const data = err?.response?.data;
-    return res.status(status).json({
-      success: false,
-      message: 'Failed to retrieve Squarespace order by number',
-      error:
-        (typeof data?.message === 'string' && data.message) ||
-        (typeof data?.error === 'string' && data.error) ||
-        err?.message ||
-        'Unknown error',
-      ...(data && typeof data === 'object' ? { squarespaceError: data } : {}),
-    });
+    return sendApiError(res, err);
   }
 };
 
@@ -186,11 +152,7 @@ const validateSquarespaceAccessToken = async (req, res) => {
     }
 
     if (!accessToken) {
-      return res.status(400).json({
-        success: false,
-        valid: false,
-        message: 'Missing required parameter: access_token',
-      });
+      return sendApiError(res, 400, 'Missing required parameter: access_token');
     }
 
     const resp = await axios.get('https://api.squarespace.com/1.0/commerce/store_pages', {
@@ -212,30 +174,9 @@ const validateSquarespaceAccessToken = async (req, res) => {
       });
     }
 
-    const data = resp?.data;
-    return res.status(resp.status || 401).json({
-      success: false,
-      valid: false,
-      message: 'Squarespace access token is invalid or unauthorized',
-      error:
-        (typeof data?.message === 'string' && data.message) ||
-        (typeof data?.error === 'string' && data.error) ||
-        'Unauthorized',
-      ...(data && typeof data === 'object' ? { squarespaceError: data } : {}),
-    });
+    return sendApiError(res, resp.status || 401, 'Squarespace access token is invalid or unauthorized');
   } catch (err) {
-    const status = err?.response?.status || 500;
-    const data = err?.response?.data;
-    return res.status(status).json({
-      success: false,
-      valid: false,
-      message: 'Failed to validate Squarespace access token',
-      error:
-        (typeof data?.message === 'string' && data.message) ||
-        (typeof data?.error === 'string' && data.error) ||
-        err?.message ||
-        'Unknown error',
-    });
+    return sendApiError(res, err);
   }
 };
 
@@ -253,11 +194,11 @@ const fulfillSquareSpaceOrderWithTrackingInfo = async (req, res) => {
     const orderId = req.body?.orderId || req.query?.orderId;
 
     if (!access_token || !account_key || !orderNumber || !orderId) {
-      return res.status(400).json({
-        success: false,
-        message:
-          'Missing required parameters: access_token or account_key or orderNumber or orderId',
-      });
+      return sendApiError(
+        res,
+        400,
+        'Missing required parameters: access_token or account_key or orderNumber or orderId'
+      );
     }
     let headers = {
       Authorization: `Bearer ${access_token}`,
@@ -292,10 +233,7 @@ const fulfillSquareSpaceOrderWithTrackingInfo = async (req, res) => {
         const clientId = process.env.SQUARESPACE_CLIENT_ID;
         const clientSecret = process.env.SQUARESPACE_CLIENT_SECRET;
         if (!clientId || !clientSecret) {
-          return res.status(500).json({
-            success: false,
-            message: 'Squarespace OAuth credentials not configured',
-          });
+          return sendApiError(res, 500, 'Squarespace OAuth credentials not configured');
         }
         const tokenUrl = 'https://login.squarespace.com/api/1/login/oauth/provider/tokens';
         const basicAuth = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
@@ -318,11 +256,7 @@ const fulfillSquareSpaceOrderWithTrackingInfo = async (req, res) => {
 
         const tokenData = tokenResp?.data || {};
         if (!tokenData?.access_token) {
-          return res.status(400).json({
-            success: false,
-            message: 'Token refresh succeeded but access_token missing',
-            data: tokenData,
-          });
+          return sendApiError(res, 400, 'Token refresh succeeded but access_token missing');
         }
 
         // IMPORTANT: Squarespace may rotate refresh tokens on refresh.
@@ -368,10 +302,7 @@ const fulfillSquareSpaceOrderWithTrackingInfo = async (req, res) => {
           Authorization: `Bearer ${tokenData.access_token}`,
         };
       } else {
-        return res.status(400).json({
-          success: false,
-          message: 'Squarespace connection not found',
-        });
+        return sendApiError(res, 400, 'Squarespace connection not found');
       }
     }
     // Common code to get the tracking number and tracking url from the order status data. Then we update the squarespace order.
@@ -388,11 +319,7 @@ const fulfillSquareSpaceOrderWithTrackingInfo = async (req, res) => {
       console.log(result); // "1"
     } catch (error) {
       console.log('error in order status data', error);
-      return res.status(500).json({
-        success: false,
-        message: 'Failed to get order status data',
-        error: error?.message || 'Unknown error',
-      });
+      return sendApiError(res, error);
     }
     console.log('orderStatusData', orderStatusData);
     const trackingNumber = orderStatusData?.orders[0]?.shipments[0]?.tracking_number;
@@ -415,11 +342,11 @@ const fulfillSquareSpaceOrderWithTrackingInfo = async (req, res) => {
       shouldSendNotification: true,
     };
     if (!carrierName || !service || !shipDate || !trackingNumber) {
-      return res.status(400).json({
-        success: false,
-        message:
-          'Missing required parameters: carrier name or service or ship date or tracking number',
-      });
+      return sendApiError(
+        res,
+        400,
+        'Missing required parameters: carrier name or service or ship date or tracking number'
+      );
     }
     const resp = await axios.post(url, JSON.stringify(payload), { headers });
     return res.status(200).json({
@@ -429,11 +356,7 @@ const fulfillSquareSpaceOrderWithTrackingInfo = async (req, res) => {
     });
   } catch (err) {
     console.log('API error', err);
-    return res.status(500).json({
-      success: false,
-      message: 'Failed to fulfill Squarespace order with tracking info',
-      error: err?.message || 'Unknown error',
-    });
+    return sendApiError(res, err);
   }
 };
 

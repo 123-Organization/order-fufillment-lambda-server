@@ -1,6 +1,7 @@
 const debug = require('debug');
 const { validateAccountKey, extractAccountKey } = require('../validators/accountKey.validator');
 const { shouldSkipAccountKeyValidation } = require('./account-key-validation-config');
+const { sendApiError } = require('../helpers/api-error');
 
 const log = debug('app:optionalAccountKeyValidator');
 
@@ -22,20 +23,14 @@ function optionalAccountKeyValidator(req, res, next) {
     const { valid, error } = validateAccountKey(raw);
     if (!valid) {
       log('Rejected invalid account_key on %s %s', req.method, req.originalUrl || req.url);
-      return res.status(400).json({
-        success: false,
-        message: error?.message || 'Invalid account key'
-      });
+      return sendApiError(res, 400, error?.message || 'Invalid account key');
     }
 
     req.validatedAccountKey = raw;
     return next();
   } catch (err) {
     log('optionalAccountKeyValidator error: %s', err?.message);
-    return res.status(500).json({
-      success: false,
-      message: 'Account key validation failed'
-    });
+    return sendApiError(res, 500, 'Account key validation failed');
   }
 }
 
