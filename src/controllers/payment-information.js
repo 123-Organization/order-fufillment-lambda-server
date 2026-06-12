@@ -109,65 +109,6 @@ exports.processVaultedPaymentToken = async (req, res) => {
   }
 };
 
-// exports.createCustomer = async (req, res) => {
-//   try {
-//     const reqBody = JSON.parse(JSON.stringify(req.body));
-//     log("requestBody", reqBody);
-//     gateway.customer.create(
-//       {
-//         firstName: reqBody.firstName,
-//         lastName: reqBody.lastName,
-//         email: reqBody.email,
-//         company: reqBody.companyName,
-//         phone: reqBody.phone,
-//       },
-//       async (err, result) => {
-//         if (err) {
-//           log("Error creating customer:", err);
-//           return;
-//         }
-//         if (result.success) {
-//           log("Customer created successfully:", result.customer.id);
-
-//           // get User Details
-//           const getInformation = await finerworksService.GET_INFO(reqBody);
-//           let payloadForCompanyInformation = {};
-//           payloadForCompanyInformation.account_key = reqBody.account_key;
-//           payloadForCompanyInformation = getInformation.user_account;
-//           payloadForCompanyInformation.payment_profile_id = result.customer.id;
-//           log(
-//             "payloadForCompanyInformation",
-//             JSON.stringify(payloadForCompanyInformation)
-//           );
-//           const updateData = await finerworksService.UPDATE_INFO(
-//             payloadForCompanyInformation
-//           );
-//           log("check if data updates", JSON.stringify(updateData));
-//           log(
-//             "Customer Id update in the api:",
-//             JSON.stringify(payloadForCompanyInformation)
-//           );
-//           res.status(200).json({
-//             statusCode: 200,
-//             status: true,
-//             message: "Customer created successfully on brain tree",
-//             customerId: result.customer.id,
-//           });
-//         } else {
-//           log("Failed to create customer:", result.message);
-//         }
-//       }
-//     );
-//   } catch (error) {
-//     log("error is", error);
-//     res.status(400).json({
-//       statusCode: 400,
-//       status: false,
-//       message: JSON.stringify(error),
-//     });
-//   }
-// };
-
 exports.createCustomer = async (req, res) => {
   try {
     const reqBody = req.body;  // No need to stringify and parse, req.body is already parsed
