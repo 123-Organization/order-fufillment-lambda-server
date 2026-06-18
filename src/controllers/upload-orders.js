@@ -641,10 +641,29 @@ exports.uploadOrdersToLocalDatabaseShopify = async (req, res) => {
         payment_token: reqBody.payment_token,
       };
       const { orders } = payloadToBeSubmitted;
+
+      const selectPayload = {
+        query: `SELECT * FROM ${process.env.FINER_fwAPI_FULFILLMENTS_TABLE} WHERE FulfillmentAccountID=${reqBody.accountId} AND FulfillmentSubmitted=0 AND FulfillmentDeleted=0 AND FulfillmentAppName='${uploadedFromAppName}'`,
+      };
+      const selectData = await finerworksService.SELECT_QUERY_FINERWORKS(selectPayload);
+      const orderData = getFulfillmentData(selectData.data);
+      
+      const existingOrderKeys = new Set(
+        orderData.map(row => {
+          return `${row.order_po}|${row.source}`;
+        })
+      );
+
       for (const order of orders) {
+        const orderKey = `${order.order_po}|${order.source}`;
+        if (existingOrderKeys.has(orderKey)) {
+
+          console.log(`Skipping duplicate order_po ${order.order_po} for source ${uploadedFromAppName}`);
+          continue;
+        }
         order.createdAt = new Date();
         order.submittedAt = null;
-        // order.source = "Shopify"
+        // order.source = uploadedFromAppName;
         const urlEncodedData = urlEncodeJSON(order);
         const insertPayload = {
           tablename: process.env.FINER_fwAPI_FULFILLMENTS_TABLE,
@@ -715,7 +734,8 @@ const getFulfillmentData = (data) => {
 
     return {
       FulfillmentID: item.FulfillmentID,
-      order_po: fulfillmentDataJson.order_po
+      order_po: fulfillmentDataJson.order_po,
+      source: fulfillmentDataJson.source,
     };
   });
 };
