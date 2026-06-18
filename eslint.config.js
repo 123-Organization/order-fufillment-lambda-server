@@ -3,23 +3,6 @@ const eslintPluginN = require('eslint-plugin-n').default;
 const eslintConfigPrettier = require('eslint-config-prettier');
 const globals = require('globals');
 
-const platformControllerFiles = [
-  'src/controllers/shopify-*.js',
-  'src/controllers/squarespace-*.js',
-  'src/controllers/wix-*.js',
-  'src/controllers/platform-order-sync.js',
-  'src/controllers/disconnect-store.js',
-];
-
-const platformHelperFiles = [
-  'src/helpers/shopify-*.js',
-  'src/helpers/squarespace-*.js',
-  'src/helpers/wix-*.js',
-  'src/helpers/platform-connections.js',
-];
-
-const platformFiles = [...platformControllerFiles, ...platformHelperFiles];
-
 const nodeRecommendedRules = eslintPluginN.configs['flat/recommended-script'].rules;
 
 /** @type {import('eslint').Linter.Config[]} */
@@ -31,10 +14,11 @@ module.exports = [
       'packaged.yaml',
       'coverage/**',
       'dist/**',
+      'eslint.config.js',
     ],
   },
   {
-    files: platformFiles,
+    files: ['src/**/*.js', 'scripts/**/*.js', 'app.js', 'lambda.js'],
     languageOptions: {
       ecmaVersion: 2022,
       sourceType: 'commonjs',

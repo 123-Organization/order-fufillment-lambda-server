@@ -61,14 +61,3 @@ exports.getCompanyInfo = async (req, res) => {
     });
   }
 };
-
-function urlDecodeJSON(data) {
-  const decodedJsonString = decodeURIComponent(data);
-  const decodedJsonObject = JSON.parse(decodedJsonString);
-  return decodedJsonObject;
-}
-function urlEncodeJSON(data) {
-  const jsonString = JSON.stringify(data);
-  const encodedString = encodeURIComponent(jsonString);
-  return encodedString;
-}

@@ -1,4 +1,4 @@
-const AWS = require("aws-sdk");
+
 const debug = require('debug');
 const log = debug('app:getCompanyInformation');
 const finerworksService = require('../helpers/finerworks-service');

@@ -68,7 +68,7 @@ const handleSquarespaceAuth = async (req, res) => {
     // Required by Squarespace OAuth to prevent CSRF.
     // We embed account_key into state so the callback can associate tokens with a tenant.
     const nonce = crypto.randomBytes(16).toString('hex');
-    const state = base64UrlEncode(JSON.stringify({ account_key, nonce }));
+    const state = base64UrlEncode(JSON.stringify({ account_key, nonce, return_url: req.query?.return_url || req.body?.return_url || "https://fa.finerworks.com/" }));
 
     const redirectUri = buildRedirectUri(req);
     console.log('redirectUri', redirectUri);
@@ -115,7 +115,7 @@ const handleSquarespaceCallback = async (req, res) => {
     const state = req.query?.state;
     const error = req.query?.error;
     const access_denied = req.query?.access_denied;
-    const return_url = req.query?.return_url;
+    let return_url = req.query?.return_url;
     log('handleSquarespaceCallback', { code, state, error, access_denied, return_url });
     if (error || access_denied) {
       return sendApiError(res, 400, access_denied ? 'access_denied' : error || 'oauth_error');
@@ -132,6 +132,7 @@ const handleSquarespaceCallback = async (req, res) => {
       // Not a state we generated; treat as invalid.
       return sendApiError(res, 400, 'Invalid state');
     }
+    return_url = stateObj?.return_url || return_url || null;
 
     const account_key = stateObj?.account_key;
     if (!account_key) {

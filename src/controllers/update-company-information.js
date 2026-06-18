@@ -1,4 +1,4 @@
-const createEvent = require('../helpers/create-event');
+
 const finerworksService = require('../helpers/finerworks-service');
 const debug = require('debug');
 const log = debug('app:updateCompanyInformation');
@@ -35,7 +35,7 @@ const businessInfoSchema = Joi.object({
 exports.updateCompanyInformation = async (req, res) => {
   try {
       const reqBody = JSON.parse(JSON.stringify(req.body));
-      let payloadForCompanyInformation = {};
+      const payloadForCompanyInformation = {};
       const accountKeyRegex = /^[a-f0-9]{8}-([a-f0-9]{4}-){3}[a-f0-9]{12}$/i;
       if (!reqBody.account_key || !accountKeyRegex.test(reqBody.account_key)) {
         return res.status(400).json({
