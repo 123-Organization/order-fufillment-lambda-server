@@ -9,17 +9,17 @@ const finerworksService = require("../helpers/finerworks-service");
 //     privateKey: 'c0a5b9010c6c7f80f9aa1be4e18c7986'
 // });
 
-// Helper function to handle Braintree errors
-const getErrorMessage = (error) => {
-  if (error instanceof braintree.errors.AuthenticationError) return "Invalid API credentials.";
-  if (error instanceof braintree.errors.AuthorizationError) return "Access denied.";
-  if (error instanceof braintree.errors.NotFoundError) return "Resource not found.";
-  if (error instanceof braintree.errors.RequestTimeoutError) return "Request timed out.";
-  if (error instanceof braintree.errors.ServiceUnavailableError) return "Braintree service is unavailable.";
-  if (error instanceof braintree.errors.UpgradeRequiredError) return "Braintree API upgrade required.";
-  if (error instanceof braintree.errors.TooManyRequestsError) return "Rate limit exceeded.";
-  return "An unknown error occurred.";
-};
+// Helper function to handle Braintree errors. Might be used later for more detailed error handling.
+// const getErrorMessage = (error) => {
+//   if (error instanceof braintree.errors.AuthenticationError) return "Invalid API credentials.";
+//   if (error instanceof braintree.errors.AuthorizationError) return "Access denied.";
+//   if (error instanceof braintree.errors.NotFoundError) return "Resource not found.";
+//   if (error instanceof braintree.errors.RequestTimeoutError) return "Request timed out.";
+//   if (error instanceof braintree.errors.ServiceUnavailableError) return "Braintree service is unavailable.";
+//   if (error instanceof braintree.errors.UpgradeRequiredError) return "Braintree API upgrade required.";
+//   if (error instanceof braintree.errors.TooManyRequestsError) return "Rate limit exceeded.";
+//   return "An unknown error occurred.";
+// };
 
 const environment = process.env.BRAINTREE_ENVIRONMENT === 'Production'
   ? braintree.Environment.Production
@@ -145,7 +145,7 @@ exports.createCustomer = async (req, res) => {
       //   ...getInformation.user_account,
       //   payment_profile_id: result.customer.id,
       // };
-      let payloadForCompanyInformation = {
+      const payloadForCompanyInformation = {
         account_key: reqBody.account_key,
         payment_profile_id: result.customer.id,
       };
@@ -291,7 +291,7 @@ exports.removePaymentCard = async (req, res) => {
         message: "Payment method token and customer ID are required.",
       });
     }
-    const result = await gateway.paymentMethod.delete(paymentMethodToken);
+    await gateway.paymentMethod.delete(paymentMethodToken);
     return  res.status(200).json({
       status: true,
       message: "Successfully Removed Payment Method",

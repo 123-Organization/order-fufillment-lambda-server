@@ -1,4 +1,4 @@
-const createEvent = require("../helpers/create-event");
+
 const finerworksService = require("../helpers/finerworks-service");
 const debug = require("debug");
 const log = debug("app:uploadOrders");
@@ -430,7 +430,12 @@ exports.updateOrder = async (req, res) => {
       }
     }
   } catch (err) {
-    throw err;
+    log('error is', JSON.stringify(err), err);
+    res.status(400).json({
+      statusCode: 400,
+      status: false,
+      message: "An error occurred while updating the order",
+    });
   }
 }
 
@@ -495,7 +500,6 @@ exports.uploadOrdersToLocalDatabaseFromExcel = async (req, res) => {
         message: "Bad Request. Orders are required.",
       });
     } else {
-      const uploadedFromAppName = reqBody.uploadedFrom ?? 'Finerworks';
       const ordersToBeSubmitted = reqBody.orders;
       const consolidatedOrdersData = consolidateOrderItems(ordersToBeSubmitted);
       const payloadToBeSubmitted = {
@@ -539,7 +543,7 @@ exports.uploadOrdersToLocalDatabaseFromExcel = async (req, res) => {
               where: `FulfillmentID=${filteredObject.FulfillmentID}`,
             };
             console.log("updatePayload=========>>>>", updatePayload);
-            const updateQueryExecute = await finerworksService.UPDATE_QUERY_FINERWORKS(updatePayload);
+            await finerworksService.UPDATE_QUERY_FINERWORKS(updatePayload);
           } else {
             // console.log("yessssssssssssssssssssssssssss")
             const insertPayload = {

@@ -378,7 +378,7 @@ const handleWixAuthStart = async (req, res) => {
     }
 
     const nonce = crypto.randomBytes(16).toString('hex');
-    const return_url = req.query?.return_url || req.body?.return_url || null;
+    const return_url = req.query?.return_url || req.body?.return_url || "https://fa.finerworks.com/";
 
     const state = jwt.sign(
       {

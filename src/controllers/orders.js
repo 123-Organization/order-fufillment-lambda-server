@@ -1,10 +1,9 @@
-const createEvent = require("../helpers/create-event");
+;
 const finerworksService = require("../helpers/finerworks-service");
 const debug = require("debug");
 const log = debug("app:uploadOrders");
-const Joi = require("joi");
 const { validateOrderPayload } = require("./validate-order");
-const { v4: uuidv4 } = require('uuid'); // Import uuid library for UUID generation
+const { randomUUID: uuidv4 } = require('crypto'); // Use Node's built-in crypto.randomUUID for UUID generation
 
 log("Orders");
 const axios = require('axios'); // Import axios for making HTTP requests
@@ -53,8 +52,8 @@ exports.viewAllOrders = async (req, res) => {
     }
 
     // Process orders
-    let allOrders = selectData.data.map((order) => {
-      let orderData = urlDecodeJSON(order.FulfillmentData);
+    const allOrders = selectData.data.map((order) => {
+      const orderData = urlDecodeJSON(order.FulfillmentData);
       orderData.orderFullFillmentId = order.FulfillmentID;
       return orderData;
     });
@@ -130,9 +129,9 @@ exports.viewOrderDetails = async (req, res) => {
       );
       log("selectData", JSON.stringify(selectData));
       if (selectData) {
-        let allOrders = [];
+        const allOrders = [];
         selectData.data.forEach((order) => {
-          let latestOrderToBePushed = urlDecodeJSON(order.FulfillmentData);
+          const latestOrderToBePushed = urlDecodeJSON(order.FulfillmentData);
           latestOrderToBePushed.orderFullFillmentId = order.FulfillmentID;
           allOrders.push(latestOrderToBePushed);
         });
@@ -145,14 +144,14 @@ exports.viewOrderDetails = async (req, res) => {
       }
     }
   } catch (err) {
-    throw err;
+    log("Error while fetching order details:", err?.message || JSON.stringify(err));
   }
 };
 exports.updateOrderByProductSkuCode = async (req, res) => {
   try {
     const reqBody = JSON.parse(JSON.stringify(req.body));
     console.log("testinggggggggg", req.body);
-    var getProductDetails
+    let getProductDetails
 
     if (!reqBody.orderFullFillmentId) {
       res.status(400).json({
@@ -196,10 +195,10 @@ exports.updateOrderByProductSkuCode = async (req, res) => {
     // If order exist then find the product details
     const { skuCode, productCode, fromTheInventory, account_key } = reqBody;
     const searchListVirtualInventoryParams = {};
-    if (skuCode != "") {
+    if (skuCode !== "") {
       searchListVirtualInventoryParams.sku_filter = [skuCode];
     }
-    if (productCode != "") {
+    if (productCode !== "") {
       searchListVirtualInventoryParams.product_code_filter = [productCode];
     }
     if (account_key) {
@@ -239,7 +238,7 @@ exports.updateOrderByProductSkuCode = async (req, res) => {
       }
 
       if (getProductDetails?.status?.success) {
-        let product = getProductDetails.products;
+        const product = getProductDetails.products;
         console.log("product====", product)
         const previousOrder = urlDecodeJSON(orderDetails.FulfillmentData);
         const orderData = {
@@ -304,7 +303,7 @@ exports.updateOrderByProductSkuCode = async (req, res) => {
       log("Get product details", JSON.stringify(getProductDetails));
       console.log("getProductDetails", getProductDetails);
       if (getProductDetails?.status?.success) {
-        let products = skuCode
+        const products = skuCode
           ? getProductDetails.products
           : getProductDetails.product_list;
         const previousOrder = urlDecodeJSON(orderDetails.FulfillmentData);
@@ -324,7 +323,7 @@ exports.updateOrderByProductSkuCode = async (req, res) => {
         }));
 
         if (previousOrder?.order_items) {
-          orderData.forEach((item, index) => {
+          orderData.forEach((item) => {
             previousOrder.order_items.push(item);
           })
         }
@@ -370,7 +369,7 @@ exports.updateOrderByProductSkuCode = async (req, res) => {
 exports.updateOrderByValidProductSkuCode = async (req, res) => {
   try {
     const reqBody = JSON.parse(JSON.stringify(req.body));
-    var getProductDetails
+    let getProductDetails
 
     if (!reqBody.orderFullFillmentId) {
       res.status(400).json({
@@ -413,10 +412,10 @@ exports.updateOrderByValidProductSkuCode = async (req, res) => {
     // If order exist then find the product details
     const { skuCode, productCode, fromTheInventory, account_key, toReplace } = reqBody;
     const searchListVirtualInventoryParams = {};
-    if (skuCode != "") {
+    if (skuCode !== "") {
       searchListVirtualInventoryParams.sku_filter = [skuCode];
     }
-    if (productCode != "") {
+    if (productCode !== "") {
       searchListVirtualInventoryParams.product_code_filter = [productCode];
     }
     if (account_key) {
@@ -441,7 +440,7 @@ exports.updateOrderByValidProductSkuCode = async (req, res) => {
       }
 
       if (getProductDetails?.status?.success) {
-        let product = getProductDetails.products;
+        const product = getProductDetails.products;
         console.log("product====", product)
         const previousOrder = urlDecodeJSON(orderDetails.FulfillmentData);
         const orderData = {
@@ -508,7 +507,7 @@ exports.updateOrderByValidProductSkuCode = async (req, res) => {
       log("Get product details", JSON.stringify(getProductDetails));
       console.log("getProductDetails", getProductDetails);
       if (getProductDetails?.status?.success) {
-        let products = skuCode
+        const products = skuCode
           ? getProductDetails.products
           : getProductDetails.product_list;
         const previousOrder = urlDecodeJSON(orderDetails.FulfillmentData);
@@ -596,7 +595,7 @@ exports.createNewOrder = async (req, res) => {
     const { product_code, recipient, accountId, shipping_code, thumbnailUrl } =
       reqBody;
     const searchListVirtualInventoryParams = {};
-    if (product_code != "") {
+    if (product_code !== "") {
       searchListVirtualInventoryParams.product_code_filter = [product_code];
     }
     log(
@@ -786,8 +785,8 @@ exports.submitOrders = async (req, res) => {
     const { accountId, payment_token, account_key } = reqBody;
     const ordersToBeSubmitted = reqBody.orders;
     if (ordersToBeSubmitted?.length) {
-      let orderFulfillmentIds = [];
-      const finalOrders = orders.map((order) => {
+      const orderFulfillmentIds = [];
+      const finalOrders = ordersToBeSubmitted.map((order) => {
         if (!order.orderFullFillmentId) {
           throw new Error("Bad request: Missing orderFullFillmentId");
         }
@@ -868,8 +867,8 @@ exports.submitOrdersV2 = async (req, res) => {
     console.log("ordersToBeSubmitted=========>>>>", ordersToBeSubmitted);
     if (ordersToBeSubmitted.length > 0) {
       console.log("got theentryyyyyyyyyyyyyyy")
-      let orderFulfillmentIds = [];
-      let finalResults = [];
+      const orderFulfillmentIds = [];
+      const finalResults = [];
       const finalOrders = ordersToBeSubmitted.map((order) => {
         console.log("order==========", order);
         if (!order.orderFullFillmentId) {
@@ -997,7 +996,7 @@ exports.orderSubmitStatus = async (req, res) => {
         message: "Account Id and order fullfillment Id are required.",
       });
     } else {
-      const { orderFullFillmentId, accountId, account_key, orderId } = reqBody;
+      const { account_key, orderId } = reqBody;
       log("Request comes to delete order for", JSON.stringify(reqBody));
 
       const selectOrderId = {
@@ -1056,7 +1055,13 @@ exports.getOrderPrice = async (req, res) => {
       });
     }
   } catch (err) {
-    throw err;
+    log("Error comes while fetching order price", JSON.stringify(err), err);
+    const errorMessage = err.response.data;
+    res.status(400).json({
+      statusCode: 400,
+      status: false,
+      message: errorMessage,
+    });
   }
 };
 
@@ -1085,7 +1090,6 @@ exports.getOrderDetailsById = async (req, res) => {
       });
     }
 
-    let orderDetails;
     console.log("orderIds===========>>>>", orderIds);
     console.log("platformName===========>>>>", platformName);
     console.log("accountId===========>>>>", accountId);
@@ -1147,7 +1151,7 @@ exports.getOrderDetailsById = async (req, res) => {
 
 const callApiWithMissingOrders = async (missingOrders, platformName, res, domainName) => {
   try {
-    let allOrderDetails = [];
+    const allOrderDetails = [];
 
     if (platformName === 'woocommerce') {
       console.log("hererererererererererrrrrrrrrrrrrrrrrr", domainName);
@@ -1376,7 +1380,7 @@ exports.disconnectAndProcess = async (req, res) => {
 
 exports.connectAndProcess = async (req, res) => {
   try {
-    const { clientId, platformName, account_key } = req.body;
+    const { clientId, account_key } = req.body;
     console.log("Received body:", req.body, clientId);
 
     // Validate client_id
@@ -1389,8 +1393,6 @@ exports.connectAndProcess = async (req, res) => {
     }
 
     console.log("Received client_id:", clientId);
-
-    let internalApiResponse;
 
     // Get information from the finerworks service
     const getInformation = await finerworksService.GET_INFO({ account_key: account_key });
@@ -1687,7 +1689,7 @@ exports.sendOrderDetails = async (req, res) => {
 
     // If the API response is successful, send the response back to the client
     console.log("sdfgfdsdfgfd", updateOrdersResponse.success)
-    if (updateOrdersResponse.data.success == true) {
+    if (updateOrdersResponse.data.success === true) {
       return res.status(200).json({
         statusCode: 200,
         status: true,
@@ -1750,7 +1752,7 @@ exports.testAccountKey = async (req, res) => {
     const getInformationv2 = await finerworksService.GET_INFO({ account_key: account_key });
     console.log("Fetched Information from Finerworks:", getInformationv2);
 
-    let connections = JSON.parse(JSON.stringify(getInformationv2?.user_account?.connections)) || [];
+    const connections = JSON.parse(JSON.stringify(getInformationv2?.user_account?.connections)) || [];
 
     const filteredConnections = connections.filter(conn => conn.name === 'WooCommerce');
     console.log("Filtered Connections:", filteredConnections);

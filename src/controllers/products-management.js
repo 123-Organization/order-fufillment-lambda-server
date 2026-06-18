@@ -226,7 +226,7 @@ exports.increaseProductQuantity = async (req, res) => {
     }
     // Decode and parse FulfillmentData
     const decodedFulfillmentData = decodeURIComponent(selectData.data[0].FulfillmentData);
-    let fulfillmentJSON = JSON.parse(decodedFulfillmentData);
+    const fulfillmentJSON = JSON.parse(decodedFulfillmentData);
 
     // Function to update product quantity in order_items
     fulfillmentJSON.order_items = fulfillmentJSON.order_items.map(item => {
@@ -339,7 +339,7 @@ exports.exportToWoocomercev1 = async (req, res) => {
 exports.productTrashed = async (req, res) => {
   try {
     // Step 1: Extract the payload fields
-    const { clientId, account_key, id, name, product } = req.body;
+    const { clientId, account_key, name, product } = req.body;
 
     // Step 2: Validate if clientId, account_key, product, and other necessary fields exist
     if (!clientId || !account_key || !name || !product) {
@@ -350,7 +350,7 @@ exports.productTrashed = async (req, res) => {
       });
     }
     const searchListVirtualInventoryParams = {};
-    if (product.sku != "") {
+    if (product.sku !== "") {
       searchListVirtualInventoryParams.sku_filter = [product.sku];
     }
     searchListVirtualInventoryParams.account_key=account_key
@@ -422,7 +422,7 @@ exports.productTrashed = async (req, res) => {
 exports.productSkuUpdated = async (req, res) => {
   try {
     // Step 1: Extract the payload fields
-    const { clientId, account_key, id, name, product } = req.body;
+    const { clientId, account_key, name, product } = req.body;
 
     // Step 2: Validate if clientId, account_key, product, and other necessary fields exist
     if (!clientId || !account_key || !name || !product) {
@@ -435,10 +435,10 @@ exports.productSkuUpdated = async (req, res) => {
     const searchListVirtualInventoryParams = {};
     const searchListVirtualInventoryParamsNew = {};
 
-    if (product.old_sku != "") {
+    if (product.old_sku !== "") {
       searchListVirtualInventoryParams.sku_filter = [product.old_sku];
     }
-    if (product.new_sku != "") {
+    if (product.new_sku !== "") {
       searchListVirtualInventoryParamsNew.sku_filter = [product.new_sku];
     }
     searchListVirtualInventoryParams.account_key=account_key
@@ -524,7 +524,7 @@ exports.productSkuUpdated = async (req, res) => {
 exports.productRestored = async (req, res) => {
   try {
     // Step 1: Extract the payload fields
-    const { clientId, account_key, id, name, product } = req.body;
+    const { clientId, account_key, name, product } = req.body;
 
     // Step 2: Validate if clientId, account_key, product, and other necessary fields exist
     if (!clientId || !account_key  || !name || !product) {
@@ -535,7 +535,7 @@ exports.productRestored = async (req, res) => {
       });
     }
     const searchListVirtualInventoryParams = {};
-    if (product.sku != "") {
+    if (product.sku !== "") {
       searchListVirtualInventoryParams.sku_filter = [product.sku];
     }
     searchListVirtualInventoryParams.account_key=account_key
