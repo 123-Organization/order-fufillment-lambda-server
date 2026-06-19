@@ -12,7 +12,7 @@ const getHeaders = () => ({
   'Content-Type': 'application/json',
 });
 
-exports.GET_ORDERS = async ({ status, page = 1, results = 100 } = {}) => {
+exports.GET_ORDERS = async ({ status, page = 1, results = 10 } = {}) => {
   const params = { page, results };
   if (status) params.order_status = status;
   const response = await axios.get(`${SHIPPO_BASE_URL}/orders/`, {
