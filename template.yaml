@@ -363,6 +363,18 @@ Resources:
             RestApiId: !Ref MyApiGateway
             Method: POST
             Path: "/api/squarespace/sync-products"
+        ConnectShippo:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Method: POST
+            Path: "/api/shippo/connect"
+        FetchShippoOrders:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Method: POST
+            Path: "/api/shippo/orders"
   OrderFullFillmentServerLessDevServerV2Again:
     Type: AWS::Serverless::Function
     Properties:
