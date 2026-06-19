@@ -20,7 +20,7 @@ const { getSquarespaceOrders, getSquarespaceOrderByNumber, validateSquarespaceAc
 const { getShopifyOrders, getShopifyOrderByName, fulfillShopifyOrder, updateOrderReferenceNumbers, updateOrderFulfillmentStatus, syncShopifyProducts, createShopifyCarrierService, listShopifyCarrierServices, deleteShopifyCarrierService, shopifyCarrierServiceCallback, registerShopifyWebhook, registerShopifyOrderCreateWebhook, listShopifyWebhooks, deleteShopifyWebhookById, shopifyProductDeleteWebhook, shopifyOrdersCreateWebhook, createUsCanadaShippingProfile } = require('./shopify-orders');
 const { syncSquarespaceProducts } = require('./squarespace-products');
 const { setPlatformOrderSync, squarespaceOrderCreateWebhook } = require('./platform-order-sync');
-const { connectShippo, disconnectShippo, getShippoStatus } = require('./shippo-auth');
+const { connectShippo, getShippoStatus } = require('./shippo-auth');
 const { fetchShippoOrders } = require('./shippo-orders');
 const healthCheck = require('./health-check');
 const app = Router();
@@ -119,7 +119,6 @@ app.post('/shopify/list-webhooks', asyncHandler(listShopifyWebhooks));
 app.delete('/shopify/delete-webhook', asyncHandler(deleteShopifyWebhookById));
 
 app.post('/shippo/connect', asyncHandler(connectShippo));
-app.post('/shippo/disconnect', asyncHandler(disconnectShippo));
 app.post('/shippo/status', asyncHandler(getShippoStatus));
 app.post('/shippo/orders', asyncHandler(fetchShippoOrders));
 

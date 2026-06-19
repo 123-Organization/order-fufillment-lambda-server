@@ -37,7 +37,8 @@ exports.fetchShippoOrders = async (req, res) => {
   }
 
   log('Fetching Shippo orders status=%s page=%s results=%s', status, page, results);
-  const shippoResponse = await shippoService.GET_ORDERS({ status, page, results });
+  const { live_key, test_key } = JSON.parse(shippoConn.data || '{}');
+  const shippoResponse = await shippoService.GET_ORDERS({ status, page, results, liveKey: live_key, testKey: test_key });
   const shippoOrders = shippoResponse.results || [];
   const etsyOrders = shippoOrders.filter((o) => o.shop_app === 'Etsy');
 
