@@ -13,6 +13,7 @@ function slugToConnectionName(slug) {
   const s = normalizeSlug(slug);
   if (s === 'wix') return 'Wix';
   if (s === 'squarespace') return 'Squarespace';
+  if (s === 'shippo') return 'Shippo';
   return null;
 }
 
@@ -20,7 +21,7 @@ function slugToConnectionName(slug) {
  * Disconnect a 3rd-party store integration by removing its connection object.
  *
  * Query:
- * - slug: "wix" | "squarespace"
+ * - slug: "wix" | "squarespace" | "shippo"
  *
  * Body:
  * - account_key: string

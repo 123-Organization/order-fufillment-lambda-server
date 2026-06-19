@@ -2,6 +2,7 @@ const PLATFORM_TO_CONNECTION_NAME = {
   squarespace: 'Squarespace',
   wix: 'Wix',
   shopify: 'Shopify',
+  shippo: 'Shippo',
 };
 
 function normalizePlatform(input) {
