@@ -21,7 +21,7 @@ const { getShopifyOrders, getShopifyOrderByName, fulfillShopifyOrder, updateOrde
 const { syncSquarespaceProducts } = require('./squarespace-products');
 const { setPlatformOrderSync, squarespaceOrderCreateWebhook } = require('./platform-order-sync');
 const { connectShippo, getShippoStatus } = require('./shippo-auth');
-const { fetchShippoOrders } = require('./shippo-orders');
+const { fetchShippoOrders, fulfillShippoOrderWithTrackingInfo } = require('./shippo-orders');
 const healthCheck = require('./health-check');
 const app = Router();
 
@@ -121,6 +121,7 @@ app.delete('/shopify/delete-webhook', asyncHandler(deleteShopifyWebhookById));
 app.post('/shippo/connect', asyncHandler(connectShippo));
 app.post('/shippo/status', asyncHandler(getShippoStatus));
 app.post('/shippo/orders', asyncHandler(fetchShippoOrders));
+app.post('/shippo/fulfill-order', asyncHandler(fulfillShippoOrderWithTrackingInfo));
 
 // Shopify webhooks (called by Shopify)
 app.post('/webhooks/product-delete', asyncHandler(shopifyProductDeleteWebhook));
