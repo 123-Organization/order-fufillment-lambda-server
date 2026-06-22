@@ -279,12 +279,6 @@ Resources:
             RestApiId: !Ref MyApiGateway
             Method: POST
             Path: "/api/squarespace/refresh-token"
-        # WebhookOrdersCreate:
-        #   Type: Api
-        #   Properties:
-        #     RestApiId: !Ref MyApiGateway
-        #     Method: POST
-        #     Path: "/api/webhooks/orders-create"
         ShopifyCarrierServiceCallbackApi:
           Type: Api
           Properties:
@@ -363,18 +357,6 @@ Resources:
             RestApiId: !Ref MyApiGateway
             Method: POST
             Path: "/api/squarespace/sync-products"
-        ConnectShippo:
-          Type: Api
-          Properties:
-            RestApiId: !Ref MyApiGateway
-            Method: POST
-            Path: "/api/shippo/connect"
-        FetchShippoOrders:
-          Type: Api
-          Properties:
-            RestApiId: !Ref MyApiGateway
-            Method: POST
-            Path: "/api/shippo/orders"
   OrderFullFillmentServerLessDevServerV2Again:
     Type: AWS::Serverless::Function
     Properties:
@@ -390,12 +372,6 @@ Resources:
           DEBUG: app*
           SQUARESPACE_ACCOUNTS_TABLE_NAME: squarespace-accounts
       Events:
-        # MainEntryRoute:
-        #   Type: Api 
-        #   Properties:
-        #     RestApiId: !Ref ProdApiGateway
-        #     Path: /
-        #     Method: GET
         ExportToWoocommerce:
           Type: Api
           Properties:
@@ -720,3 +696,30 @@ Resources:
     Properties:
       LogGroupName: !Sub /aws/lambda/${OrderFullFillmentServerLessDevServerAgain}
       RetentionInDays: '30'
+  OrderFullFillmentServerLessDevServerAgainNew:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: OrderFullFillmentServerLessDevServerAgainNew
+      Handler: lambda.handler
+      Role: !GetAtt MyLambdaExecutionRole.Arn
+      Runtime: nodejs18.x
+      CodeUri: .
+      MemorySize: 3008
+      Timeout: 900
+      Environment:
+        Variables:
+          DEBUG: app*
+          SHIPPO_MODE: live
+      Events:
+        ConnectShippo:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Method: POST
+            Path: "/api/shippo/connect"
+        FetchShippoOrders:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Method: POST
+            Path: "/api/shippo/orders"

@@ -69,7 +69,7 @@ Resources:
         - MyLambdaExecutionRole
         - Arn
       Runtime: nodejs18.x
-      CodeUri: s3://order-fullfilment-app-lambda-server/464721974ef7259a3c541539168fb32b
+      CodeUri: s3://order-fullfilment-app-lambda-server/7ec7bd32fd49bf2f3a2bf4852fe25aff
       MemorySize: 3008
       Timeout: 900
       Environment:
@@ -397,7 +397,7 @@ Resources:
         - MyLambdaExecutionRole
         - Arn
       Runtime: nodejs18.x
-      CodeUri: s3://order-fullfilment-app-lambda-server/464721974ef7259a3c541539168fb32b
+      CodeUri: s3://order-fullfilment-app-lambda-server/7ec7bd32fd49bf2f3a2bf4852fe25aff
       MemorySize: 3008
       Timeout: 900
       Environment:
@@ -723,3 +723,37 @@ Resources:
       RetentionInDays: '30'
     Metadata:
       SamResourceId: OrderFullFillmentServerLessDevServerLogGroup
+  OrderFullFillmentServerLessDevServerAgainNew:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: OrderFullFillmentServerLessDevServerAgainNew
+      Handler: lambda.handler
+      Role:
+        Fn::GetAtt:
+        - MyLambdaExecutionRole
+        - Arn
+      Runtime: nodejs18.x
+      CodeUri: s3://order-fullfilment-app-lambda-server/7ec7bd32fd49bf2f3a2bf4852fe25aff
+      MemorySize: 3008
+      Timeout: 900
+      Environment:
+        Variables:
+          DEBUG: app*
+          SHIPPO_MODE: live
+      Events:
+        ConnectShippo:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: POST
+            Path: /api/shippo/connect
+        FetchShippoOrders:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: POST
+            Path: /api/shippo/orders
+    Metadata:
+      SamResourceId: OrderFullFillmentServerLessDevServerAgainNew
