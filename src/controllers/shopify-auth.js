@@ -2,6 +2,8 @@ const axios = require('axios');
 const crypto = require('crypto');
 const finerworksService = require('../helpers/finerworks-service');
 const { sendApiError } = require('../helpers/api-error');
+const debug = require('debug');
+const log = debug('app:shopifyAuth');
 
 require('dotenv').config();
 
@@ -57,7 +59,19 @@ const handleShopifyAuth = async (req, res) => {
       message: 'Authorization successful',
     });
   } catch (error) {
-    console.error('Shopify auth error:', error);
+    const errorJson = JSON.stringify({
+      level: 'ERROR',
+      platform: 'shopify',
+      source: 'shopify_api',
+      function: 'handleShopifyAuth',
+      shop: req.query?.shop || 'unknown',
+      httpStatus: error?.response?.status || null,
+      message: `Shopify OAuth token exchange failed: ${error?.message || 'Unknown error'}`,
+      detail: error?.response?.data?.error_description || error?.response?.data?.error || null,
+      timestamp: new Date().toISOString()
+    });
+    console.error(errorJson);
+    log('Formatted error in handleShopifyAuth: %s', errorJson);
     return sendApiError(res, error);
   }
 };
@@ -149,7 +163,19 @@ const handleShopifyCallback = async (req, res) => {
     //     rawQuery: req.url.split('?')[1] || ''
     // });
   } catch (error) {
-    console.error('Shopify callback error:', error);
+    const errorJson = JSON.stringify({
+      level: 'ERROR',
+      platform: 'shopify',
+      source: 'finerworks_api',
+      function: 'handleShopifyCallback',
+      account_key: req.body?.account_key || 'unknown',
+      httpStatus: error?.response?.status || null,
+      message: `Failed to save Shopify connection to FinerWorks: ${error?.message || 'Unknown error'}`,
+      detail: error?.response?.data?.message || null,
+      timestamp: new Date().toISOString()
+    });
+    console.error(errorJson);
+    log('Formatted error in handleShopifyCallback: %s', errorJson);
     return sendApiError(res, error);
   }
 };
@@ -203,7 +229,17 @@ const handleShopifyInstall = async (req, res) => {
     // Redirect user to Shopify authorization page
     return res.redirect(authUrl);
   } catch (error) {
-    console.error('Shopify install error:', error);
+    const errorJson = JSON.stringify({
+      level: 'ERROR',
+      platform: 'shopify',
+      source: 'lambda',
+      function: 'handleShopifyInstall',
+      shop: req.query?.shop || 'unknown',
+      message: `Shopify install redirect failed: ${error?.message || 'Unknown error'}`,
+      timestamp: new Date().toISOString()
+    });
+    console.error(errorJson);
+    log('Formatted error in handleShopifyInstall: %s', errorJson);
     return sendApiError(res, error);
   }
 };
@@ -258,7 +294,19 @@ const handleShopifyDisconnect = async (req, res) => {
       connections,
     });
   } catch (error) {
-    console.error('Shopify disconnect error:', error);
+    const errorJson = JSON.stringify({
+      level: 'ERROR',
+      platform: 'shopify',
+      source: 'finerworks_api',
+      function: 'handleShopifyDisconnect',
+      account_key: req.body?.account_key || 'unknown',
+      httpStatus: error?.response?.status || null,
+      message: `Failed to disconnect Shopify — FinerWorks update error: ${error?.message || 'Unknown error'}`,
+      detail: error?.response?.data?.message || null,
+      timestamp: new Date().toISOString()
+    });
+    console.error(errorJson);
+    log('Formatted error in handleShopifyDisconnect: %s', errorJson);
     return sendApiError(res, error);
   }
 };
@@ -279,11 +327,30 @@ const disconnectShopifyFromOfa = async (req, res) => {
     }
     console.log('hello');
 
-    const disconnectResponse = await axios.post(
-      'https://shopify.finerworks.com/api/disconnect',
-      { shop: storeName, secret: process.env.SECRET },
-      { headers: { 'Content-Type': 'application/json' } }
-    );
+    let disconnectResponse;
+    try {
+      disconnectResponse = await axios.post(
+        'https://shopify.finerworks.com/api/disconnect',
+        { shop: storeName, secret: process.env.SECRET },
+        { headers: { 'Content-Type': 'application/json' } }
+      );
+    } catch (disconnectErr) {
+      const errorJson = JSON.stringify({
+        level: 'ERROR',
+        platform: 'shopify',
+        source: 'shopify_api',
+        function: 'disconnectShopifyFromOfa',
+        storeName: storeName || 'unknown',
+        account_key: account_key || 'unknown',
+        httpStatus: disconnectErr?.response?.status || null,
+        message: `Shopify disconnect API call to shopify.finerworks.com failed: ${disconnectErr?.message || 'Unknown error'}`,
+        detail: disconnectErr?.response?.data?.message || null,
+        timestamp: new Date().toISOString()
+      });
+      console.error(errorJson);
+      log('Formatted error in disconnectShopifyFromOfa: %s', errorJson);
+      throw disconnectErr;
+    }
     console.log('disconnectResponse===', disconnectResponse);
     const success = disconnectResponse?.data?.success === true;
     if (!success) {
@@ -320,7 +387,20 @@ const disconnectShopifyFromOfa = async (req, res) => {
       connections,
     });
   } catch (error) {
-    console.error('disconnectShopifyFromOfa error:', error);
+    const errorJson = JSON.stringify({
+      level: 'ERROR',
+      platform: 'shopify',
+      source: 'finerworks_api',
+      function: 'disconnectShopifyFromOfa',
+      account_key: req.body?.account_key || 'unknown',
+      storeName: req.body?.storeName || 'unknown',
+      httpStatus: error?.response?.status || null,
+      message: `Shopify OFA disconnect failed — FinerWorks update error: ${error?.message || 'Unknown error'}`,
+      detail: error?.response?.data?.message || null,
+      timestamp: new Date().toISOString()
+    });
+    console.error(errorJson);
+    log('Formatted error in disconnectShopifyFromOfa: %s', errorJson);
     return sendApiError(res, error);
   }
 };

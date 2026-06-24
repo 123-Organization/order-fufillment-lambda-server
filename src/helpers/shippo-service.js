@@ -37,10 +37,3 @@ exports.VALIDATE_CONNECTION = async (liveKey, testKey) => {
   });
   return response.data;
 };
-
-exports.UPDATE_ORDER = async (orderId, payload, liveKey, testKey) => {
-  const response = await axios.put(`${SHIPPO_BASE_URL}/orders/${orderId}/`, payload, {
-    headers: getHeaders(liveKey, testKey),
-  });
-  return response.data;
-};

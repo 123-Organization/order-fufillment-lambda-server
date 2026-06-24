@@ -7,6 +7,8 @@ const {
   maybePersistDiscoveredWixSiteId,
 } = require('./wix-products');
 const { sendApiError, safeWixErrorData } = require('../helpers/api-error');
+const debug = require('debug');
+const log = debug('app:wixOrders');
 
 const WIX_SEARCH_ORDERS_URL = 'https://www.wixapis.com/ecom/v1/orders/search';
 const WIX_CREATE_FULFILLMENT_BASE = 'https://www.wixapis.com/ecom/v1/fulfillments/orders';
@@ -402,6 +404,21 @@ exports.getWixOrders = async (req, res) => {
       orders,
     });
   } catch (err) {
+    const isWixError = err?.response?.config?.url?.includes('wixapis.com') || err?.config?.url?.includes('wixapis.com');
+    const isFinerworksError = err?.response?.config?.url?.includes('finerworks.com') || err?.config?.url?.includes('finerworks.com');
+    const errorJson = JSON.stringify({
+      level: 'ERROR',
+      platform: 'wix',
+      source: isWixError ? 'wix_api' : (isFinerworksError ? 'finerworks_api' : 'lambda'),
+      function: 'getWixOrders',
+      account_key: req.body?.account_key || req.query?.account_key || 'unknown',
+      httpStatus: err?.response?.status || null,
+      message: `Failed to fetch Wix orders: ${err?.message || 'Unknown error'}`,
+      detail: err?.response?.data?.message || null,
+      timestamp: new Date().toISOString()
+    });
+    console.error(errorJson);
+    log('Formatted error in getWixOrders: %s', errorJson);
     return sendApiError(res, err);
   }
 };
@@ -549,6 +566,21 @@ exports.getWixOrderByNumber = async (req, res) => {
 
     return res.status(200).json({ success: true, order: found });
   } catch (err) {
+    const isWixError = err?.response?.config?.url?.includes('wixapis.com') || err?.config?.url?.includes('wixapis.com');
+    const isFinerworksError = err?.response?.config?.url?.includes('finerworks.com') || err?.config?.url?.includes('finerworks.com');
+    const errorJson = JSON.stringify({
+      level: 'ERROR',
+      platform: 'wix',
+      source: isWixError ? 'wix_api' : (isFinerworksError ? 'finerworks_api' : 'lambda'),
+      function: 'getWixOrderByNumber',
+      account_key: req.body?.account_key || req.query?.account_key || 'unknown',
+      httpStatus: err?.response?.status || null,
+      message: `Failed to fetch Wix order by number: ${err?.message || 'Unknown error'}`,
+      detail: err?.response?.data?.message || null,
+      timestamp: new Date().toISOString()
+    });
+    console.error(errorJson);
+    log('Formatted error in getWixOrderByNumber: %s', errorJson);
     return sendApiError(res, err);
   }
 };
@@ -678,6 +710,21 @@ exports.fulfillWixOrderWithTrackingInfo = async (req, res) => {
     try {
       orderStatusData = await finerworksService.GET_ORDER_STATUS(selectOrderId);
     } catch (error) {
+      const errorJson = JSON.stringify({
+        level: 'ERROR',
+        platform: 'wix',
+        source: 'finerworks_api',
+        function: 'fulfillWixOrderWithTrackingInfo',
+        account_key: req.body?.account_key || req.query?.account_key || 'unknown',
+        orderId: String(orderIdRaw || '').trim(),
+        orderNumber: String(orderNumberRaw || '').trim(),
+        httpStatus: error?.response?.status || null,
+        message: `Failed to fetch order status from FinerWorks: ${error?.message || 'Unknown error'}`,
+        detail: error?.response?.data?.message || null,
+        timestamp: new Date().toISOString()
+      });
+      console.error(errorJson);
+      log('Formatted error in fulfillWixOrderWithTrackingInfo: %s', errorJson);
       return sendApiError(res, error);
     }
 
@@ -742,6 +789,22 @@ exports.fulfillWixOrderWithTrackingInfo = async (req, res) => {
       safeWixErrorData(wixPayload)
     );
   } catch (err) {
+    const isWixError = err?.response?.config?.url?.includes('wixapis.com') || err?.config?.url?.includes('wixapis.com');
+    const isFinerworksError = err?.response?.config?.url?.includes('finerworks.com') || err?.config?.url?.includes('finerworks.com');
+    const errorJson = JSON.stringify({
+      level: 'ERROR',
+      platform: 'wix',
+      source: isWixError ? 'wix_api' : (isFinerworksError ? 'finerworks_api' : 'lambda'),
+      function: 'fulfillWixOrderWithTrackingInfo',
+      account_key: req.body?.account_key || req.query?.account_key || 'unknown',
+      order_id: req.body?.order_id || req.body?.orderId || 'unknown',
+      httpStatus: err?.response?.status || null,
+      message: `Wix order fulfillment failed: ${err?.message || 'Unknown error'}`,
+      detail: err?.response?.data?.message || null,
+      timestamp: new Date().toISOString()
+    });
+    console.error(errorJson);
+    log('Formatted error in fulfillWixOrderWithTrackingInfo: %s', errorJson);
     return sendApiError(res, err);
   }
 };
