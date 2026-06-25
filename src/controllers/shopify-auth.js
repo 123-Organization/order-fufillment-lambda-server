@@ -54,6 +54,19 @@ const handleShopifyAuth = async (req, res) => {
 
     console.log('Shopify Access Token:', response.data.access_token);
 
+    const successLog = JSON.stringify({
+      level: 'INFO',
+      platform: 'shopify',
+      method: req.method,
+      api: req.originalUrl || req.url,
+      function: 'handleShopifyAuth',
+      operation: 'Shopify OAuth token exchange completed successfully',
+      shop: shop || 'unknown',
+      result: { authorized: true },
+      timestamp: new Date().toISOString()
+    });
+    console.log(successLog);
+    log('Success in handleShopifyAuth: %s', successLog);
     return res.status(200).json({
       success: true,
       message: 'Authorization successful',
@@ -104,6 +117,19 @@ const handleShopifyCallback = async (req, res) => {
       };
       console.log('payloadForCompanyInformation=======>>>>', payloadForCompanyInformationv2);
       await finerworksService.UPDATE_INFO(payloadForCompanyInformationv2);
+      const newConnSuccessLog = JSON.stringify({
+        level: 'INFO',
+        platform: 'shopify',
+        method: req.method,
+        api: req.originalUrl || req.url,
+        function: 'handleShopifyCallback',
+        operation: 'Shopify connection added successfully (new connections list)',
+        account_key: account_key || 'unknown',
+        result: { shop: queryParams.shop || 'unknown', added: true },
+        timestamp: new Date().toISOString()
+      });
+      console.log(newConnSuccessLog);
+      log('Success in handleShopifyCallback: %s', newConnSuccessLog);
       return res.status(200).json({
         success: true,
         message: 'Shopify connection added successfully',
@@ -131,6 +157,19 @@ const handleShopifyCallback = async (req, res) => {
         console.log('payloadForCompanyInformation=======>>>>', payloadForCompanyInformationv2);
         await finerworksService.UPDATE_INFO(payloadForCompanyInformationv2);
       }
+      const existingConnSuccessLog = JSON.stringify({
+        level: 'INFO',
+        platform: 'shopify',
+        method: req.method,
+        api: req.originalUrl || req.url,
+        function: 'handleShopifyCallback',
+        operation: 'Shopify connection updated (existing connection replaced)',
+        account_key: account_key || 'unknown',
+        result: { shop: queryParams.shop || 'unknown', updated: true },
+        timestamp: new Date().toISOString()
+      });
+      console.log(existingConnSuccessLog);
+      log('Success in handleShopifyCallback: %s', existingConnSuccessLog);
       return res.status(200).json({
         success: true,
         message: 'Shopify connection already exists',
@@ -149,6 +188,19 @@ const handleShopifyCallback = async (req, res) => {
       };
       console.log('payloadForCompanyInformation=======>>>>', payloadForCompanyInformationv2);
       await finerworksService.UPDATE_INFO(payloadForCompanyInformationv2);
+      const addedConnSuccessLog = JSON.stringify({
+        level: 'INFO',
+        platform: 'shopify',
+        method: req.method,
+        api: req.originalUrl || req.url,
+        function: 'handleShopifyCallback',
+        operation: 'Shopify connection added successfully',
+        account_key: account_key || 'unknown',
+        result: { shop: queryParams.shop || 'unknown', added: true },
+        timestamp: new Date().toISOString()
+      });
+      console.log(addedConnSuccessLog);
+      log('Success in handleShopifyCallback: %s', addedConnSuccessLog);
       return res.status(200).json({
         success: true,
         message: 'Shopify connection added successfully',
@@ -226,6 +278,19 @@ const handleShopifyInstall = async (req, res) => {
     console.log('authUrl==========', authUrl);
     console.log(`Redirecting to Shopify OAuth for shop: ${shopDomain}`);
 
+    const successLog = JSON.stringify({
+      level: 'INFO',
+      platform: 'shopify',
+      method: req.method,
+      api: req.originalUrl || req.url,
+      function: 'handleShopifyInstall',
+      operation: 'Shopify install OAuth redirect initiated successfully',
+      shop: shopDomain,
+      result: { scopes, redirectUri },
+      timestamp: new Date().toISOString()
+    });
+    console.log(successLog);
+    log('Success in handleShopifyInstall: %s', successLog);
     // Redirect user to Shopify authorization page
     return res.redirect(authUrl);
   } catch (error) {
@@ -261,6 +326,19 @@ const handleShopifyDisconnect = async (req, res) => {
 
     const shopifyIndex = connections.findIndex((conn) => conn && conn.name === 'Shopify');
     if (shopifyIndex === -1) {
+      const notFoundLog = JSON.stringify({
+        level: 'INFO',
+        platform: 'shopify',
+        method: req.method,
+        api: req.originalUrl || req.url,
+        function: 'handleShopifyDisconnect',
+        operation: 'Shopify disconnect — no Shopify connection found, nothing to disconnect',
+        account_key: account_key || 'unknown',
+        result: { found: false },
+        timestamp: new Date().toISOString()
+      });
+      console.log(notFoundLog);
+      log('Success in handleShopifyDisconnect: %s', notFoundLog);
       return res.status(200).json({
         success: true,
         message: 'No Shopify connection found; nothing to disconnect',
@@ -288,6 +366,19 @@ const handleShopifyDisconnect = async (req, res) => {
       connections,
     });
 
+    const successLog = JSON.stringify({
+      level: 'INFO',
+      platform: 'shopify',
+      method: req.method,
+      api: req.originalUrl || req.url,
+      function: 'handleShopifyDisconnect',
+      operation: 'Shopify disconnected successfully',
+      account_key: account_key || 'unknown',
+      result: { disconnected: true },
+      timestamp: new Date().toISOString()
+    });
+    console.log(successLog);
+    log('Success in handleShopifyDisconnect: %s', successLog);
     return res.status(200).json({
       success: true,
       message: 'Shopify disconnected successfully',
@@ -362,6 +453,19 @@ const disconnectShopifyFromOfa = async (req, res) => {
 
     const shopifyIndex = connections.findIndex((conn) => conn && conn.name === 'Shopify');
     if (shopifyIndex === -1) {
+      const noLocalLog = JSON.stringify({
+        level: 'INFO',
+        platform: 'shopify',
+        method: req.method,
+        api: req.originalUrl || req.url,
+        function: 'disconnectShopifyFromOfa',
+        operation: 'Shopify disconnected on remote; no local connection found',
+        account_key: account_key || 'unknown',
+        result: { storeName, remoteDisconnected: true, localFound: false },
+        timestamp: new Date().toISOString()
+      });
+      console.log(noLocalLog);
+      log('Success in disconnectShopifyFromOfa: %s', noLocalLog);
       return res.status(200).json({
         success: true,
         message: 'Shopify disconnected on remote; no Shopify connection found locally',
@@ -381,6 +485,19 @@ const disconnectShopifyFromOfa = async (req, res) => {
       connections,
     });
 
+    const successLog = JSON.stringify({
+      level: 'INFO',
+      platform: 'shopify',
+      method: req.method,
+      api: req.originalUrl || req.url,
+      function: 'disconnectShopifyFromOfa',
+      operation: 'Shopify disconnected from OFA successfully',
+      account_key: account_key || 'unknown',
+      result: { storeName, remoteDisconnected: true, localDisconnected: true },
+      timestamp: new Date().toISOString()
+    });
+    console.log(successLog);
+    log('Success in disconnectShopifyFromOfa: %s', successLog);
     return res.status(200).json({
       success: true,
       message: 'Shopify disconnected from OFA successfully',

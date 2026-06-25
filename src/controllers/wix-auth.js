@@ -83,6 +83,18 @@ const getWixInstallLink = async (req, res) => {
   }
 
   if (mode === 'json') {
+    const successLog = JSON.stringify({
+      level: 'INFO',
+      platform: 'wix',
+      method: req.method,
+      api: req.originalUrl || req.url,
+      function: 'getWixInstallLink',
+      operation: 'Wix install link retrieved successfully',
+      result: { installUrl: String(installUrl).trim() },
+      timestamp: new Date().toISOString()
+    });
+    console.log(successLog);
+    log('Success in getWixInstallLink: %s', successLog);
     return res.status(200).json({ success: true, installUrl: String(installUrl).trim() });
   }
   return res.redirect(String(installUrl).trim());
@@ -191,10 +203,36 @@ const connectWixFromInstance = async (req, res) => {
 
     const return_url = req.query?.return_url || req.body?.return_url || null;
     if (return_url) {
+      const successLog = JSON.stringify({
+        level: 'INFO',
+        platform: 'wix',
+        method: req.method,
+        api: req.originalUrl || req.url,
+        function: 'connectWixFromInstance',
+        operation: 'Wix instance connected successfully, redirecting',
+        account_key: String(account_key).trim(),
+        result: { instance_id, site_id: nextData.site_id || null, redirected: true },
+        timestamp: new Date().toISOString()
+      });
+      console.log(successLog);
+      log('Success in connectWixFromInstance: %s', successLog);
       const sep = String(return_url).includes('?') ? '&' : '?';
       return res.redirect(`${return_url}${sep}success=1`);
     }
 
+    const successLog = JSON.stringify({
+      level: 'INFO',
+      platform: 'wix',
+      method: req.method,
+      api: req.originalUrl || req.url,
+      function: 'connectWixFromInstance',
+      operation: 'Wix instance connected successfully',
+      account_key: String(account_key).trim(),
+      result: { instance_id, site_id: nextData.site_id || null },
+      timestamp: new Date().toISOString()
+    });
+    console.log(successLog);
+    log('Success in connectWixFromInstance: %s', successLog);
     return res.status(200).json({
       success: true,
       message: 'Wix instance connected successfully',
@@ -428,6 +466,19 @@ const handleWixAuthStart = async (req, res) => {
 
     log('installUrl==========>>>>>>>>>>>', installUrl);
     console.log('installUrl==========>>>>>>>>>>>', installUrl);
+    const successLog = JSON.stringify({
+      level: 'INFO',
+      platform: 'wix',
+      method: req.method,
+      api: req.originalUrl || req.url,
+      function: 'handleWixAuthStart',
+      operation: 'Wix install redirect initiated successfully',
+      account_key: String(account_key).trim(),
+      result: { installUrl: String(installUrl).trim() },
+      timestamp: new Date().toISOString()
+    });
+    console.log(successLog);
+    log('Success in handleWixAuthStart: %s', successLog);
     return res.redirect(installUrl);
   } catch (err) {
     const errorJson = JSON.stringify({
@@ -556,6 +607,19 @@ const connectWix = async (req, res) => {
       connections,
     });
 
+    const successLog = JSON.stringify({
+      level: 'INFO',
+      platform: 'wix',
+      method: req.method,
+      api: req.originalUrl || req.url,
+      function: 'connectWix',
+      operation: 'Wix API key connection added successfully',
+      account_key: String(account_key).trim(),
+      result: { site_id: String(siteId).trim(), auth_type: 'api_key' },
+      timestamp: new Date().toISOString()
+    });
+    console.log(successLog);
+    log('Success in connectWix: %s', successLog);
     return res.status(200).json({
       success: true,
       message: 'Wix connection added successfully',
@@ -625,6 +689,19 @@ const connectWixOAuth = async (req, res) => {
       site_id ? String(site_id).trim() : null
     );
 
+    const successLog = JSON.stringify({
+      level: 'INFO',
+      platform: 'wix',
+      method: req.method,
+      api: req.originalUrl || req.url,
+      function: 'connectWixOAuth',
+      operation: 'Wix OAuth client credentials connection added successfully',
+      account_key: String(account_key).trim(),
+      result: { instance_id: out.instance_id, site_id: out.site_id, expires_at: out.expires_at },
+      timestamp: new Date().toISOString()
+    });
+    console.log(successLog);
+    log('Success in connectWixOAuth: %s', successLog);
     return res.status(200).json({
       success: true,
       message: 'Wix OAuth connection added successfully',
@@ -745,10 +822,36 @@ const handleWixOAuthInstallReturn = async (req, res) => {
 
     const return_url = req.query?.return_url || return_url_from_state;
     if (return_url) {
+      const installReturnSuccessLog = JSON.stringify({
+        level: 'INFO',
+        platform: 'wix',
+        method: req.method,
+        api: req.originalUrl || req.url,
+        function: 'handleWixOAuthInstallReturn',
+        operation: 'Wix OAuth install return handled successfully, redirecting',
+        account_key,
+        result: { instance_id, site_id, redirected: true },
+        timestamp: new Date().toISOString()
+      });
+      console.log(installReturnSuccessLog);
+      log('Success in handleWixOAuthInstallReturn: %s', installReturnSuccessLog);
       const sep = String(return_url).includes('?') ? '&' : '?';
       return res.redirect(`${return_url}${sep}success=1`);
     }
 
+    const successLog = JSON.stringify({
+      level: 'INFO',
+      platform: 'wix',
+      method: req.method,
+      api: req.originalUrl || req.url,
+      function: 'handleWixOAuthInstallReturn',
+      operation: 'Wix OAuth install return handled successfully',
+      account_key,
+      result: { instance_id, site_id },
+      timestamp: new Date().toISOString()
+    });
+    console.log(successLog);
+    log('Success in handleWixOAuthInstallReturn: %s', successLog);
     return res.status(200).json({
       success: true,
       message: 'Wix connected after install redirect',
@@ -844,10 +947,36 @@ const handleWixOAuthCallback = async (req, res) => {
     });
 
     if (return_url) {
+      const callbackRedirectLog = JSON.stringify({
+        level: 'INFO',
+        platform: 'wix',
+        method: req.method,
+        api: req.originalUrl || req.url,
+        function: 'handleWixOAuthCallback',
+        operation: 'Wix OAuth callback handled successfully, redirecting',
+        account_key: String(account_key).trim(),
+        result: { auth_type: 'custom_auth_legacy', redirected: true },
+        timestamp: new Date().toISOString()
+      });
+      console.log(callbackRedirectLog);
+      log('Success in handleWixOAuthCallback: %s', callbackRedirectLog);
       const sep = String(return_url).includes('?') ? '&' : '?';
       return res.redirect(`${return_url}${sep}success=1`);
     }
 
+    const successLog = JSON.stringify({
+      level: 'INFO',
+      platform: 'wix',
+      method: req.method,
+      api: req.originalUrl || req.url,
+      function: 'handleWixOAuthCallback',
+      operation: 'Wix OAuth callback handled successfully',
+      account_key: String(account_key).trim(),
+      result: { auth_type: 'custom_auth_legacy' },
+      timestamp: new Date().toISOString()
+    });
+    console.log(successLog);
+    log('Success in handleWixOAuthCallback: %s', successLog);
     return res.status(200).json({ success: true, message: 'Wix connection added successfully' });
   } catch (err) {
     const isWixError = err?.response?.config?.url?.includes('wixapis.com') || err?.config?.url?.includes('wixapis.com');

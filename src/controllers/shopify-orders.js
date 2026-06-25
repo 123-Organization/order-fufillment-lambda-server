@@ -2317,6 +2317,21 @@ const getShopifyOrders = async (req, res) => {
         product.product_guid = productGuidNode?.node?.value ?? null;
       });
     });
+    const successLog = JSON.stringify({
+      level: 'INFO',
+      platform: 'shopify',
+      method: req.method,
+      api: req.originalUrl || req.url,
+      function: 'getShopifyOrders',
+      operation: 'Shopify orders list fetched successfully',
+      shop: shopDomain,
+      result: orders.length <= 20
+        ? { count: orders.length, orderIds: orders.map(o => o?.id), orderNames: orders.map(o => o?.name) }
+        : { count: orders.length, firstOrderIds: orders.slice(0, 5).map(o => o?.id), firstOrderNames: orders.slice(0, 5).map(o => o?.name) },
+      timestamp: new Date().toISOString()
+    });
+    console.log('Success in getShopifyOrders: %s', successLog);
+    log('Success in getShopifyOrders: %s', successLog);
     return res.status(200).json({ success: true, count: orders.length, orders });
   } catch (err) {
     const isShopifyError = err?.response?.config?.url?.includes('myshopify.com');
@@ -3159,11 +3174,28 @@ const getShopifyOrderByName = async (req, res) => {
       return sendApiError(res, 200, "This order is already submitted to FinerWorks");
     }
 
+    const orderKeyCount = order && typeof order === 'object' ? Object.keys(order).length : 0;
+    const orderSummary = orderKeyCount <= 20
+      ? order
+      : { id: order?.id, name: order?.name, displayFinancialStatus: order?.displayFinancialStatus, displayFulfillmentStatus: order?.displayFulfillmentStatus };
+    const successLog = JSON.stringify({
+      level: 'INFO',
+      platform: 'shopify',
+      method: req.method,
+      api: req.originalUrl || req.url,
+      function: 'getShopifyOrderByName',
+      operation: 'Shopify order fetched by order name',
+      shop: shopDomain,
+      result: orderSummary,
+      timestamp: new Date().toISOString()
+    });
+    console.log('Success in getShopifyOrderByName: %s', successLog);
+    log('Success in getShopifyOrderByName: %s', successLog);
     return res.status(200).json({ success: true, order });
   } catch (err) {
     const isShopifyError = err?.response?.config?.url?.includes('myshopify.com');
     const isFinerworksError = err?.response?.config?.url?.includes('finerworks.com') || err?.config?.url?.includes('finerworks.com');
-    console.error(JSON.stringify({
+    const errorJson = JSON.stringify({
       level: 'ERROR',
       platform: 'shopify',
       source: isShopifyError ? 'shopify_api' : (isFinerworksError ? 'finerworks_api' : 'lambda'),
@@ -3174,7 +3206,9 @@ const getShopifyOrderByName = async (req, res) => {
       message: `Failed to fetch Shopify order by name: ${err?.message || 'Unknown error'}`,
       detail: err?.response?.data?.errors?.[0]?.message || err?.response?.data?.message || null,
       timestamp: new Date().toISOString()
-    }));
+    });
+    console.error('Shopify API Error in getShopifyOrderByName: %s', errorJson);
+    log('Formatted error in getShopifyOrderByName: %s', errorJson);
     return sendApiError(res, err);
   }
 };
@@ -3591,6 +3625,26 @@ const fulfillShopifyOrder = async (req, res) => {
     if (isArrayRequest) {
       // For array requests, always return array of results
       const statusCode = hasErrors ? (results.some((r) => r.success) ? 207 : 400) : 200; // 207 Multi-Status if mixed results
+      if (!hasErrors) {
+        const successLog = JSON.stringify({
+          level: 'INFO',
+          platform: 'shopify',
+          method: req.method,
+          api: req.originalUrl || req.url,
+          function: 'fulfillShopifyOrder',
+          operation: 'Shopify batch order fulfillment completed successfully',
+          shop: req.body?.[0]?.storeName || req.query?.shop || 'unknown',
+          result: {
+            total: ordersToProcess.length,
+            succeeded: results.filter((r) => r.success).length,
+            failed: results.filter((r) => !r.success).length,
+            orderNames: results.slice(0, 5).map(r => r.orderName || r.order || null),
+          },
+          timestamp: new Date().toISOString()
+        });
+        console.log(successLog);
+        log('Success in fulfillShopifyOrder (batch): %s', successLog);
+      }
       return res.status(statusCode).json({
         success: !hasErrors,
         message: hasErrors ? 'Some orders failed to fulfill' : 'All orders fulfilled successfully',
@@ -3603,13 +3657,30 @@ const fulfillShopifyOrder = async (req, res) => {
       // For single order requests, maintain backward compatibility with original response format
       const result = results[0];
       if (result.success) {
+        const successLog = JSON.stringify({
+          level: 'INFO',
+          platform: 'shopify',
+          method: req.method,
+          api: req.originalUrl || req.url,
+          function: 'fulfillShopifyOrder',
+          operation: 'Shopify order fulfilled successfully',
+          shop: req.body?.storeName || req.body?.shop || req.query?.shop || 'unknown',
+          result: {
+            orderName: result.orderName || result.order || null,
+            fulfillmentId: result.fulfillmentId || null,
+            trackingNumber: result.trackingNumber || null,
+          },
+          timestamp: new Date().toISOString()
+        });
+        console.log(successLog);
+        log('Success in fulfillShopifyOrder: %s', successLog);
         return res.status(200).json(result);
       } else {
         return sendApiError(res, 400, 'Failed to fulfill order');
       }
     }
   } catch (err) {
-    console.error(JSON.stringify({
+    const errorJson = JSON.stringify({
       level: 'ERROR',
       platform: 'shopify',
       source: 'shopify_api',
@@ -3619,7 +3690,9 @@ const fulfillShopifyOrder = async (req, res) => {
       message: `Shopify order fulfillment failed: ${err?.message || 'Unknown error'}`,
       detail: err?.response?.data?.errors?.[0]?.message || err?.response?.data?.message || null,
       timestamp: new Date().toISOString()
-    }));
+    });
+    console.error('Shopify API Error in fulfillShopifyOrder: %s', errorJson);
+    log('Formatted error in fulfillShopifyOrder: %s', errorJson);
     return sendApiError(res, err);
   }
 };
@@ -4126,6 +4199,26 @@ const updateOrderReferenceNumbers = async (req, res) => {
 
     // Return results
     const statusCode = hasErrors ? (results.some((r) => r.success) ? 207 : 400) : 200; // 207 Multi-Status if mixed results
+    if (!hasErrors) {
+      const successLog = JSON.stringify({
+        level: 'INFO',
+        platform: 'shopify',
+        method: req.method,
+        api: req.originalUrl || req.url,
+        function: 'updateOrderReferenceNumbers',
+        operation: 'Shopify order reference numbers updated successfully',
+        shop: shopDomain,
+        result: {
+          total: orders.length,
+          succeeded: results.filter((r) => r.success).length,
+          failed: results.filter((r) => !r.success).length,
+          updatedOrders: results.slice(0, 5).map(r => ({ order: r.order, referenceNumber: r.referenceNumber })),
+        },
+        timestamp: new Date().toISOString()
+      });
+      console.log('Success in updateOrderReferenceNumbers: %s',successLog);
+      log('Success in updateOrderReferenceNumbers: %s', successLog);
+    }
     return res.status(statusCode).json({
       success: !hasErrors,
       message: hasErrors ? 'Some orders failed to update' : 'All orders updated successfully',
@@ -4363,6 +4456,26 @@ const updateOrderFulfillmentStatus = async (req, res) => {
       }
     }
 
+    const successLog = JSON.stringify({
+      level: 'INFO',
+      platform: 'shopify',
+      method: req.method,
+      api: req.originalUrl || req.url,
+      function: 'updateOrderFulfillmentStatus',
+      operation: 'Shopify order fulfillment status updated successfully',
+      shop: shopDomain,
+      account_key: req.query?.account_key || 'unknown',
+      result: {
+        orderId: result.orderId,
+        orderNumber,
+        status: String(effectiveStatus),
+        metafieldKey,
+        tagValue: tagUpdateResult?.tag || null,
+      },
+      timestamp: new Date().toISOString()
+    });
+    console.log('Success in updateOrderFulfillmentStatus: %s', successLog);
+    log('Success in updateOrderFulfillmentStatus: %s', successLog);
     return res.status(200).json({
       success: true,
       message: 'Order fulfillment status updated successfully',

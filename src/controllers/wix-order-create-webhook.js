@@ -834,6 +834,19 @@ exports.handleWixOrderCreateWebhook = async (req, res) => {
 
     const account_key = await resolveAccountKeyForWebhook(req, payload);
     if (!account_key) {
+      const logDataAccErr = JSON.stringify({
+        level: 'INFO',
+        platform: 'wix',
+        method: req.method,
+        api: req.originalUrl || req.url,
+        function: 'handleWixOrderCreateWebhook',
+        operation: 'Webhook ignored — could not resolve account_key',
+        account_key: 'unknown',
+        result: { ignored: true },
+        timestamp: new Date().toISOString()
+      });
+      log("%s", logDataAccErr);
+      console.log(logDataAccErr);
       return res.status(200).json({
         success: true,
         ignored: true,
@@ -851,6 +864,19 @@ exports.handleWixOrderCreateWebhook = async (req, res) => {
     const wixConn = getWixConnection(getInformation?.user_account?.connections);
 
     if (!wixConn) {
+      const logDataConErr = JSON.stringify({
+        level: 'INFO',
+        platform: 'wix',
+        method: req.method,
+        api: req.originalUrl || req.url,
+        function: 'handleWixOrderCreateWebhook',
+        operation: 'Webhook ignored — no Wix connection found for this account',
+        account_key,
+        result: { ignored: true },
+        timestamp: new Date().toISOString()
+      });
+      log("%s", logDataConErr);
+      console.log(logDataConErr);
       return res.status(200).json({
         success: true,
         ignored: true,
@@ -859,6 +885,19 @@ exports.handleWixOrderCreateWebhook = async (req, res) => {
     }
 
     if (!isOrderSyncEnabled(wixConn, 'Wix')) {
+      const logDataOrdErr = JSON.stringify({
+        level: 'INFO',
+        platform: 'wix',
+        method: req.method,
+        api: req.originalUrl || req.url,
+        function: 'handleWixOrderCreateWebhook',
+        operation: 'Webhook ignored — order sync is disabled for this Wix connection',
+        account_key,
+        result: { ignored: true },
+        timestamp: new Date().toISOString()
+      });
+      log("%s", logDataOrdErr);
+      console.log(logDataOrdErr);
       return res.status(200).json({
         success: true,
         ignored: true,
@@ -887,6 +926,23 @@ exports.handleWixOrderCreateWebhook = async (req, res) => {
     }
 
     if (!kind) {
+      const logDataUnsupErr = JSON.stringify({
+        level: 'INFO',
+        platform: 'wix',
+        method: req.method,
+        api: req.originalUrl || req.url,
+        function: 'handleWixOrderCreateWebhook',
+        operation: 'Webhook ignored — unsupported event type (not an eCommerce or Pricing Plans order)',
+        account_key,
+        result: {
+          ignored: true,
+          eventType: unwrapped?.eventType ?? null,
+          entityFqdn: unwrapped?.entityFqdn ?? null,
+        },
+        timestamp: new Date().toISOString()
+      });
+      log("%s", logDataUnsupErr);
+      console.log(logDataUnsupErr);
       return res.status(200).json({
         success: true,
         ignored: true,
@@ -953,6 +1009,24 @@ exports.handleWixOrderCreateWebhook = async (req, res) => {
       });
       console.log('Wix eCommerce order mapped for FinerWorks: ', transformedOrder);
       if (!transformedOrder.order_items?.length) {
+        const logDataNoItems = JSON.stringify({
+          level: 'INFO',
+          platform: 'wix',
+          method: req.method,
+          api: req.originalUrl || req.url,
+          function: 'handleWixOrderCreateWebhook',
+          operation: 'Webhook ignored — no FinerWorks line items (eCommerce SKU must start with AP)',
+          account_key,
+          result: {
+            ignored: true,
+            orderId: order.id || orderId,
+            orderNumber: order?.number ?? null,
+            eventType: unwrapped?.eventType ?? null,
+          },
+          timestamp: new Date().toISOString()
+        });
+        console.log(logDataNoItems);
+        log('No FinerWorks line items for Wix order orderId=%s number=%s eventType=%s', order.id || orderId, order?.number ?? null, unwrapped?.eventType ?? null);
         return res.status(200).json({
           success: true,
           ignored: true,
@@ -993,14 +1067,47 @@ exports.handleWixOrderCreateWebhook = async (req, res) => {
       submitData = await finerworksService.SUBMIT_ORDERS(finalPayload);
     } catch (submitErr) {
       const fwError = submitErr?.response?.data;
-      log('SUBMIT_ORDERS failed: %s', submitErr?.message);
-      console.log('SUBMIT_ORDERS failed: ', fwError || submitErr?.message || submitErr);
+      const submitErrorJson = JSON.stringify({
+        level: 'ERROR',
+        platform: 'wix',
+        source: 'finerworks_api',
+        function: 'handleWixOrderCreateWebhook',
+        account_key,
+        orderId: order.id || orderId,
+        order_po: transformedOrder?.order_po || null,
+        orderKind: kind,
+        httpStatus: submitErr?.response?.status || null,
+        message: `Failed to submit Wix order to FinerWorks: ${submitErr?.message || 'Unknown error'}`,
+        detail: fwError?.message || fwError?.error || null,
+        timestamp: new Date().toISOString()
+      });
+      console.error(submitErrorJson);
+      log('Formatted error in handleWixOrderCreateWebhook (SUBMIT_ORDERS): %s', submitErrorJson);
       const status = submitErr?.response?.status === 400 ? 400 : 502;
       return sendApiError(res, status, 'Failed to submit order to FinerWorks', {
         orderId: order.id || orderId,
       });
     }
 
+    const successLog = JSON.stringify({
+      level: 'INFO',
+      platform: 'wix',
+      method: req.method,
+      api: req.originalUrl || req.url,
+      function: 'handleWixOrderCreateWebhook',
+      operation: 'Wix order webhook processed and submitted to FinerWorks successfully',
+      account_key,
+      result: {
+        orderId: order.id || orderId,
+        order_po: transformedOrder.order_po,
+        orderKind: kind,
+        lineItemsCount: transformedOrder.order_items?.length ?? 0,
+        eventType: unwrapped?.eventType ?? null,
+      },
+      timestamp: new Date().toISOString()
+    });
+    console.log(successLog);
+    log('Success in handleWixOrderCreateWebhook: %s', successLog);
     return res.status(200).json({
       success: true,
       submitted: true,
@@ -1013,8 +1120,21 @@ exports.handleWixOrderCreateWebhook = async (req, res) => {
       submitData,
     });
   } catch (err) {
-    console.log('handleWixOrderCreateWebhook error: ', err);
-    log('handleWixOrderCreateWebhook error: %s', err?.message);
+    const isWixError = err?.response?.config?.url?.includes('wixapis.com') || err?.config?.url?.includes('wixapis.com');
+    const isFinerworksError = err?.response?.config?.url?.includes('finerworks.com') || err?.config?.url?.includes('finerworks.com');
+    const errorJson = JSON.stringify({
+      level: 'ERROR',
+      platform: 'wix',
+      source: isWixError ? 'wix_api' : (isFinerworksError ? 'finerworks_api' : 'lambda'),
+      function: 'handleWixOrderCreateWebhook',
+      account_key: req.query?.account_key || req.headers['x-account-key'] || req.body?.account_key || 'unknown',
+      httpStatus: err?.response?.status || null,
+      message: `Unexpected error in Wix webhook handler: ${err?.message || 'Unknown error'}`,
+      detail: err?.response?.data?.message || null,
+      timestamp: new Date().toISOString()
+    });
+    console.error(errorJson);
+    log('Formatted error in handleWixOrderCreateWebhook: %s', errorJson);
     return sendApiError(res, err);
   }
 };
