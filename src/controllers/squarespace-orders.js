@@ -1,6 +1,8 @@
 const axios = require('axios');
 const finerworksService = require('../helpers/finerworks-service');
 const { sendApiError } = require('../helpers/api-error');
+const debug = require('debug');
+const log = debug('app:squarespaceOrders');
 
 const SQUARESPACE_ORDERS_URL = 'https://api.squarespace.com/1.0/commerce/orders';
 
@@ -97,6 +99,18 @@ const getSquarespaceOrders = async (req, res) => {
       orders,
     });
   } catch (err) {
+    const errorJson = JSON.stringify({
+      level: 'ERROR',
+      platform: 'squarespace',
+      source: 'squarespace_api',
+      function: 'getSquarespaceOrders',
+      httpStatus: err?.response?.status || null,
+      message: `Failed to fetch Squarespace orders: ${err?.message || 'Unknown error'}`,
+      detail: err?.response?.data?.message || err?.response?.data?.type || null,
+      timestamp: new Date().toISOString()
+    });
+    console.error(errorJson);
+    log('Formatted error in getSquarespaceOrders: %s', errorJson);
     return sendApiError(res, err);
   }
 };
@@ -139,6 +153,18 @@ const getSquarespaceOrderByNumber = async (req, res) => {
       order,
     });
   } catch (err) {
+    const errorJson = JSON.stringify({
+      level: 'ERROR',
+      platform: 'squarespace',
+      source: 'squarespace_api',
+      function: 'getSquarespaceOrderByNumber',
+      httpStatus: err?.response?.status || null,
+      message: `Failed to fetch Squarespace order by number: ${err?.message || 'Unknown error'}`,
+      detail: err?.response?.data?.message || err?.response?.data?.type || null,
+      timestamp: new Date().toISOString()
+    });
+    console.error(errorJson);
+    log('Formatted error in getSquarespaceOrderByNumber: %s', errorJson);
     return sendApiError(res, err);
   }
 };
@@ -176,6 +202,18 @@ const validateSquarespaceAccessToken = async (req, res) => {
 
     return sendApiError(res, resp.status || 401, 'Squarespace access token is invalid or unauthorized');
   } catch (err) {
+    const errorJson = JSON.stringify({
+      level: 'ERROR',
+      platform: 'squarespace',
+      source: 'squarespace_api',
+      function: 'validateSquarespaceAccessToken',
+      httpStatus: err?.response?.status || null,
+      message: `Failed to validate Squarespace access token: ${err?.message || 'Unknown error'}`,
+      detail: err?.response?.data?.message || err?.response?.data?.type || null,
+      timestamp: new Date().toISOString()
+    });
+    console.error(errorJson);
+    log('Formatted error in validateSquarespaceAccessToken: %s', errorJson);
     return sendApiError(res, err);
   }
 };
@@ -211,6 +249,18 @@ const fulfillSquareSpaceOrderWithTrackingInfo = async (req, res) => {
         timeout: 120000,
       });
     } catch (_error) {
+      const errorJson = JSON.stringify({
+        level: 'WARN',
+        platform: 'squarespace',
+        source: 'squarespace_api',
+        function: 'fulfillSquareSpaceOrderWithTrackingInfo',
+        account_key: account_key || 'unknown',
+        httpStatus: _error?.response?.status || null,
+        message: `Squarespace access token invalid or expired — attempting token refresh: ${_error?.message || 'Unknown error'}`,
+        timestamp: new Date().toISOString()
+      });
+      console.error(errorJson);
+      log('Formatted error in fulfillSquareSpaceOrderWithTrackingInfo: %s', errorJson);
       // Major reason for this error block is unauthorized access to the squarespace api.
       const getInformation = await finerworksService.GET_INFO({ account_key });
       const connections = getInformation?.user_account?.connections || [];
@@ -290,11 +340,19 @@ const fulfillSquareSpaceOrderWithTrackingInfo = async (req, res) => {
             connections: nextConnections,
           });
         } catch (persistErr) {
-          // Don't fail fulfillment if persistence fails; just continue with refreshed access token.
-          console.log(
-            'Failed to persist refreshed Squarespace token',
-            persistErr?.message || persistErr
-          );
+          const errorJson = JSON.stringify({
+            level: 'WARN',
+            platform: 'squarespace',
+            source: 'finerworks_api',
+            function: 'fulfillSquareSpaceOrderWithTrackingInfo',
+            account_key: account_key || 'unknown',
+            httpStatus: persistErr?.response?.status || null,
+            message: `Failed to persist refreshed Squarespace token to FinerWorks — fulfillment will continue: ${persistErr?.message || 'Unknown error'}`,
+            detail: persistErr?.response?.data?.message || null,
+            timestamp: new Date().toISOString()
+          });
+          console.error(errorJson);
+          log('Formatted error in fulfillSquareSpaceOrderWithTrackingInfo: %s', errorJson);
         }
 
         headers = {
@@ -318,7 +376,20 @@ const fulfillSquareSpaceOrderWithTrackingInfo = async (req, res) => {
       const result = orderNumber.replace('sku_', '');
       console.log(result); // "1"
     } catch (error) {
-      console.log('error in order status data', error);
+      const errorJson = JSON.stringify({
+        level: 'ERROR',
+        platform: 'squarespace',
+        source: 'finerworks_api',
+        function: 'fulfillSquareSpaceOrderWithTrackingInfo',
+        account_key: account_key || 'unknown',
+        orderNumber: orderNumber || 'unknown',
+        httpStatus: error?.response?.status || null,
+        message: `Failed to fetch order status from FinerWorks: ${error?.message || 'Unknown error'}`,
+        detail: error?.response?.data?.message || null,
+        timestamp: new Date().toISOString()
+      });
+      console.error(errorJson);
+      log('Formatted error in fulfillSquareSpaceOrderWithTrackingInfo: %s', errorJson);
       return sendApiError(res, error);
     }
     console.log('orderStatusData', orderStatusData);
@@ -355,7 +426,23 @@ const fulfillSquareSpaceOrderWithTrackingInfo = async (req, res) => {
       data: resp.data,
     });
   } catch (err) {
-    console.log('API error', err);
+    const isSquarespaceError = err?.response?.config?.url?.includes('squarespace.com') || err?.config?.url?.includes('squarespace.com');
+    const isFinerworksError = err?.response?.config?.url?.includes('finerworks.com') || err?.config?.url?.includes('finerworks.com');
+    const errorJson = JSON.stringify({
+      level: 'ERROR',
+      platform: 'squarespace',
+      source: isSquarespaceError ? 'squarespace_api' : (isFinerworksError ? 'finerworks_api' : 'lambda'),
+      function: 'fulfillSquareSpaceOrderWithTrackingInfo',
+      account_key: req.body?.account_key || req.query?.account_key || 'unknown',
+      orderId: req.body?.orderId || req.query?.orderId || 'unknown',
+      orderNumber: req.body?.orderNumber || req.query?.orderNumber || 'unknown',
+      httpStatus: err?.response?.status || null,
+      message: `Squarespace order fulfillment failed: ${err?.message || 'Unknown error'}`,
+      detail: err?.response?.data?.message || err?.response?.data?.type || null,
+      timestamp: new Date().toISOString()
+    });
+    console.error(errorJson);
+    log('Formatted error in fulfillSquareSpaceOrderWithTrackingInfo: %s', errorJson);
     return sendApiError(res, err);
   }
 };

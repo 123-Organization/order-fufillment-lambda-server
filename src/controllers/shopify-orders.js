@@ -2319,6 +2319,22 @@ const getShopifyOrders = async (req, res) => {
     });
     return res.status(200).json({ success: true, count: orders.length, orders });
   } catch (err) {
+    const isShopifyError = err?.response?.config?.url?.includes('myshopify.com');
+    const isFinerworksError = err?.response?.config?.url?.includes('finerworks.com') || err?.config?.url?.includes('finerworks.com');
+    const errorJson = JSON.stringify({
+      level: 'ERROR',
+      platform: 'shopify',
+      source: isShopifyError ? 'shopify_api' : (isFinerworksError ? 'finerworks_api' : 'lambda'),
+      function: 'getShopifyOrders',
+      shop: req.body?.storeName || req.query?.shop || 'unknown',
+      account_key: req.body?.account_key || 'unknown',
+      httpStatus: err?.response?.status || null,
+      message: `Failed to fetch Shopify orders: ${err?.message || 'Unknown error'}`,
+      detail: err?.response?.data?.errors?.[0]?.message || err?.response?.data?.message || null,
+      timestamp: new Date().toISOString()
+    });
+    console.error(errorJson);
+    log('Formatted error in getShopifyOrders: %s', errorJson);
     return sendApiError(res, err);
   }
 };
@@ -3145,6 +3161,20 @@ const getShopifyOrderByName = async (req, res) => {
 
     return res.status(200).json({ success: true, order });
   } catch (err) {
+    const isShopifyError = err?.response?.config?.url?.includes('myshopify.com');
+    const isFinerworksError = err?.response?.config?.url?.includes('finerworks.com') || err?.config?.url?.includes('finerworks.com');
+    console.error(JSON.stringify({
+      level: 'ERROR',
+      platform: 'shopify',
+      source: isShopifyError ? 'shopify_api' : (isFinerworksError ? 'finerworks_api' : 'lambda'),
+      function: 'getShopifyOrderByName',
+      shop: req.body?.storeName || req.query?.shop || 'unknown',
+      orderName: req.body?.orderName || req.body?.name || 'unknown',
+      httpStatus: err?.response?.status || null,
+      message: `Failed to fetch Shopify order by name: ${err?.message || 'Unknown error'}`,
+      detail: err?.response?.data?.errors?.[0]?.message || err?.response?.data?.message || null,
+      timestamp: new Date().toISOString()
+    }));
     return sendApiError(res, err);
   }
 };
@@ -3579,6 +3609,17 @@ const fulfillShopifyOrder = async (req, res) => {
       }
     }
   } catch (err) {
+    console.error(JSON.stringify({
+      level: 'ERROR',
+      platform: 'shopify',
+      source: 'shopify_api',
+      function: 'fulfillShopifyOrder',
+      shop: req.body?.storeName || req.query?.shop || 'unknown',
+      httpStatus: err?.response?.status || null,
+      message: `Shopify order fulfillment failed: ${err?.message || 'Unknown error'}`,
+      detail: err?.response?.data?.errors?.[0]?.message || err?.response?.data?.message || null,
+      timestamp: new Date().toISOString()
+    }));
     return sendApiError(res, err);
   }
 };
@@ -4094,6 +4135,19 @@ const updateOrderReferenceNumbers = async (req, res) => {
       failed: results.filter((r) => !r.success).length,
     });
   } catch (err) {
+    const errorJson = JSON.stringify({
+      level: 'ERROR',
+      platform: 'shopify',
+      source: 'shopify_api',
+      function: 'updateOrderReferenceNumbers',
+      shop: req.body?.storeName || req.query?.shop || 'unknown',
+      httpStatus: err?.response?.status || null,
+      message: `Failed to update Shopify order reference numbers: ${err?.message || 'Unknown error'}`,
+      detail: err?.response?.data?.errors?.[0]?.message || err?.response?.data?.message || null,
+      timestamp: new Date().toISOString()
+    });
+    console.error(errorJson);
+    log('Error updating order reference numbers: %s', errorJson || 'Unknown error');
     return sendApiError(res, err);
   }
 };
@@ -4319,6 +4373,21 @@ const updateOrderFulfillmentStatus = async (req, res) => {
       fulfillment: fulfillmentResult,
     });
   } catch (err) {
+    const isShopifyError = err?.response?.config?.url?.includes('myshopify.com');
+    const isFinerworksError = err?.response?.config?.url?.includes('finerworks.com') || err?.config?.url?.includes('finerworks.com');
+    console.error(JSON.stringify({
+      level: 'ERROR',
+      platform: 'shopify',
+      source: isShopifyError ? 'shopify_api' : (isFinerworksError ? 'finerworks_api' : 'lambda'),
+      function: 'updateOrderFulfillmentStatus',
+      shop: req.body?.storeName || req.query?.shop || 'unknown',
+      orderNumber: req.body?.orderNumber || req.body?.orderName || req.query?.orderNumber || 'unknown',
+      account_key: req.query?.account_key || 'unknown',
+      httpStatus: err?.response?.status || null,
+      message: `Failed to update Shopify order fulfillment status: ${err?.message || 'Unknown error'}`,
+      detail: err?.response?.data?.errors?.[0]?.message || err?.response?.data?.message || null,
+      timestamp: new Date().toISOString()
+    }));
     return sendApiError(res, err);
   }
 };
@@ -5065,6 +5134,20 @@ const syncShopifyProducts = async (req, res) => {
       results,
     });
   } catch (err) {
+    const errorJson = JSON.stringify({
+      level: 'ERROR',
+      platform: 'shopify',
+      source: 'shopify_api',
+      function: 'syncShopifyProducts',
+      shop: req.body?.storeName || req.query?.shop || 'unknown',
+      account_key: req.body?.account_key || req.body?.accountKey || 'unknown',
+      httpStatus: err?.response?.status || null,
+      message: `Shopify product sync failed: ${err?.message || 'Unknown error'}`,
+      detail: err?.response?.data?.errors?.[0]?.message || err?.response?.data?.message || null,
+      timestamp: new Date().toISOString()
+    });
+    console.error(errorJson);
+    log('syncShopifyProducts error:', errorJson);
     return sendApiError(res, err);
   }
 };
@@ -5137,6 +5220,19 @@ const createShopifyCarrierService = async (req, res) => {
       raw: resp.data,
     });
   } catch (err) {
+    const errorJson = JSON.stringify({
+      level: 'ERROR',
+      platform: 'shopify',
+      source: 'shopify_api',
+      function: 'createShopifyCarrierService',
+      shop: req.body?.storeName || req.query?.shop || 'unknown',
+      httpStatus: err?.response?.status || null,
+      message: `Failed to create Shopify carrier service: ${err?.message || 'Unknown error'}`,
+      detail: err?.response?.data?.errors?.[0] || err?.response?.data?.message || null,
+      timestamp: new Date().toISOString()
+    });
+    console.error(errorJson);
+    log('Formatted error in createShopifyCarrierService: %s', errorJson);
     return sendApiError(res, err);
   }
 };
@@ -5190,6 +5286,19 @@ const listShopifyCarrierServices = async (req, res) => {
       raw: resp.data,
     });
   } catch (err) {
+    const errorJson = JSON.stringify({
+      level: 'ERROR',
+      platform: 'shopify',
+      source: 'shopify_api',
+      function: 'listShopifyCarrierServices',
+      shop: req.body?.storeName || req.query?.shop || 'unknown',
+      httpStatus: err?.response?.status || null,
+      message: `Failed to list Shopify carrier services: ${err?.message || 'Unknown error'}`,
+      detail: err?.response?.data?.message || null,
+      timestamp: new Date().toISOString()
+    });
+    console.error(errorJson);
+    log('Formatted error in listShopifyCarrierServices: %s', errorJson);
     return sendApiError(res, err);
   }
 };
@@ -5249,6 +5358,19 @@ const deleteShopifyCarrierService = async (req, res) => {
       message: 'Carrier service deleted successfully',
     });
   } catch (err) {
+    const errorJson = JSON.stringify({
+      level: 'ERROR',
+      platform: 'shopify',
+      source: 'shopify_api',
+      function: 'deleteShopifyCarrierService',
+      shop: req.body?.storeName || req.query?.shop || 'unknown',
+      httpStatus: err?.response?.status || null,
+      message: `Failed to delete Shopify carrier service: ${err?.message || 'Unknown error'}`,
+      detail: err?.response?.data?.message || null,
+      timestamp: new Date().toISOString()
+    });
+    console.error(errorJson);
+    log('Formatted error in deleteShopifyCarrierService: %s', errorJson);
     return sendApiError(res, err);
   }
 };
@@ -5627,7 +5749,19 @@ const shopifyCarrierServiceCallback = async (req, res) => {
     // Final response to Shopify / frontend
     return res.status(200).json({ rates });
   } catch (err) {
-    console.error('Error in Shopify carrier service callback:', err);
+    const isShopifyError = err?.response?.config?.url?.includes('myshopify.com') || err?.config?.url?.includes('myshopify.com');
+    const isFinerworksError = err?.response?.config?.url?.includes('finerworks.com') || err?.config?.url?.includes('finerworks.com');
+    console.error(JSON.stringify({
+      level: 'ERROR',
+      platform: 'shopify',
+      source: isShopifyError ? 'shopify_api' : (isFinerworksError ? 'finerworks_api' : 'lambda'),
+      function: 'shopifyCarrierServiceCallback',
+      shop: req.query?.shop || req.headers['x-shopify-shop-domain'] || 'unknown',
+      httpStatus: err?.response?.status || null,
+      message: `Shopify carrier service callback failed: ${err?.message || 'Unknown error'}`,
+      detail: err?.response?.data?.message || null,
+      timestamp: new Date().toISOString()
+    }));
     return res.status(500).json({
       error: 'Internal Server Error',
     });
@@ -5782,6 +5916,19 @@ const registerShopifyWebhook = async (req, res) => {
       webhookSubscription: payload.webhookSubscription || null,
     });
   } catch (err) {
+    const errorJson = JSON.stringify({
+      level: 'ERROR',
+      platform: 'shopify',
+      source: 'shopify_api',
+      function: 'registerShopifyWebhook',
+      shop: req.body?.storeName || req.query?.shop || 'unknown',
+      httpStatus: err?.response?.status || null,
+      message: `Failed to register Shopify webhook: ${err?.message || 'Unknown error'}`,
+      detail: err?.response?.data?.errors?.[0]?.message || err?.response?.data?.message || null,
+      timestamp: new Date().toISOString()
+    });
+    console.error(errorJson);
+    log('Formatted error in registerShopifyWebhook: %s', errorJson);
     return sendApiError(res, err);
   }
 };
@@ -5878,6 +6025,19 @@ const registerShopifyOrderCreateWebhook = async (req, res) => {
       webhookSubscription: payload.webhookSubscription || null,
     });
   } catch (err) {
+    const errorJson = JSON.stringify({
+      level: 'ERROR',
+      platform: 'shopify',
+      source: 'shopify_api',
+      function: 'registerShopifyOrderCreateWebhook',
+      shop: req.body?.storeName || req.query?.shop || 'unknown',
+      httpStatus: err?.response?.status || null,
+      message: `Failed to register Shopify orders/create webhook: ${err?.message || 'Unknown error'}`,
+      detail: err?.response?.data?.errors?.[0]?.message || err?.response?.data?.message || null,
+      timestamp: new Date().toISOString()
+    });
+    console.error(errorJson);
+    log('Formatted error in registerShopifyOrderCreateWebhook: %s', errorJson);
     return sendApiError(res, err);
   }
 };
@@ -5927,6 +6087,19 @@ const listShopifyWebhooks = async (req, res) => {
       webhooks: resp.data?.webhooks || [],
     });
   } catch (err) {
+    const errorJson = JSON.stringify({
+      level: 'ERROR',
+      platform: 'shopify',
+      source: 'shopify_api',
+      function: 'listShopifyWebhooks',
+      shop: req.body?.storeName || req.query?.shop || 'unknown',
+      httpStatus: err?.response?.status || null,
+      message: `Failed to list Shopify webhooks: ${err?.message || 'Unknown error'}`,
+      detail: err?.response?.data?.message || null,
+      timestamp: new Date().toISOString()
+    });
+    console.error(errorJson);
+    log('Formatted error in listShopifyWebhooks: %s', errorJson);
     return sendApiError(res, err);
   }
 };
@@ -5994,6 +6167,19 @@ const deleteShopifyWebhookById = async (req, res) => {
       deleted_webhook_id: webhookId,
     });
   } catch (err) {
+    const errorJson = JSON.stringify({
+      level: 'ERROR',
+      platform: 'shopify',
+      source: 'shopify_api',
+      function: 'deleteShopifyWebhookById',
+      shop: req.body?.storeName || req.query?.shop || 'unknown',
+      httpStatus: err?.response?.status || null,
+      message: `Failed to delete Shopify webhook: ${err?.message || 'Unknown error'}`,
+      detail: err?.response?.data?.message || null,
+      timestamp: new Date().toISOString()
+    });
+    console.error(errorJson);
+    log('Formatted error in deleteShopifyWebhookById: %s', errorJson);
     return sendApiError(res, err);
   }
 };
@@ -6528,6 +6714,20 @@ const shopifyOrdersCreateWebhook = async (req, res) => {
       submitData,
     });
   } catch (err) {
+    const isShopifyError = err?.response?.config?.url?.includes('myshopify.com') || err?.config?.url?.includes('myshopify.com');
+    const isFinerworksError = err?.response?.config?.url?.includes('finerworks.com') || err?.config?.url?.includes('finerworks.com');
+    console.error(JSON.stringify({
+      level: 'ERROR',
+      platform: 'shopify',
+      source: isShopifyError ? 'shopify_api' : (isFinerworksError ? 'finerworks_api' : 'lambda'),
+      function: 'shopifyOrdersCreateWebhook',
+      shop: req.headers['x-shopify-shop-domain'] || req.body?.storeName || 'unknown',
+      orderId: req.body?.id || req.body?.admin_graphql_api_id || 'unknown',
+      httpStatus: err?.response?.status || null,
+      message: `Shopify orders/create webhook handler failed: ${err?.message || 'Unknown error'}`,
+      detail: err?.response?.data?.message || null,
+      timestamp: new Date().toISOString()
+    }));
     log('shopifyOrdersCreateWebhook error: %s', err?.message);
     return sendApiError(res, 500, "Webhook handler failed");
   }
@@ -6625,6 +6825,21 @@ const shopifyProductDeleteWebhook = async (req, res) => {
       webhook_payload: req.body || null,
     });
   } catch (err) {
+    const isFinerworksError = err?.response?.config?.url?.includes('finerworks.com') || err?.config?.url?.includes('finerworks.com');
+    const errorJson = JSON.stringify({
+      level: 'ERROR',
+      platform: 'shopify',
+      source: isFinerworksError ? 'finerworks_api' : 'shopify_api',
+      function: 'shopifyProductDeleteWebhook',
+      shop: req.headers['x-shopify-shop-domain'] || req.body?.storeName || 'unknown',
+      productId: req.body?.id || req.body?.product_id || 'unknown',
+      httpStatus: err?.response?.status || null,
+      message: `Shopify products/delete webhook handler failed: ${err?.message || 'Unknown error'}`,
+      detail: err?.response?.data?.message || null,
+      timestamp: new Date().toISOString()
+    });
+    console.error(errorJson);
+    log('shopifyProductDeleteWebhook error: %s', err?.message);
     return sendApiError(res, err);
   }
 };

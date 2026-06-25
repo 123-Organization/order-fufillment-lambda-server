@@ -204,6 +204,20 @@ const connectWixFromInstance = async (req, res) => {
       },
     });
   } catch (err) {
+    const isFinerworksError = err?.response?.config?.url?.includes('finerworks.com') || err?.config?.url?.includes('finerworks.com');
+    const errorJson = JSON.stringify({
+      level: 'ERROR',
+      platform: 'wix',
+      source: isFinerworksError ? 'finerworks_api' : 'lambda',
+      function: 'connectWixFromInstance',
+      account_key: req.query?.account_key || req.body?.account_key || 'unknown',
+      httpStatus: err?.response?.status || null,
+      message: `Failed to save Wix instance connection to FinerWorks: ${err?.message || 'Unknown error'}`,
+      detail: err?.response?.data?.message || null,
+      timestamp: new Date().toISOString()
+    });
+    console.error(errorJson);
+    log('Formatted error in connectWixFromInstance: %s', errorJson);
     return sendApiError(res, err);
   }
 };
@@ -416,6 +430,17 @@ const handleWixAuthStart = async (req, res) => {
     console.log('installUrl==========>>>>>>>>>>>', installUrl);
     return res.redirect(installUrl);
   } catch (err) {
+    const errorJson = JSON.stringify({
+      level: 'ERROR',
+      platform: 'wix',
+      source: 'lambda',
+      function: 'handleWixAuthStart',
+      account_key: req.query?.account_key || req.body?.account_key || 'unknown',
+      message: `Wix install redirect failed: ${err?.message || 'Unknown error'}`,
+      timestamp: new Date().toISOString()
+    });
+    console.error(errorJson);
+    log('Formatted error in handleWixAuthStart: %s', errorJson);
     return sendApiError(res, err);
   }
 };
@@ -540,6 +565,21 @@ const connectWix = async (req, res) => {
       },
     });
   } catch (err) {
+    const isWixError = err?.response?.config?.url?.includes('wixapis.com') || err?.config?.url?.includes('wixapis.com');
+    const isFinerworksError = err?.response?.config?.url?.includes('finerworks.com') || err?.config?.url?.includes('finerworks.com');
+    const errorJson = JSON.stringify({
+      level: 'ERROR',
+      platform: 'wix',
+      source: isWixError ? 'wix_api' : (isFinerworksError ? 'finerworks_api' : 'lambda'),
+      function: 'connectWix',
+      account_key: req.body?.account_key || req.query?.account_key || 'unknown',
+      httpStatus: err?.response?.status || null,
+      message: `Failed to connect Wix via API key: ${err?.message || 'Unknown error'}`,
+      detail: err?.response?.data?.message || null,
+      timestamp: new Date().toISOString()
+    });
+    console.error(errorJson);
+    log('Formatted error in connectWix: %s', errorJson);
     return sendApiError(res, err);
   }
 };
@@ -596,6 +636,22 @@ const connectWixOAuth = async (req, res) => {
       },
     });
   } catch (err) {
+    const isWixError = err?.response?.config?.url?.includes('wixapis.com') || err?.config?.url?.includes('wixapis.com');
+    const isFinerworksError = err?.response?.config?.url?.includes('finerworks.com') || err?.config?.url?.includes('finerworks.com');
+    const errorJson = JSON.stringify({
+      level: 'ERROR',
+      platform: 'wix',
+      source: isWixError ? 'wix_api' : (isFinerworksError ? 'finerworks_api' : 'lambda'),
+      function: 'connectWixOAuth',
+      account_key: req.body?.account_key || req.query?.account_key || 'unknown',
+      instance_id: req.body?.instance_id || req.body?.instanceId || req.query?.instance_id || 'unknown',
+      httpStatus: err?.response?.status || null,
+      message: `Failed to connect Wix via OAuth client credentials: ${err?.message || 'Unknown error'}`,
+      detail: err?.response?.data?.message || null,
+      timestamp: new Date().toISOString()
+    });
+    console.error(errorJson);
+    log('Formatted error in connectWixOAuth: %s', errorJson);
     return sendApiError(res, err);
   }
 };
@@ -698,6 +754,21 @@ const handleWixOAuthInstallReturn = async (req, res) => {
       message: 'Wix connected after install redirect',
     });
   } catch (err) {
+    const isWixError = err?.response?.config?.url?.includes('wixapis.com') || err?.config?.url?.includes('wixapis.com');
+    const isFinerworksError = err?.response?.config?.url?.includes('finerworks.com') || err?.config?.url?.includes('finerworks.com');
+    const errorJson = JSON.stringify({
+      level: 'ERROR',
+      platform: 'wix',
+      source: isWixError ? 'wix_api' : (isFinerworksError ? 'finerworks_api' : 'lambda'),
+      function: 'handleWixOAuthInstallReturn',
+      account_key: req.query?.account_key || 'unknown',
+      httpStatus: err?.response?.status || null,
+      message: `Wix OAuth install return handling failed: ${err?.message || 'Unknown error'}`,
+      detail: err?.response?.data?.message || null,
+      timestamp: new Date().toISOString()
+    });
+    console.error(errorJson);
+    log('Formatted error in handleWixOAuthInstallReturn: %s', errorJson);
     return sendApiError(res, err);
   }
 };
@@ -779,6 +850,21 @@ const handleWixOAuthCallback = async (req, res) => {
 
     return res.status(200).json({ success: true, message: 'Wix connection added successfully' });
   } catch (err) {
+    const isWixError = err?.response?.config?.url?.includes('wixapis.com') || err?.config?.url?.includes('wixapis.com');
+    const isFinerworksError = err?.response?.config?.url?.includes('finerworks.com') || err?.config?.url?.includes('finerworks.com');
+    const errorJson = JSON.stringify({
+      level: 'ERROR',
+      platform: 'wix',
+      source: isWixError ? 'wix_api' : (isFinerworksError ? 'finerworks_api' : 'lambda'),
+      function: 'handleWixOAuthCallback',
+      account_key: req.query?.account_key || 'unknown',
+      httpStatus: err?.response?.status || null,
+      message: `Wix OAuth callback failed: ${err?.message || 'Unknown error'}`,
+      detail: err?.response?.data?.message || null,
+      timestamp: new Date().toISOString()
+    });
+    console.error(errorJson);
+    log('Formatted error in handleWixOAuthCallback: %s', errorJson);
     return sendApiError(res, err);
   }
 };

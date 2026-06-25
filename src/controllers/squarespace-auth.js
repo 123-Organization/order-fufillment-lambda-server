@@ -99,6 +99,17 @@ const handleSquarespaceAuth = async (req, res) => {
     console.log('authUrl====>>>', authUrl);
     return res.redirect(authUrl);
   } catch (err) {
+    const errorJson = JSON.stringify({
+      level: 'ERROR',
+      platform: 'squarespace',
+      source: 'lambda',
+      function: 'handleSquarespaceAuth',
+      account_key: req.query?.account_key || req.body?.account_key || 'unknown',
+      message: `Squarespace OAuth initiation failed: ${err?.message || 'Unknown error'}`,
+      timestamp: new Date().toISOString()
+    });
+    console.error(errorJson);
+    log('Formatted error in handleSquarespaceAuth: %s', errorJson);
     return sendApiError(res, err);
   }
 };
@@ -243,7 +254,15 @@ const handleSquarespaceCallback = async (req, res) => {
         needs_reauth: false,
       });
     } catch (dynamoErr) {
-      console.error('Failed to write Squarespace account to DynamoDB', dynamoErr);
+      console.error(JSON.stringify({
+        level: 'ERROR',
+        platform: 'squarespace',
+        source: 'lambda',
+        function: 'handleSquarespaceCallback',
+        account_key: account_key || 'unknown',
+        message: `Failed to write Squarespace account to DynamoDB: ${dynamoErr?.message || 'Unknown error'}`,
+        timestamp: new Date().toISOString()
+      }));
     }
 
     if (return_url) {
@@ -256,6 +275,20 @@ const handleSquarespaceCallback = async (req, res) => {
       message: 'Squarespace connection added successfully',
     });
   } catch (err) {
+    const isSquarespaceError = err?.response?.config?.url?.includes('squarespace.com') || err?.config?.url?.includes('squarespace.com');
+    const isFinerworksError = err?.response?.config?.url?.includes('finerworks.com') || err?.config?.url?.includes('finerworks.com');
+    const errorJson = JSON.stringify({
+      level: 'ERROR',
+      platform: 'squarespace',
+      source: isSquarespaceError ? 'squarespace_api' : (isFinerworksError ? 'finerworks_api' : 'lambda'),
+      function: 'handleSquarespaceCallback',
+      httpStatus: err?.response?.status || null,
+      message: `Squarespace OAuth callback failed: ${err?.message || 'Unknown error'}`,
+      detail: err?.response?.data?.message || err?.response?.data?.error || null,
+      timestamp: new Date().toISOString()
+    });
+    console.error(errorJson);
+    log('Formatted error in handleSquarespaceCallback: %s', errorJson);
     return sendApiError(res, err);
   }
 };
@@ -505,6 +538,19 @@ const refreshSquarespaceToken = async (req, res) => {
       expires_in: tokenData.expires_in ?? null,
     });
   } catch (err) {
+    const errorJson = JSON.stringify({
+      level: 'ERROR',
+      platform: 'squarespace',
+      source: 'squarespace_api',
+      function: 'refreshSquarespaceToken',
+      account_key: req.body?.account_key || req.query?.account_key || 'unknown',
+      httpStatus: err?.response?.status || null,
+      message: `Squarespace token refresh failed: ${err?.message || 'Unknown error'}`,
+      detail: err?.response?.data?.message || err?.response?.data?.error || null,
+      timestamp: new Date().toISOString()
+    });
+    console.error(errorJson);
+    log('Formatted error in refreshSquarespaceToken: %s', errorJson);
     return sendApiError(res, err);
   }
 };
@@ -552,11 +598,19 @@ const runSquarespaceTokenRenewalJob = async () => {
       });
       summary.renewed.push(account_key);
     } catch (err) {
-      console.error(
-        'Squarespace token renewal failed',
-        account_key,
-        err?.response?.data || err?.message
-      );
+      const errorJsonRoot = JSON.stringify({
+        level: 'ERROR',
+        platform: 'squarespace',
+        source: isSquarespaceInvalidRefreshTokenError(err) ? 'squarespace_api' : 'lambda',
+        function: 'runSquarespaceTokenRenewalJob',
+        account_key: account_key || 'unknown',
+        httpStatus: err?.response?.status || null,
+        message: `Squarespace token renewal failed: ${err?.message || 'Unknown error'}`,
+        detail: err?.response?.data?.message || err?.response?.data?.error || null,
+        timestamp: new Date().toISOString()
+      });
+      console.error(errorJsonRoot);
+      log('Formatted error in runSquarespaceTokenRenewalJob: %s', errorJsonRoot);
       summary.errors.push({
         account_key,
         message: err?.message || 'Unknown error',
@@ -567,11 +621,19 @@ const runSquarespaceTokenRenewalJob = async () => {
         try {
           await markSquarespaceNeedsReauthInFinerworks(account_key, 'invalid-refresh-token');
         } catch (markFwErr) {
-          console.error(
-            'Failed to mark Squarespace needs_reauth in FinerWorks',
-            account_key,
-            markFwErr?.message
-          );
+          const errorJsonFW = JSON.stringify({
+            level: 'ERROR',
+            platform: 'squarespace',
+            source: 'finerworks_api',
+            function: 'runSquarespaceTokenRenewalJob',
+            account_key: account_key || 'unknown',
+            httpStatus: markFwErr?.response?.status || null,
+            message: `Failed to mark Squarespace needs_reauth in FinerWorks: ${markFwErr?.message || 'Unknown error'}`,
+            detail: markFwErr?.response?.data?.message || null,
+            timestamp: new Date().toISOString()
+          });
+          console.error(errorJsonFW);
+          log('Formatted error in runSquarespaceTokenRenewalJob: %s', errorJsonFW);
         }
         try {
           await putSquarespaceAccount({
@@ -589,11 +651,17 @@ const runSquarespaceTokenRenewalJob = async () => {
           });
           summary.needs_reauth.push(account_key);
         } catch (dynamoErr) {
-          console.error(
-            'Failed to write needs_reauth to DynamoDB',
-            account_key,
-            dynamoErr?.message
-          );
+          const errorJsonL = JSON.stringify({
+            level: 'ERROR',
+            platform: 'squarespace',
+            source: 'lambda',
+            function: 'runSquarespaceTokenRenewalJob',
+            account_key: account_key || 'unknown',
+            message: `Failed to write Squarespace needs_reauth flag to DynamoDB: ${dynamoErr?.message || 'Unknown error'}`,
+            timestamp: new Date().toISOString()
+          });
+          console.error(errorJsonL);
+          log('Formatted error in runSquarespaceTokenRenewalJob: %s', errorJsonL);
         }
       }
     }
