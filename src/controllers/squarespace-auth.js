@@ -97,6 +97,19 @@ const handleSquarespaceAuth = async (req, res) => {
 
     const authUrl = `${authUrlBase}?${qs.toString()}`;
     console.log('authUrl====>>>', authUrl);
+    const successLog = JSON.stringify({
+      level: 'INFO',
+      platform: 'squarespace',
+      method: req.method,
+      api: req.originalUrl || req.url,
+      function: 'handleSquarespaceAuth',
+      operation: 'Squarespace OAuth initiation redirect sent successfully',
+      account_key: String(account_key).trim(),
+      result: { scopes, access_type, website_id: website_id || null },
+      timestamp: new Date().toISOString()
+    });
+    console.log(successLog);
+    log('Success in handleSquarespaceAuth: %s', successLog);
     return res.redirect(authUrl);
   } catch (err) {
     const errorJson = JSON.stringify({
@@ -266,10 +279,36 @@ const handleSquarespaceCallback = async (req, res) => {
     }
 
     if (return_url) {
+      const callbackRedirectLog = JSON.stringify({
+        level: 'INFO',
+        platform: 'squarespace',
+        method: req.method,
+        api: req.originalUrl || req.url,
+        function: 'handleSquarespaceCallback',
+        operation: 'Squarespace OAuth callback handled successfully, redirecting',
+        account_key: String(account_key).trim(),
+        result: { redirected: true },
+        timestamp: new Date().toISOString()
+      });
+      console.log(callbackRedirectLog);
+      log('Success in handleSquarespaceCallback: %s', callbackRedirectLog);
       const sep = return_url.includes('?') ? '&' : '?';
       return res.redirect(`${return_url}${sep}success=1`);
     }
 
+    const successLog = JSON.stringify({
+      level: 'INFO',
+      platform: 'squarespace',
+      method: req.method,
+      api: req.originalUrl || req.url,
+      function: 'handleSquarespaceCallback',
+      operation: 'Squarespace OAuth callback handled and connection saved successfully',
+      account_key: String(account_key).trim(),
+      result: { connected: true },
+      timestamp: new Date().toISOString()
+    });
+    console.log(successLog);
+    log('Success in handleSquarespaceCallback: %s', successLog);
     return res.status(200).json({
       success: true,
       message: 'Squarespace connection added successfully',
@@ -530,6 +569,19 @@ const refreshSquarespaceToken = async (req, res) => {
 
     const tokenData = await refreshSquarespaceTokensCore(account_key, refresh_token);
 
+    const successLog = JSON.stringify({
+      level: 'INFO',
+      platform: 'squarespace',
+      method: req.method,
+      api: req.originalUrl || req.url,
+      function: 'refreshSquarespaceToken',
+      operation: 'Squarespace access token refreshed successfully',
+      account_key: String(account_key).trim(),
+      result: { expires_in: tokenData.expires_in ?? null, hasRefreshToken: !!(tokenData.refresh_token || refresh_token) },
+      timestamp: new Date().toISOString()
+    });
+    console.log(successLog);
+    log('Success in refreshSquarespaceToken: %s', successLog);
     return res.status(200).json({
       success: true,
       message: 'Squarespace token refreshed successfully',

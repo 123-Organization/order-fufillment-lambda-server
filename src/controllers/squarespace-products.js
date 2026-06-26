@@ -2,6 +2,8 @@ const axios = require('axios');
 const FormData = require('form-data');
 const finerworksService = require('../helpers/finerworks-service');
 const { sendApiError } = require('../helpers/api-error');
+const debug = require('debug');
+const log = debug('app:squarespaceProducts');
 
 const STORE_PAGES_URL = 'https://api.squarespace.com/1.0/commerce/store_pages';
 const API_BASE = 'https://api.squarespace.com/v2/commerce';
@@ -874,6 +876,20 @@ const syncSquarespaceProducts = async (req, res) => {
         },
       });
     } catch (err) {
+      const isFinerworksError = err?.response?.config?.url?.includes('finerworks.com') || err?.config?.url?.includes('finerworks.com');
+      const errorJson = JSON.stringify({
+        level: 'ERROR',
+        platform: 'squarespace',
+        source: isFinerworksError ? 'finerworks_api' : 'lambda',
+        function: 'syncSquarespaceProducts',
+        account_key: accountKey || 'unknown',
+        httpStatus: err?.response?.status || null,
+        message: `Failed to fetch FinerWorks images for Squarespace sync: ${err?.message || 'Unknown error'}`,
+        detail: err?.response?.data?.message || null,
+        timestamp: new Date().toISOString()
+      });
+      console.error(errorJson);
+      log('Formatted error in syncSquarespaceProducts (LIST_IMAGES): %s', errorJson);
       return sendApiError(res, err);
     }
     const allImages = extractImages(fwData);
@@ -895,6 +911,19 @@ const syncSquarespaceProducts = async (req, res) => {
     try {
       storePageId = await fetchStorePageId(headers, explicitStorePageId);
     } catch (err) {
+      const errorJson = JSON.stringify({
+        level: 'ERROR',
+        platform: 'squarespace',
+        source: 'squarespace_api',
+        function: 'syncSquarespaceProducts',
+        account_key: accountKey || 'unknown',
+        httpStatus: err?.response?.status || err?.status || null,
+        message: `Failed to fetch Squarespace store pages: ${err?.message || 'Unknown error'}`,
+        detail: err?.response?.data?.message || null,
+        timestamp: new Date().toISOString()
+      });
+      console.error(errorJson);
+      log('Formatted error in syncSquarespaceProducts (fetchStorePageId): %s', errorJson);
       return sendApiError(res, err);
     }
 
@@ -929,6 +958,23 @@ const syncSquarespaceProducts = async (req, res) => {
       } catch (err) {
         counters.failed += 1;
         const data = err?.response?.data;
+        const isSquarespaceErr = err?.response?.config?.url?.includes('squarespace') || err?.config?.url?.includes('squarespace') || err?.step === 'fetch_store_pages';
+        const isFinerworksErr = err?.response?.config?.url?.includes('finerworks.com') || err?.config?.url?.includes('finerworks.com');
+        const groupErrorJson = JSON.stringify({
+          level: 'ERROR',
+          platform: 'squarespace',
+          source: isSquarespaceErr ? 'squarespace_api' : (isFinerworksErr ? 'finerworks_api' : 'lambda'),
+          function: 'syncSquarespaceProducts',
+          account_key: accountKey || 'unknown',
+          image_guid: group.image_guid || null,
+          groupKey: group.key || null,
+          httpStatus: err?.response?.status || err?.status || null,
+          message: `Failed to sync Squarespace product group: ${err?.message || 'Unknown error'}`,
+          detail: squarespaceErrorMessage(data, null),
+          timestamp: new Date().toISOString()
+        });
+        console.error(groupErrorJson);
+        log('Formatted error in syncSquarespaceProducts (group sync): %s', groupErrorJson);
         results.push({
           success: false,
           action: 'failed',
@@ -948,6 +994,31 @@ const syncSquarespaceProducts = async (req, res) => {
     const allSuccess = results.every(
       (r) => r.success && !(r.virtualInventoryUpdateErrors && r.virtualInventoryUpdateErrors.length)
     );
+
+    const successLog = JSON.stringify({
+      level: 'INFO',
+      platform: 'squarespace',
+      method: req.method,
+      api: req.originalUrl || req.url,
+      function: 'syncSquarespaceProducts',
+      operation: allSuccess ? 'Squarespace product sync completed successfully' : 'Squarespace product sync completed with partial failures',
+      account_key: accountKey || 'unknown',
+      result: {
+        allSuccess,
+        totalGroups: syncGroups.length,
+        uploaded: summary.uploaded,
+        repaired: summary.repaired,
+        variantsAdded: summary.variantsAdded,
+        failed: summary.failed,
+        partial: summary.partial,
+        skipped: summary.skipped,
+        matchedImageCount: matchedImages.length,
+        unmatchedImageGuidCount: unmatchedImageGuids.length,
+      },
+      timestamp: new Date().toISOString()
+    });
+    console.log(successLog);
+    log('Success in syncSquarespaceProducts: %s', successLog);
 
     return res.status(200).json({
       success: allSuccess,
@@ -973,6 +1044,21 @@ const syncSquarespaceProducts = async (req, res) => {
       results,
     });
   } catch (err) {
+    const isSquarespaceError = err?.response?.config?.url?.includes('squarespace') || err?.config?.url?.includes('squarespace');
+    const isFinerworksError = err?.response?.config?.url?.includes('finerworks.com') || err?.config?.url?.includes('finerworks.com');
+    const errorJson = JSON.stringify({
+      level: 'ERROR',
+      platform: 'squarespace',
+      source: isSquarespaceError ? 'squarespace_api' : (isFinerworksError ? 'finerworks_api' : 'lambda'),
+      function: 'syncSquarespaceProducts',
+      account_key: req.body?.account_key || req.body?.accountKey || 'unknown',
+      httpStatus: err?.response?.status || null,
+      message: `Unexpected error in Squarespace product sync: ${err?.message || 'Unknown error'}`,
+      detail: err?.response?.data?.message || null,
+      timestamp: new Date().toISOString()
+    });
+    console.error(errorJson);
+    log('Formatted error in syncSquarespaceProducts: %s', errorJson);
     return sendApiError(res, err);
   }
 };

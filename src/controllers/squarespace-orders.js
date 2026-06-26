@@ -93,6 +93,20 @@ const getSquarespaceOrders = async (req, res) => {
       customerId,
     });
 
+    const successLog = JSON.stringify({
+      level: 'INFO',
+      platform: 'squarespace',
+      method: req.method,
+      api: req.originalUrl || req.url,
+      function: 'getSquarespaceOrders',
+      operation: 'Squarespace orders list fetched successfully',
+      result: orders.length <= 20
+        ? { count: orders.length, orderIds: orders.map(o => o?.id) }
+        : { count: orders.length, firstOrderIds: orders.slice(0, 5).map(o => o?.id) },
+      timestamp: new Date().toISOString()
+    });
+    console.log('Success in getSquarespaceOrders: %s',successLog);
+    log('Success in getSquarespaceOrders: %s', successLog);
     return res.status(200).json({
       success: true,
       count: orders.length,
@@ -148,6 +162,22 @@ const getSquarespaceOrderByNumber = async (req, res) => {
       });
     }
 
+    const orderKeyCount = order && typeof order === 'object' ? Object.keys(order).length : 0;
+    const orderSummary = orderKeyCount <= 20
+      ? order
+      : { id: order?.id, orderNumber: order?.orderNumber, fulfillmentStatus: order?.fulfillmentStatus, modifiedOn: order?.modifiedOn };
+    const successLog = JSON.stringify({
+      level: 'INFO',
+      platform: 'squarespace',
+      method: req.method,
+      api: req.originalUrl || req.url,
+      function: 'getSquarespaceOrderByNumber',
+      operation: 'Squarespace order fetched by order number',
+      result: orderSummary,
+      timestamp: new Date().toISOString()
+    });
+    console.log('Success in getSquarespaceOrderByNumber: %s', successLog);
+    log('Success in getSquarespaceOrderByNumber: %s', successLog);
     return res.status(200).json({
       success: true,
       order,
@@ -193,11 +223,20 @@ const validateSquarespaceAccessToken = async (req, res) => {
 
     if (resp.status >= 200 && resp.status < 300) {
       const pages = Array.isArray(resp?.data?.storePages) ? resp.data.storePages : [];
-      return res.status(200).json({
-        success: true,
-        valid: true,
-        storePageCount: pages.length,
+      const responsePayload = { success: true, valid: true, storePageCount: pages.length };
+      const successLog = JSON.stringify({
+        level: 'INFO',
+        platform: 'squarespace',
+        method: req.method,
+        api: req.originalUrl || req.url,
+        function: 'validateSquarespaceAccessToken',
+        operation: 'Squarespace access token validated successfully',
+        result: responsePayload,
+        timestamp: new Date().toISOString()
       });
+      console.log('Success in validateSquarespaceAccessToken: %s', successLog);
+      log('Success in validateSquarespaceAccessToken: %s', successLog);
+      return res.status(200).json(responsePayload);
     }
 
     return sendApiError(res, resp.status || 401, 'Squarespace access token is invalid or unauthorized');
@@ -259,7 +298,7 @@ const fulfillSquareSpaceOrderWithTrackingInfo = async (req, res) => {
         message: `Squarespace access token invalid or expired — attempting token refresh: ${_error?.message || 'Unknown error'}`,
         timestamp: new Date().toISOString()
       });
-      console.error(errorJson);
+      console.error('Squarespace API Error in fulfillSquareSpaceOrderWithTrackingInfo: %s', errorJson);
       log('Formatted error in fulfillSquareSpaceOrderWithTrackingInfo: %s', errorJson);
       // Major reason for this error block is unauthorized access to the squarespace api.
       const getInformation = await finerworksService.GET_INFO({ account_key });
@@ -351,7 +390,7 @@ const fulfillSquareSpaceOrderWithTrackingInfo = async (req, res) => {
             detail: persistErr?.response?.data?.message || null,
             timestamp: new Date().toISOString()
           });
-          console.error(errorJson);
+          console.error('Squarespace API Error in fulfillSquareSpaceOrderWithTrackingInfo: %s', errorJson);
           log('Formatted error in fulfillSquareSpaceOrderWithTrackingInfo: %s', errorJson);
         }
 
@@ -388,7 +427,7 @@ const fulfillSquareSpaceOrderWithTrackingInfo = async (req, res) => {
         detail: error?.response?.data?.message || null,
         timestamp: new Date().toISOString()
       });
-      console.error(errorJson);
+      console.error('Squarespace API Error in fulfillSquareSpaceOrderWithTrackingInfo: %s', errorJson);
       log('Formatted error in fulfillSquareSpaceOrderWithTrackingInfo: %s', errorJson);
       return sendApiError(res, error);
     }
@@ -420,6 +459,27 @@ const fulfillSquareSpaceOrderWithTrackingInfo = async (req, res) => {
       );
     }
     const resp = await axios.post(url, JSON.stringify(payload), { headers });
+    const successLog = JSON.stringify({
+      level: 'INFO',
+      platform: 'squarespace',
+      method: req.method,
+      api: req.originalUrl || req.url,
+      function: 'fulfillSquareSpaceOrderWithTrackingInfo',
+      operation: 'Squarespace order fulfilled with tracking info successfully',
+      account_key: account_key || 'unknown',
+      result: {
+        orderId,
+        orderNumber,
+        trackingNumber,
+        trackingUrl,
+        carrierName,
+        service,
+        shipDate,
+      },
+      timestamp: new Date().toISOString()
+    });
+    console.log('Success in fulfillSquareSpaceOrderWithTrackingInfo: %s', successLog);
+    log('Success in fulfillSquareSpaceOrderWithTrackingInfo: %s', successLog);
     return res.status(200).json({
       success: true,
       message: 'Squarespace order fulfilled with tracking info',

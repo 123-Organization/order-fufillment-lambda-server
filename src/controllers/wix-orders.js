@@ -211,12 +211,30 @@ async function fetchAllOrdersBySearch({ wixAuth, buildFirstBodyFn }) {
 }
 
 /** HTTP response for a single GET-by-GUID result (scalar `order_id` / GUID-like `order_number`). */
-function sendSingleGuidOrderLookupResponse(res, fetchResult, notFoundMessage) {
+function sendSingleGuidOrderLookupResponse(res, fetchResult, notFoundMessage, logContext = {}) {
   const { ok, order, status, wixPayload } = fetchResult;
   if (ok) {
     if (!order) {
       return sendApiError(res, 502, 'Wix returned an empty order payload');
     }
+    const { account_key = 'unknown', req = {} } = logContext;
+    const orderKeyCount = order && typeof order === 'object' ? Object.keys(order).length : 0;
+    const orderSummary = orderKeyCount <= 20
+      ? order
+      : { id: order?.id, number: order?.number, status: order?.status, lineItemsCount: Array.isArray(order?.lineItems) ? order.lineItems.length : undefined };
+    const successLog = JSON.stringify({
+      level: 'INFO',
+      platform: 'wix',
+      method: req.method || 'UNKNOWN',
+      api: req.originalUrl || req.url || 'unknown',
+      function: 'getWixOrderByNumber',
+      operation: 'Wix order fetched by GUID',
+      account_key,
+      result: orderSummary,
+      timestamp: new Date().toISOString()
+    });
+    console.log('Success in getWixOrderByNumber (GUID): %s', successLog);
+    log('Success in getWixOrderByNumber (GUID): %s', successLog);
     return res.status(200).json({ success: true, order });
   }
   if (status === 404) {
@@ -245,7 +263,7 @@ function jsonSearchOrdersError(res, err, clientMessage) {
 /**
  * Batch: parallel GUID GETs + one paged search for numeric order numbers.
  */
-async function fetchWixOrdersByNumberList(res, wixAuth, orderNumberList) {
+async function fetchWixOrdersByNumberList(res, wixAuth, orderNumberList, logContext = {}) {
   for (const item of orderNumberList) {
     if (looksLikeOrderGuid(item)) continue;
     if (parseOrderNumber(item) === null) {
@@ -327,6 +345,22 @@ async function fetchWixOrdersByNumberList(res, wixAuth, orderNumberList) {
 
   const payload = { success: true, count: ordersOut.length, orders: ordersOut };
   if (notFound.length > 0) payload.not_found = notFound;
+  const { account_key = 'unknown', req = {} } = logContext;
+  const successLog = JSON.stringify({
+    level: 'INFO',
+    platform: 'wix',
+    method: req.method || 'UNKNOWN',
+    api: req.originalUrl || req.url || 'unknown',
+    function: 'getWixOrderByNumber',
+    operation: 'Wix orders fetched by number list',
+    account_key,
+    result: ordersOut.length <= 20
+      ? { count: ordersOut.length, orderIds: ordersOut.map(o => o?.id), not_found: notFound }
+      : { count: ordersOut.length, firstOrderIds: ordersOut.slice(0, 5).map(o => o?.id), not_found_count: notFound.length },
+    timestamp: new Date().toISOString()
+  });
+  console.log('Success in getWixOrderByNumber (batch): %s', successLog);
+  log('Success in getWixOrderByNumber (batch): %s', successLog);
   res.status(200).json(payload);
 }
 
@@ -398,6 +432,21 @@ exports.getWixOrders = async (req, res) => {
       }),
     });
 
+    const successLog = JSON.stringify({
+      level: 'INFO',
+      platform: 'wix',
+      method: req.method,
+      api: req.originalUrl || req.url,
+      function: 'getWixOrders',
+      operation: 'Wix orders list fetched successfully',
+      account_key: String(account_key).trim(),
+      result: orders.length <= 20
+        ? { count: orders.length, orderIds: orders.map(o => o?.id) }
+        : { count: orders.length, firstOrderIds: orders.slice(0, 5).map(o => o?.id) },
+      timestamp: new Date().toISOString()
+    });
+    console.log('Success in getWixOrders: %s', successLog);
+    log('Success in getWixOrders: %s', successLog);
     return res.status(200).json({
       success: true,
       count: orders.length,
@@ -511,7 +560,7 @@ exports.getWixOrderByNumber = async (req, res) => {
     }
 
     if (isOrderNumArray && orderNumberList.length > 0) {
-      await fetchWixOrdersByNumberList(res, wixAuth, orderNumberList);
+      await fetchWixOrdersByNumberList(res, wixAuth, orderNumberList, { account_key: String(account_key).trim(), req });
       return;
     }
 
@@ -530,7 +579,7 @@ exports.getWixOrderByNumber = async (req, res) => {
 
     if (guid) {
       const fetchResult = await fetchWixOrderByGuid(wixAuth, guid);
-      return sendSingleGuidOrderLookupResponse(res, fetchResult, notFoundLabel);
+      return sendSingleGuidOrderLookupResponse(res, fetchResult, notFoundLabel, { account_key: String(account_key).trim(), req });
     }
 
     const orderNum = parseOrderNumber(orderNumStrTrim);
@@ -564,6 +613,23 @@ exports.getWixOrderByNumber = async (req, res) => {
       });
     }
 
+    const foundKeyCount = found && typeof found === 'object' ? Object.keys(found).length : 0;
+    const foundSummary = foundKeyCount <= 20
+      ? found
+      : { id: found?.id, number: found?.number, status: found?.status, lineItemsCount: Array.isArray(found?.lineItems) ? found.lineItems.length : undefined };
+    const successLog = JSON.stringify({
+      level: 'INFO',
+      platform: 'wix',
+      method: req.method,
+      api: req.originalUrl || req.url,
+      function: 'getWixOrderByNumber',
+      operation: 'Wix order fetched by order number',
+      account_key: String(account_key).trim(),
+      result: foundSummary,
+      timestamp: new Date().toISOString()
+    });
+    console.log('Success in getWixOrderByNumber: %s', successLog);
+    log('Success in getWixOrderByNumber: %s', successLog);
     return res.status(200).json({ success: true, order: found });
   } catch (err) {
     const isWixError = err?.response?.config?.url?.includes('wixapis.com') || err?.config?.url?.includes('wixapis.com');
@@ -774,6 +840,26 @@ exports.fulfillWixOrderWithTrackingInfo = async (req, res) => {
     });
 
     if (resp.status >= 200 && resp.status < 300) {
+      const fulfillmentId = resp.data?.fulfillment?.id || resp.data?.fulfillmentId || null;
+      const successLog = JSON.stringify({
+        level: 'INFO',
+        platform: 'wix',
+        method: req.method,
+        api: req.originalUrl || req.url,
+        function: 'fulfillWixOrderWithTrackingInfo',
+        operation: 'Wix order fulfillment created successfully',
+        account_key: String(account_key).trim(),
+        result: {
+          orderId,
+          orderNumber,
+          fulfillmentId,
+          trackingNumber,
+          carrier: shippingProvider,
+        },
+        timestamp: new Date().toISOString()
+      });
+      console.log('Success in fulfillWixOrderWithTrackingInfo: %s', successLog);
+      log('Success in fulfillWixOrderWithTrackingInfo: %s', successLog);
       return res.status(200).json({
         success: true,
         message: 'Wix order fulfillment created',

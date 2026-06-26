@@ -45,6 +45,19 @@ exports.fetchShippoOrders = async (req, res) => {
     const etsyOrders = shippoOrders.filter((o) => o.shop_app === 'Etsy');
 
     if (!etsyOrders.length) {
+      const emptyLog = JSON.stringify({
+        level: 'INFO',
+        platform: 'shippo',
+        method: req.method,
+        api: req.originalUrl || req.url,
+        function: 'fetchShippoOrders',
+        operation: 'Shippo Etsy orders fetched — no orders found for given filters',
+        account_key: req.body?.account_key || 'unknown',
+        result: { count: 0 },
+        timestamp: new Date().toISOString()
+      });
+      console.log('Success (empty) in fetchShippoOrders: %s', emptyLog);
+      log('Success (empty) in fetchShippoOrders: %s', emptyLog);
       return res.status(200).json({
         statusCode: 200,
         status: true,
@@ -54,6 +67,21 @@ exports.fetchShippoOrders = async (req, res) => {
       });
     }
 
+    const successLog = JSON.stringify({
+      level: 'INFO',
+      platform: 'shippo',
+      method: req.method,
+      api: req.originalUrl || req.url,
+      function: 'fetchShippoOrders',
+      operation: 'Shippo Etsy orders fetched successfully',
+      account_key: req.body?.account_key || 'unknown',
+      result: etsyOrders.length <= 20
+        ? { count: etsyOrders.length, orderIds: etsyOrders.map(o => o?.object_id || o?.order_number) }
+        : { count: etsyOrders.length, firstOrderIds: etsyOrders.slice(0, 5).map(o => o?.object_id || o?.order_number) },
+      timestamp: new Date().toISOString()
+    });
+    console.log('Success in fetchShippoOrders: %s', successLog);
+    log('Success in fetchShippoOrders: %s', successLog);
     return res.status(200).json({
       statusCode: 200,
       status: true,
@@ -77,7 +105,7 @@ exports.fetchShippoOrders = async (req, res) => {
       detail: err?.response?.data?.detail || err?.response?.data?.message || null,
       timestamp: new Date().toISOString()
     });
-    console.error(errorJson);
+    console.error('Shippo API Error in fetchShippoOrders: %s', errorJson);
     log('Formatted error in fetchShippoOrders: %s', errorJson);
     return sendApiError(res, err);
   }

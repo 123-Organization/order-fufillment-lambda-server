@@ -31,6 +31,19 @@ exports.connectShippo = async (req, res) => {
     await finerworksService.UPDATE_INFO({ account_key, connections });
     log('Shippo connected for account_key=%s', account_key);
 
+    const successLog = JSON.stringify({
+      level: 'INFO',
+      platform: 'shippo',
+      method: req.method,
+      api: req.originalUrl || req.url,
+      function: 'connectShippo',
+      operation: idx >= 0 ? 'Shippo connection updated successfully' : 'Shippo connection added successfully',
+      account_key: account_key || 'unknown',
+      result: { updated: idx >= 0 },
+      timestamp: new Date().toISOString()
+    });
+    console.log(successLog);
+    log('Success in connectShippo: %s', successLog);
     return res.status(200).json({ statusCode: 200, status: true, message: 'Shippo connected successfully.' });
   } catch (err) {
     const isShippoError = err?.response?.config?.url?.includes('shippo') || err?.config?.url?.includes('shippo');
@@ -72,6 +85,19 @@ exports.getShippoStatus = async (req, res) => {
       }
     }
 
+    const successLog = JSON.stringify({
+      level: 'INFO',
+      platform: 'shippo',
+      method: req.method,
+      api: req.originalUrl || req.url,
+      function: 'getShippoStatus',
+      operation: 'Shippo connection status retrieved successfully',
+      account_key: account_key || 'unknown',
+      result: { isConnected },
+      timestamp: new Date().toISOString()
+    });
+    console.log(successLog);
+    log('Success in getShippoStatus: %s', successLog);
     return res.status(200).json({ statusCode: 200, status: true, isConnected });
   } catch (err) {
     const errorJson = JSON.stringify({
