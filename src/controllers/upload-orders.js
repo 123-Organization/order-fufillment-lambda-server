@@ -661,6 +661,13 @@ exports.uploadOrdersToLocalDatabaseShopify = async (req, res) => {
           console.log(`Skipping duplicate order_po ${order.order_po} for source ${uploadedFromAppName}`);
           continue;
         }
+        if (Array.isArray(order.order_items)) {
+          for (const item of order.order_items) {
+            if (item.product_qty === 0) {
+              item.product_qty = 1;
+            }
+          }
+        }
         order.createdAt = new Date();
         order.submittedAt = null;
         // order.source = uploadedFromAppName;
