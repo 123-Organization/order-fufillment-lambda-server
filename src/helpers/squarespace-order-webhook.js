@@ -239,7 +239,7 @@ function transformSquarespaceOrderToFinerWorksPayload(order, { shippingOptions =
     ship_by_date: null,
     customs_tax_info: null,
     gift_message: null,
-    test_mode: true,
+    test_mode: false, // As per client's info we have set it to false.
     webhook_order_status_url: null,
     document_url: null,
     acct_number_ups: null,
