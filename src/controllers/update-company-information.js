@@ -87,14 +87,41 @@ exports.updateCompanyInformation = async (req, res) => {
         });
       }
       if (updateInformation) {
+          const successLog = JSON.stringify({
+            level: 'INFO',
+            platform: 'finerworks',
+            method: req.method,
+            api: req.originalUrl || req.url,
+            function: 'updateCompanyInformation',
+            operation: 'Company information updated successfully',
+            account_key: req.body?.account_key || 'unknown',
+            result: { updated: true },
+            timestamp: new Date().toISOString()
+          });
+          console.log(successLog);
+          log('Success in updateCompanyInformation: %s', successLog);
           res.status(200).json({
               statusCode: 200,
               status: true,
               message: "company information has been updated successfully",
-              data: updateInformation?.user_account 
+              data: updateInformation?.user_account
           });
       }
   } catch (error) {
+    const isFinerworksError = error?.response?.config?.url?.includes('finerworks.com') || error?.config?.url?.includes('finerworks.com');
+    const errorJson = JSON.stringify({
+      level: 'ERROR',
+      platform: 'finerworks',
+      source: isFinerworksError ? 'finerworks_api' : 'lambda',
+      function: 'updateCompanyInformation',
+      account_key: req.body?.account_key || 'unknown',
+      httpStatus: error?.response?.status || null,
+      message: `Failed to update company information: ${error?.message || 'Unknown error'}`,
+      detail: error?.response?.data?.message || error?.response?.data?.error || null,
+      timestamp: new Date().toISOString()
+    });
+    console.error(errorJson);
+    log('Formatted error in updateCompanyInformation: %s', errorJson);
     res.status(400).json({
           statusCode: 400,
           status: false,

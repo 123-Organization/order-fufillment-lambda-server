@@ -138,6 +138,19 @@ const handleWixJwtBodyAsAppInstall = async (req, res) => {
     }
 
     if (!account_key || !String(account_key).trim()) {
+      const successLog = JSON.stringify({
+        level: 'INFO',
+        platform: 'wix',
+        method: req.method,
+        api: req.originalUrl || req.url,
+        function: 'handleWixJwtBodyAsAppInstall',
+        operation: 'Wix webhook JWT decoded; no account_key provided',
+        account_key: 'unknown',
+        result: { instance_id: String(instanceId).trim(), site_id: siteId ? String(siteId).trim() : null },
+        timestamp: new Date().toISOString()
+      });
+      console.log(successLog);
+      log('Success in handleWixJwtBodyAsAppInstall: %s', successLog);
       return res.status(200).json({
         success: true,
         message:
@@ -163,6 +176,19 @@ const handleWixJwtBodyAsAppInstall = async (req, res) => {
       }
     );
 
+    const successLog = JSON.stringify({
+      level: 'INFO',
+      platform: 'wix',
+      method: req.method,
+      api: req.originalUrl || req.url,
+      function: 'handleWixJwtBodyAsAppInstall',
+      operation: 'Wix app installed; access token minted and connection saved',
+      account_key: String(account_key).trim(),
+      result: { instance_id: out.instance_id, site_id: out.site_id },
+      timestamp: new Date().toISOString()
+    });
+    console.log(successLog);
+    log('Success in handleWixJwtBodyAsAppInstall: %s', successLog);
     return res.status(200).json({
       success: true,
       message: 'Wix app installed; access token minted and connection saved',
@@ -175,6 +201,21 @@ const handleWixJwtBodyAsAppInstall = async (req, res) => {
       },
     });
   } catch (err) {
+    const isWixError = err?.response?.config?.url?.includes('wixapis.com') || err?.config?.url?.includes('wixapis.com');
+    const isFinerworksError = err?.response?.config?.url?.includes('finerworks.com') || err?.config?.url?.includes('finerworks.com');
+    const errorJson = JSON.stringify({
+      level: 'ERROR',
+      platform: 'wix',
+      source: isWixError ? 'wix_api' : (isFinerworksError ? 'finerworks_api' : 'lambda'),
+      function: 'handleWixJwtBodyAsAppInstall',
+      account_key: req.query?.account_key || req.query?.accountKey || req.headers['x-account-key'] || 'unknown',
+      httpStatus: err?.response?.status || null,
+      message: `Failed to handle Wix JWT app install webhook: ${err?.message || 'Unknown error'}`,
+      detail: err?.response?.data?.message || err?.response?.data?.error || null,
+      timestamp: new Date().toISOString()
+    });
+    console.error(errorJson);
+    log('Formatted error in handleWixJwtBodyAsAppInstall: %s', errorJson);
     return sendApiError(res, err);
   }
 };

@@ -48,6 +48,19 @@ exports.getProductBySku = async (req, res) => {
         }
         const getInformation = await finerworksService.LIST_VIRTUAL_INVENTORY(reqBody);
         if (getInformation && getInformation.status && getInformation.status.success) {
+            const successLog = JSON.stringify({
+              level: 'INFO',
+              platform: 'finerworks',
+              method: req.method,
+              api: req.originalUrl || req.url,
+              function: 'getProductBySku',
+              operation: 'Product fetched by SKU successfully',
+              account_key: req.body?.account_key || req.query?.account_key || 'unknown',
+              result: { count: getInformation?.products?.length || 0 },
+              timestamp: new Date().toISOString()
+            });
+            console.log(successLog);
+            log('Success in getProductBySku: %s', successLog);
             res.status(200).json({
                 statusCode: 200,
                 status: true,
@@ -62,6 +75,20 @@ exports.getProductBySku = async (req, res) => {
         }
     } catch (error) {
         log('Error while fetching list of virtual inventory : ', error);
+        const isFinerworksError = error?.response?.config?.url?.includes('finerworks.com') || error?.config?.url?.includes('finerworks.com');
+        const errorJson = JSON.stringify({
+          level: 'ERROR',
+          platform: 'finerworks',
+          source: isFinerworksError ? 'finerworks_api' : 'lambda',
+          function: 'getProductBySku',
+          account_key: req.body?.account_key || req.query?.account_key || 'unknown',
+          httpStatus: error?.response?.status || null,
+          message: `Failed to fetch product by SKU: ${error?.message || 'Unknown error'}`,
+          detail: error?.response?.data?.message || error?.response?.data?.error || null,
+          timestamp: new Date().toISOString()
+        });
+        console.error(errorJson);
+        log('Formatted error in getProductBySku: %s', errorJson);
         res.status(400).json({
             statusCode: 400,
             status: false,
@@ -83,6 +110,19 @@ exports.listVirtualInventory = async (req, res) => {
         const reqBody = JSON.parse(JSON.stringify(req.body));
         const getInformation = await finerworksService.LIST_VIRTUAL_INVENTORY(reqBody);
         if (getInformation && getInformation.status && getInformation.status.success) {
+            const successLog = JSON.stringify({
+              level: 'INFO',
+              platform: 'finerworks',
+              method: req.method,
+              api: req.originalUrl || req.url,
+              function: 'listVirtualInventory',
+              operation: 'Virtual inventory list fetched successfully',
+              account_key: req.body?.account_key || req.query?.account_key || 'unknown',
+              result: { count: getInformation?.count, page_number: getInformation?.page_number, per_page: getInformation?.per_page },
+              timestamp: new Date().toISOString()
+            });
+            console.log(successLog);
+            log('Success in listVirtualInventory: %s', successLog);
             res.status(200).json({
                 statusCode: 200,
                 status: true,
@@ -100,6 +140,20 @@ exports.listVirtualInventory = async (req, res) => {
         }
     } catch (error) {
         log('Error while fetching list of virtual inventory : ', error);
+        const isFinerworksError = error?.response?.config?.url?.includes('finerworks.com') || error?.config?.url?.includes('finerworks.com');
+        const errorJson = JSON.stringify({
+          level: 'ERROR',
+          platform: 'finerworks',
+          source: isFinerworksError ? 'finerworks_api' : 'lambda',
+          function: 'listVirtualInventory',
+          account_key: req.body?.account_key || req.query?.account_key || 'unknown',
+          httpStatus: error?.response?.status || null,
+          message: `Failed to fetch virtual inventory list: ${error?.message || 'Unknown error'}`,
+          detail: error?.response?.data?.message || error?.response?.data?.error || null,
+          timestamp: new Date().toISOString()
+        });
+        console.error(errorJson);
+        log('Formatted error in listVirtualInventory: %s', errorJson);
         res.status(400).json({
             statusCode: 400,
             status: false,
@@ -114,6 +168,19 @@ exports.listVirtualInventoryV2 = async (req, res) => {
         const reqBody = JSON.parse(JSON.stringify(req.body));
         const getInformation = await finerworksService.LIST_VIRTUAL_INVENTORY(reqBody);
         if (getInformation && getInformation.status && getInformation.status.success) {
+            const successLog = JSON.stringify({
+              level: 'INFO',
+              platform: 'finerworks',
+              method: req.method,
+              api: req.originalUrl || req.url,
+              function: 'listVirtualInventoryV2',
+              operation: 'Virtual inventory V2 list fetched successfully',
+              account_key: req.body?.account_key || req.query?.account_key || 'unknown',
+              result: { count: getInformation?.count, page_number: getInformation?.page_number, per_page: getInformation?.per_page },
+              timestamp: new Date().toISOString()
+            });
+            console.log(successLog);
+            log('Success in listVirtualInventoryV2: %s', successLog);
             res.status(200).json({
                 statusCode: 200,
                 status: true,
@@ -131,6 +198,20 @@ exports.listVirtualInventoryV2 = async (req, res) => {
         }
     } catch (error) {
         log('Error while fetching list of virtual inventory : ', error);
+        const isFinerworksError = error?.response?.config?.url?.includes('finerworks.com') || error?.config?.url?.includes('finerworks.com');
+        const errorJson = JSON.stringify({
+          level: 'ERROR',
+          platform: 'finerworks',
+          source: isFinerworksError ? 'finerworks_api' : 'lambda',
+          function: 'listVirtualInventoryV2',
+          account_key: req.body?.account_key || req.query?.account_key || 'unknown',
+          httpStatus: error?.response?.status || null,
+          message: `Failed to fetch virtual inventory V2 list: ${error?.message || 'Unknown error'}`,
+          detail: error?.response?.data?.message || error?.response?.data?.error || null,
+          timestamp: new Date().toISOString()
+        });
+        console.error(errorJson);
+        log('Formatted error in listVirtualInventoryV2: %s', errorJson);
         res.status(400).json({
             statusCode: 400,
             status: false,
@@ -195,6 +276,19 @@ exports.updateVirtualInventory = async (req, res) => {
         const reqBody = JSON.parse(JSON.stringify(req.body));
         const getInformation = await finerworksService.UPDATE_VIRTUAL_INVENTORY(reqBody);
         if (getInformation && getInformation.status && getInformation.status.success) {
+            const successLog = JSON.stringify({
+              level: 'INFO',
+              platform: 'finerworks',
+              method: req.method,
+              api: req.originalUrl || req.url,
+              function: 'updateVirtualInventory',
+              operation: 'Virtual inventory updated successfully',
+              account_key: req.body?.account_key || req.query?.account_key || 'unknown',
+              result: { skus_updated: getInformation?.skus_updated?.length || 0 },
+              timestamp: new Date().toISOString()
+            });
+            console.log(successLog);
+            log('Success in updateVirtualInventory: %s', successLog);
             res.status(200).json({
                 statusCode: 200,
                 status: true,
@@ -208,6 +302,20 @@ exports.updateVirtualInventory = async (req, res) => {
             });
         }
     } catch (error) {
+        const isFinerworksError = error?.response?.config?.url?.includes('finerworks.com') || error?.config?.url?.includes('finerworks.com');
+        const errorJson = JSON.stringify({
+          level: 'ERROR',
+          platform: 'finerworks',
+          source: isFinerworksError ? 'finerworks_api' : 'lambda',
+          function: 'updateVirtualInventory',
+          account_key: req.body?.account_key || req.query?.account_key || 'unknown',
+          httpStatus: error?.response?.status || null,
+          message: `Failed to update virtual inventory: ${error?.message || 'Unknown error'}`,
+          detail: error?.response?.data?.message || error?.response?.data?.error || null,
+          timestamp: new Date().toISOString()
+        });
+        console.error(errorJson);
+        log('Formatted error in updateVirtualInventory: %s', errorJson);
         res.status(400).json({
             statusCode: 400,
             status: false,
@@ -245,6 +353,19 @@ exports.deleteVirtualInventory = async (req, res) => {
         const reqBody = JSON.parse(JSON.stringify(req.body));
         const getInformation = await finerworksService.DELETE_VIRTUAL_INVENTORY(reqBody);
         if (getInformation && getInformation.status && getInformation.status.success) {
+            const successLog = JSON.stringify({
+              level: 'INFO',
+              platform: 'finerworks',
+              method: req.method,
+              api: req.originalUrl || req.url,
+              function: 'deleteVirtualInventory',
+              operation: 'Virtual inventory deleted successfully',
+              account_key: req.body?.account_key || req.query?.account_key || 'unknown',
+              result: { deleted: true },
+              timestamp: new Date().toISOString()
+            });
+            console.log(successLog);
+            log('Success in deleteVirtualInventory: %s', successLog);
             res.status(200).json({
                 statusCode: 200,
                 status: true,
@@ -258,6 +379,20 @@ exports.deleteVirtualInventory = async (req, res) => {
             });
         }
     } catch (error) {
+        const isFinerworksError = error?.response?.config?.url?.includes('finerworks.com') || error?.config?.url?.includes('finerworks.com');
+        const errorJson = JSON.stringify({
+          level: 'ERROR',
+          platform: 'finerworks',
+          source: isFinerworksError ? 'finerworks_api' : 'lambda',
+          function: 'deleteVirtualInventory',
+          account_key: req.body?.account_key || req.query?.account_key || 'unknown',
+          httpStatus: error?.response?.status || null,
+          message: `Failed to delete virtual inventory: ${error?.message || 'Unknown error'}`,
+          detail: error?.response?.data?.message || error?.response?.data?.error || null,
+          timestamp: new Date().toISOString()
+        });
+        console.error(errorJson);
+        log('Formatted error in deleteVirtualInventory: %s', errorJson);
         res.status(400).json({
             statusCode: 400,
             status: false,

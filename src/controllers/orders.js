@@ -83,6 +83,19 @@ exports.viewAllOrders = async (req, res) => {
     // Slice orders for current page
     const paginatedOrders = allOrders.slice(startIndex, endIndex);
 
+    const successLog = JSON.stringify({
+      level: 'INFO',
+      platform: 'finerworks',
+      method: req.method,
+      api: req.originalUrl || req.url,
+      function: 'viewAllOrders',
+      operation: 'Orders fetched successfully',
+      account_key: req.body?.account_key || req.query?.account_key || 'unknown',
+      result: { totalOrders, currentPage: pageNum, pageSize: limitNum },
+      timestamp: new Date().toISOString()
+    });
+    console.log(successLog);
+    log('Success in viewAllOrders: %s', successLog);
     res.status(200).json({
       statusCode: 200,
       status: true,
@@ -98,7 +111,20 @@ exports.viewAllOrders = async (req, res) => {
 
   } catch (err) {
     log("Error while fetching orders:", err?.message || JSON.stringify(err));
-
+    const isFinerworksError = err?.response?.config?.url?.includes('finerworks.com') || err?.config?.url?.includes('finerworks.com');
+    const errorJson = JSON.stringify({
+      level: 'ERROR',
+      platform: 'finerworks',
+      source: isFinerworksError ? 'finerworks_api' : 'lambda',
+      function: 'viewAllOrders',
+      account_key: req.body?.account_key || req.query?.account_key || 'unknown',
+      httpStatus: err?.response?.status || null,
+      message: `Failed to fetch orders: ${err?.message || 'Unknown error'}`,
+      detail: err?.response?.data?.message || err?.response?.data?.error || null,
+      timestamp: new Date().toISOString()
+    });
+    console.error(errorJson);
+    log('Formatted error in viewAllOrders: %s', errorJson);
     res.status(500).json({
       statusCode: 500,
       status: false,
@@ -135,6 +161,19 @@ exports.viewOrderDetails = async (req, res) => {
           latestOrderToBePushed.orderFullFillmentId = order.FulfillmentID;
           allOrders.push(latestOrderToBePushed);
         });
+        const successLog = JSON.stringify({
+          level: 'INFO',
+          platform: 'finerworks',
+          method: req.method,
+          api: req.originalUrl || req.url,
+          function: 'viewOrderDetails',
+          operation: 'Order details fetched successfully',
+          account_key: req.body?.account_key || req.query?.account_key || 'unknown',
+          result: { count: allOrders.length, orderFullFillmentId: reqBody.orderFullFillmentId },
+          timestamp: new Date().toISOString()
+        });
+        console.log(successLog);
+        log('Success in viewOrderDetails: %s', successLog);
         res.status(200).json({
           statusCode: 200,
           status: true,
@@ -145,6 +184,20 @@ exports.viewOrderDetails = async (req, res) => {
     }
   } catch (err) {
     log("Error while fetching order details:", err?.message || JSON.stringify(err));
+    const isFinerworksError = err?.response?.config?.url?.includes('finerworks.com') || err?.config?.url?.includes('finerworks.com');
+    const errorJson = JSON.stringify({
+      level: 'ERROR',
+      platform: 'finerworks',
+      source: isFinerworksError ? 'finerworks_api' : 'lambda',
+      function: 'viewOrderDetails',
+      account_key: req.body?.account_key || req.query?.account_key || 'unknown',
+      httpStatus: err?.response?.status || null,
+      message: `Failed to fetch order details: ${err?.message || 'Unknown error'}`,
+      detail: err?.response?.data?.message || err?.response?.data?.error || null,
+      timestamp: new Date().toISOString()
+    });
+    console.error(errorJson);
+    log('Formatted error in viewOrderDetails: %s', errorJson);
   }
 };
 exports.updateOrderByProductSkuCode = async (req, res) => {
@@ -678,6 +731,19 @@ exports.createNewOrder = async (req, res) => {
         log("insertData", JSON.stringify(insertData));
         order.orderFullFillmentId = insertData.record_id;
       }
+      const successLog = JSON.stringify({
+        level: 'INFO',
+        platform: 'finerworks',
+        method: req.method,
+        api: req.originalUrl || req.url,
+        function: 'createNewOrder',
+        operation: 'New order created successfully',
+        account_key: req.body?.account_key || req.query?.account_key || 'unknown',
+        result: { count: ordersToBeSubmitted.length, orderPo: orderPoNumber },
+        timestamp: new Date().toISOString()
+      });
+      console.log(successLog);
+      log('Success in createNewOrder: %s', successLog);
       res.status(200).json({
         statusCode: 200,
         status: true,
@@ -687,6 +753,20 @@ exports.createNewOrder = async (req, res) => {
     }
   } catch (err) {
     log("Error comes while creating a new order", JSON.stringify(err), err);
+    const isFinerworksError = err?.response?.config?.url?.includes('finerworks.com') || err?.config?.url?.includes('finerworks.com');
+    const errorJson = JSON.stringify({
+      level: 'ERROR',
+      platform: 'finerworks',
+      source: isFinerworksError ? 'finerworks_api' : 'lambda',
+      function: 'createNewOrder',
+      account_key: req.body?.account_key || req.query?.account_key || 'unknown',
+      httpStatus: err?.response?.status || null,
+      message: `Failed to create new order: ${err?.message || 'Unknown error'}`,
+      detail: err?.response?.data?.message || err?.response?.data?.error || null,
+      timestamp: new Date().toISOString()
+    });
+    console.error(errorJson);
+    log('Formatted error in createNewOrder: %s', errorJson);
     const errorMessage = err.response.data;
     res.status(400).json({
       statusCode: 400,
@@ -756,6 +836,19 @@ exports.deleteOrder = async (req, res) => {
 
     // Success response after deleting all valid orders
     log("Orders have been successfully deleted for", JSON.stringify(reqBody));
+    const successLog = JSON.stringify({
+      level: 'INFO',
+      platform: 'finerworks',
+      method: req.method,
+      api: req.originalUrl || req.url,
+      function: 'deleteOrder',
+      operation: 'Orders deleted successfully',
+      account_key: req.body?.account_key || req.query?.account_key || 'unknown',
+      result: { deletedIds: orderFullFillmentIdsStr },
+      timestamp: new Date().toISOString()
+    });
+    console.log(successLog);
+    log('Success in deleteOrder: %s', successLog);
     res.status(200).json({
       statusCode: 200,
       status: true,
@@ -764,6 +857,20 @@ exports.deleteOrder = async (req, res) => {
 
   } catch (err) {
     log("Error occurred while deleting orders", JSON.stringify(err), err);
+    const isFinerworksError = err?.response?.config?.url?.includes('finerworks.com') || err?.config?.url?.includes('finerworks.com');
+    const errorJson = JSON.stringify({
+      level: 'ERROR',
+      platform: 'finerworks',
+      source: isFinerworksError ? 'finerworks_api' : 'lambda',
+      function: 'deleteOrder',
+      account_key: req.body?.account_key || req.query?.account_key || 'unknown',
+      httpStatus: err?.response?.status || null,
+      message: `Failed to delete orders: ${err?.message || 'Unknown error'}`,
+      detail: err?.response?.data?.message || err?.response?.data?.error || null,
+      timestamp: new Date().toISOString()
+    });
+    console.error(errorJson);
+    log('Formatted error in deleteOrder: %s', errorJson);
     res.status(400).json({
       statusCode: 400,
       status: false,
@@ -838,9 +945,36 @@ exports.submitOrders = async (req, res) => {
           })
         );
       }
+      const successLog = JSON.stringify({
+        level: 'INFO',
+        platform: 'finerworks',
+        method: req.method,
+        api: req.originalUrl || req.url,
+        function: 'submitOrders',
+        operation: 'Orders submitted to FinerWorks successfully',
+        account_key: account_key || 'unknown',
+        result: { count: ordersToBeSubmitted?.length || 0 },
+        timestamp: new Date().toISOString()
+      });
+      console.log(successLog);
+      log('Success in submitOrders: %s', successLog);
     }
   } catch (err) {
     log("Error comes while submitting a new order", JSON.stringify(err), err);
+    const isFinerworksError = err?.response?.config?.url?.includes('finerworks.com') || err?.config?.url?.includes('finerworks.com');
+    const errorJson = JSON.stringify({
+      level: 'ERROR',
+      platform: 'finerworks',
+      source: isFinerworksError ? 'finerworks_api' : 'lambda',
+      function: 'submitOrders',
+      account_key: req.body?.account_key || 'unknown',
+      httpStatus: err?.response?.status || null,
+      message: `Failed to submit orders: ${err?.message || 'Unknown error'}`,
+      detail: err?.response?.data?.message || err?.response?.data?.error || null,
+      timestamp: new Date().toISOString()
+    });
+    console.error(errorJson);
+    log('Formatted error in submitOrders: %s', errorJson);
     const errorMessage = err.response.data;
     res.status(400).json({
       statusCode: 400,
@@ -967,6 +1101,19 @@ exports.submitOrdersV2 = async (req, res) => {
           return null;
         }).filter(Boolean); // Remove null entries (if any)
 
+        const successLog = JSON.stringify({
+          level: 'INFO',
+          platform: 'finerworks',
+          method: req.method,
+          api: req.originalUrl || req.url,
+          function: 'submitOrdersV2',
+          operation: 'Orders V2 submitted to FinerWorks successfully',
+          account_key: account_key || 'unknown',
+          result: { count: updatedOrders?.length || 0 },
+          timestamp: new Date().toISOString()
+        });
+        console.log(successLog);
+        log('Success in submitOrdersV2: %s', successLog);
         return res.status(200).json({
           statusCode: 200,
           status: true,
@@ -977,6 +1124,20 @@ exports.submitOrdersV2 = async (req, res) => {
     }
   } catch (err) {
     log("Error comes while submitting a new order", JSON.stringify(err), err);
+    const isFinerworksError = err?.response?.config?.url?.includes('finerworks.com') || err?.config?.url?.includes('finerworks.com');
+    const errorJson = JSON.stringify({
+      level: 'ERROR',
+      platform: 'finerworks',
+      source: isFinerworksError ? 'finerworks_api' : 'lambda',
+      function: 'submitOrdersV2',
+      account_key: req.body?.account_key || 'unknown',
+      httpStatus: err?.response?.status || null,
+      message: `Failed to submit orders V2: ${err?.message || 'Unknown error'}`,
+      detail: err?.response?.data?.message || err?.response?.data?.error || null,
+      timestamp: new Date().toISOString()
+    });
+    console.error(errorJson);
+    log('Formatted error in submitOrdersV2: %s', errorJson);
     const errorMessage = err.response.data;
     res.status(400).json({
       statusCode: 400,
@@ -1011,6 +1172,19 @@ exports.orderSubmitStatus = async (req, res) => {
       );
       console.log("orderStatusData===============", orderStatusData);
       if (orderStatusData) {
+        const successLog = JSON.stringify({
+          level: 'INFO',
+          platform: 'finerworks',
+          method: req.method,
+          api: req.originalUrl || req.url,
+          function: 'orderSubmitStatus',
+          operation: 'Order submit status fetched successfully',
+          account_key: req.body?.account_key || 'unknown',
+          result: { orderId: reqBody.orderId },
+          timestamp: new Date().toISOString()
+        });
+        console.log(successLog);
+        log('Success in orderSubmitStatus: %s', successLog);
         res.status(200).json({
           statusCode: 200,
           status: true,
@@ -1020,6 +1194,20 @@ exports.orderSubmitStatus = async (req, res) => {
     }
   } catch (err) {
     log("Error comes while creating a new order", JSON.stringify(err), err);
+    const isFinerworksError = err?.response?.config?.url?.includes('finerworks.com') || err?.config?.url?.includes('finerworks.com');
+    const errorJson = JSON.stringify({
+      level: 'ERROR',
+      platform: 'finerworks',
+      source: isFinerworksError ? 'finerworks_api' : 'lambda',
+      function: 'orderSubmitStatus',
+      account_key: req.body?.account_key || 'unknown',
+      httpStatus: err?.response?.status || null,
+      message: `Failed to fetch order submit status: ${err?.message || 'Unknown error'}`,
+      detail: err?.response?.data?.message || err?.response?.data?.error || null,
+      timestamp: new Date().toISOString()
+    });
+    console.error(errorJson);
+    log('Formatted error in orderSubmitStatus: %s', errorJson);
     const errorMessage = err;
     res.status(400).json({
       statusCode: 400,
@@ -1041,6 +1229,19 @@ exports.getOrderPrice = async (req, res) => {
     }
     const getPricesData = await finerworksService.GET_ORDERS_PRICE(reqBody);
     if (getPricesData) {
+      const successLog = JSON.stringify({
+        level: 'INFO',
+        platform: 'finerworks',
+        method: req.method,
+        api: req.originalUrl || req.url,
+        function: 'getOrderPrice',
+        operation: 'Order price fetched successfully',
+        account_key: req.body?.account_key || req.query?.account_key || 'unknown',
+        result: { orderId: reqBody?.orderId },
+        timestamp: new Date().toISOString()
+      });
+      console.log(successLog);
+      log('Success in getOrderPrice: %s', successLog);
       res.status(200).json({
         statusCode: 200,
         status: true,
@@ -1056,6 +1257,20 @@ exports.getOrderPrice = async (req, res) => {
     }
   } catch (err) {
     log("Error comes while fetching order price", JSON.stringify(err), err);
+    const isFinerworksError = err?.response?.config?.url?.includes('finerworks.com') || err?.config?.url?.includes('finerworks.com');
+    const errorJson = JSON.stringify({
+      level: 'ERROR',
+      platform: 'finerworks',
+      source: isFinerworksError ? 'finerworks_api' : 'lambda',
+      function: 'getOrderPrice',
+      account_key: req.body?.account_key || req.query?.account_key || 'unknown',
+      httpStatus: err?.response?.status || null,
+      message: `Failed to fetch order price: ${err?.message || 'Unknown error'}`,
+      detail: err?.response?.data?.message || err?.response?.data?.error || null,
+      timestamp: new Date().toISOString()
+    });
+    console.error(errorJson);
+    log('Formatted error in getOrderPrice: %s', errorJson);
     const errorMessage = err.response.data;
     res.status(400).json({
       statusCode: 400,
@@ -1359,6 +1574,19 @@ exports.disconnectAndProcess = async (req, res) => {
     }
 
     // Success
+    const successLog = JSON.stringify({
+      level: 'INFO',
+      platform: 'woocommerce',
+      method: req.method,
+      api: req.originalUrl || req.url,
+      function: 'disconnectAndProcess',
+      operation: 'Client deauthorized successfully',
+      account_key: req.body?.client_id || 'unknown',
+      result: { deauthorized: true },
+      timestamp: new Date().toISOString()
+    });
+    console.log(successLog);
+    log('Success in disconnectAndProcess: %s', successLog);
     return res.status(200).json({
       statusCode: 200,
       status: true,
@@ -1368,7 +1596,21 @@ exports.disconnectAndProcess = async (req, res) => {
 
   } catch (err) {
     console.error("Error while processing client_id:", err);
-
+    const isWoocommerceError = err?.response?.config?.url?.includes(req.body?.domainName) || err?.config?.url?.includes(req.body?.domainName);
+    const isFinerworksError = err?.response?.config?.url?.includes('finerworks.com') || err?.config?.url?.includes('finerworks.com');
+    const errorJson = JSON.stringify({
+      level: 'ERROR',
+      platform: 'woocommerce',
+      source: isWoocommerceError ? 'woocommerce_api' : (isFinerworksError ? 'finerworks_api' : 'lambda'),
+      function: 'disconnectAndProcess',
+      account_key: req.body?.client_id || 'unknown',
+      httpStatus: err?.response?.status || null,
+      message: `Failed to disconnect and process: ${err?.message || 'Unknown error'}`,
+      detail: err?.response?.data?.message || err?.response?.data?.error || null,
+      timestamp: new Date().toISOString()
+    });
+    console.error(errorJson);
+    log('Formatted error in disconnectAndProcess: %s', errorJson);
     return res.status(500).json({
       statusCode: 500,
       status: false,
@@ -1440,6 +1682,19 @@ exports.connectAndProcess = async (req, res) => {
         console.log("Updated payloadForCompanyInformation (Connection Exists):", payloadForCompanyInformation);
         await finerworksService.UPDATE_INFO(payloadForCompanyInformation);
 
+        const successLog = JSON.stringify({
+          level: 'INFO',
+          platform: 'woocommerce',
+          method: req.method,
+          api: req.originalUrl || req.url,
+          function: 'connectAndProcess',
+          operation: 'Connection established (updated existing)',
+          account_key: account_key || 'unknown',
+          result: { connected: true },
+          timestamp: new Date().toISOString()
+        });
+        console.log(successLog);
+        log('Success in connectAndProcess: %s', successLog);
         return res.status(200).json({
           statusCode: 200,
           status: true,
@@ -1463,6 +1718,19 @@ exports.connectAndProcess = async (req, res) => {
     // Update the connections with the payload
     await finerworksService.UPDATE_INFO(payloadForCompanyInformation);
 
+    const successLog = JSON.stringify({
+      level: 'INFO',
+      platform: 'woocommerce',
+      method: req.method,
+      api: req.originalUrl || req.url,
+      function: 'connectAndProcess',
+      operation: 'Connection added successfully',
+      account_key: account_key || 'unknown',
+      result: { connected: true },
+      timestamp: new Date().toISOString()
+    });
+    console.log(successLog);
+    log('Success in connectAndProcess: %s', successLog);
     return res.status(200).json({
       statusCode: 200,
       status: true,
@@ -1471,7 +1739,20 @@ exports.connectAndProcess = async (req, res) => {
 
   } catch (err) {
     console.error("Error while processing client_id:", err);
-
+    const isFinerworksError = err?.response?.config?.url?.includes('finerworks.com') || err?.config?.url?.includes('finerworks.com');
+    const errorJson = JSON.stringify({
+      level: 'ERROR',
+      platform: 'woocommerce',
+      source: isFinerworksError ? 'finerworks_api' : 'lambda',
+      function: 'connectAndProcess',
+      account_key: req.body?.account_key || 'unknown',
+      httpStatus: err?.response?.status || null,
+      message: `Failed to connect and process: ${err?.message || 'Unknown error'}`,
+      detail: err?.response?.data?.message || err?.response?.data?.error || null,
+      timestamp: new Date().toISOString()
+    });
+    console.error(errorJson);
+    log('Formatted error in connectAndProcess: %s', errorJson);
     return res.status(500).json({
       statusCode: 500,
       status: false,

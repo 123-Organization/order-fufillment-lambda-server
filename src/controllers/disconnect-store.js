@@ -1,6 +1,8 @@
 const finerworksService = require('../helpers/finerworks-service');
 const { deleteSquarespaceAccountsByAccountKey } = require('../helpers/squarespace-accounts-dynamo');
 const { sendApiError } = require('../helpers/api-error');
+const debug = require('debug');
+const log = debug('app:disconnectStore');
 
 function normalizeSlug(input) {
   return String(input || '')
@@ -58,6 +60,19 @@ exports.disconnectStoreBySlug = async (req, res) => {
       if (connectionName === 'Squarespace') {
         await deleteSquarespaceAccountsByAccountKey(trimmedKey);
       }
+      const successLog = JSON.stringify({
+        level: 'INFO',
+        platform: connectionName?.toLowerCase() || 'unknown',
+        method: req.method,
+        api: req.originalUrl || req.url,
+        function: 'disconnectStoreBySlug',
+        operation: `No ${connectionName} connection found; nothing to disconnect`,
+        account_key: req.body?.account_key || req.query?.account_key || 'unknown',
+        result: { disconnected: false, reason: 'not_found' },
+        timestamp: new Date().toISOString()
+      });
+      console.log(successLog);
+      log('Success in disconnectStoreBySlug: %s', successLog);
       return res.status(200).json({
         success: true,
         message: `No ${connectionName} connection found; nothing to disconnect`,
@@ -74,12 +89,39 @@ exports.disconnectStoreBySlug = async (req, res) => {
       await deleteSquarespaceAccountsByAccountKey(trimmedKey);
     }
 
+    const successLog = JSON.stringify({
+      level: 'INFO',
+      platform: connectionName?.toLowerCase() || 'unknown',
+      method: req.method,
+      api: req.originalUrl || req.url,
+      function: 'disconnectStoreBySlug',
+      operation: `${connectionName} disconnected successfully`,
+      account_key: req.body?.account_key || req.query?.account_key || 'unknown',
+      result: { disconnected: true, remainingConnections: nextConnections.length },
+      timestamp: new Date().toISOString()
+    });
+    console.log(successLog);
+    log('Success in disconnectStoreBySlug: %s', successLog);
     return res.status(200).json({
       success: true,
       message: `${connectionName} disconnected successfully`,
       connections: nextConnections,
     });
   } catch (err) {
+    const isFinerworksError = err?.response?.config?.url?.includes('finerworks.com') || err?.config?.url?.includes('finerworks.com');
+    const errorJson = JSON.stringify({
+      level: 'ERROR',
+      platform: 'unknown',
+      source: isFinerworksError ? 'finerworks_api' : 'lambda',
+      function: 'disconnectStoreBySlug',
+      account_key: req.body?.account_key || req.query?.account_key || 'unknown',
+      httpStatus: err?.response?.status || null,
+      message: `Failed to disconnect store: ${err?.message || 'Unknown error'}`,
+      detail: err?.response?.data?.message || err?.response?.data?.error || null,
+      timestamp: new Date().toISOString()
+    });
+    console.error(errorJson);
+    log('Formatted error in disconnectStoreBySlug: %s', errorJson);
     return sendApiError(res, err);
   }
 };

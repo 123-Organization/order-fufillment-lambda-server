@@ -1,6 +1,8 @@
 const axios = require('axios');
 const finerworksService = require('../helpers/finerworks-service');
 const { sendApiError } = require('../helpers/api-error');
+const debug = require('debug');
+const log = debug('app:wixProducts');
 
 const WIX_OPTION_CONFIGURATION = 'Configuration';
 /** Wix Catalog V3 caps option choice labels at 50 chars (validated server-side). */
@@ -780,6 +782,19 @@ const syncWixProducts = async (req, res) => {
       }
     }
 
+    const successLog = JSON.stringify({
+      level: 'INFO',
+      platform: 'wix',
+      method: req.method,
+      api: req.originalUrl || req.url,
+      function: 'syncWixProducts',
+      operation: 'Wix products sync completed',
+      account_key: req.body?.account_key || req.query?.account_key || 'unknown',
+      result: { created, failed, jobCount: jobs.length, success: failed === 0 },
+      timestamp: new Date().toISOString()
+    });
+    console.log(successLog);
+    log('Success in syncWixProducts: %s', successLog);
     return res.status(200).json({
       success: failed === 0,
       wixAuthSource: wixAuth.source,
@@ -792,6 +807,21 @@ const syncWixProducts = async (req, res) => {
       results,
     });
   } catch (err) {
+    const isWixError = err?.response?.config?.url?.includes('wixapis.com') || err?.config?.url?.includes('wixapis.com');
+    const isFinerworksError = err?.response?.config?.url?.includes('finerworks.com') || err?.config?.url?.includes('finerworks.com');
+    const errorJson = JSON.stringify({
+      level: 'ERROR',
+      platform: 'wix',
+      source: isWixError ? 'wix_api' : (isFinerworksError ? 'finerworks_api' : 'lambda'),
+      function: 'syncWixProducts',
+      account_key: req.body?.account_key || req.query?.account_key || 'unknown',
+      httpStatus: err?.response?.status || null,
+      message: `Failed to sync Wix products: ${err?.message || 'Unknown error'}`,
+      detail: err?.response?.data?.message || err?.response?.data?.error || null,
+      timestamp: new Date().toISOString()
+    });
+    console.error(errorJson);
+    log('Formatted error in syncWixProducts: %s', errorJson);
     return sendApiError(res, err);
   }
 };
