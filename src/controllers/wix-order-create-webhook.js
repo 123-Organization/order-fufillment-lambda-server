@@ -653,7 +653,7 @@ async function transformWixPricingPlanOrderToFinerWorksPayload(
     ship_by_date: null,
     customs_tax_info: null,
     gift_message: entity?.planDescription ? String(entity.planDescription) : null,
-    test_mode: process.env.WIX_WEBHOOK_TEST_MODE !== 'false',
+    test_mode: false, // As per client's info we have set it to false.
     webhook_order_status_url: null,
     document_url: null,
     acct_number_ups: null,
