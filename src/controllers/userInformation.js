@@ -20,6 +20,19 @@ exports.updateUserInformation = async (req, res) => {
         const getUserDetails =
           await finerworksService.UPDATE_INFO(reqBody);
         if (getUserDetails) {
+          const successLog = JSON.stringify({
+            level: 'INFO',
+            platform: 'finerworks',
+            method: req.method,
+            api: req.originalUrl || req.url,
+            function: 'updateUserInformation',
+            operation: 'User information updated successfully',
+            account_key: req.body?.account_key || 'unknown',
+            result: { updated: true },
+            timestamp: new Date().toISOString()
+          });
+          console.log(successLog);
+          log('Success in updateUserInformation: %s', successLog);
           res.status(200).json({
             statusCode: 200,
             status: true,
@@ -35,10 +48,24 @@ exports.updateUserInformation = async (req, res) => {
       }
     } catch (err) {
       console.log("error", JSON.stringify(err), err);
+      const isFinerworksError = err?.response?.config?.url?.includes('finerworks.com') || err?.config?.url?.includes('finerworks.com');
+      const errorJson = JSON.stringify({
+        level: 'ERROR',
+        platform: 'finerworks',
+        source: isFinerworksError ? 'finerworks_api' : 'lambda',
+        function: 'updateUserInformation',
+        account_key: req.body?.account_key || 'unknown',
+        httpStatus: err?.response?.status || null,
+        message: `Failed to update user information: ${err?.message || 'Unknown error'}`,
+        detail: err?.response?.data?.message || err?.response?.data?.error || null,
+        timestamp: new Date().toISOString()
+      });
+      console.error(errorJson);
+      log('Formatted error in updateUserInformation: %s', errorJson);
       res.status(400).json({
         statusCode: 400,
         status: false,
         message: err?.response?.data,
       });
     }
-  };  
+  };

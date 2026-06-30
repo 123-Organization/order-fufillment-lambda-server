@@ -36,8 +36,35 @@ exports.getClientToken = async (req, res) => {
   try {
     gateway.clientToken.generate({}, (err, response) => {
       if (err) {
+        const isBraintreeError = true; // braintree gateway callback error
+        const errorJson = JSON.stringify({
+          level: 'ERROR',
+          platform: 'braintree',
+          source: 'braintree_api',
+          function: 'getClientToken',
+          account_key: req.body?.account_key || req.query?.account_key || 'unknown',
+          httpStatus: null,
+          message: `Failed to generate Braintree client token: ${err?.message || 'Unknown error'}`,
+          detail: null,
+          timestamp: new Date().toISOString()
+        });
+        console.error(errorJson);
+        log('Formatted error in getClientToken: %s', errorJson);
         res.status(500).send(err);
       } else {
+        const successLog = JSON.stringify({
+          level: 'INFO',
+          platform: 'braintree',
+          method: req.method,
+          api: req.originalUrl || req.url,
+          function: 'getClientToken',
+          operation: 'Braintree client token generated successfully',
+          account_key: req.body?.account_key || req.query?.account_key || 'unknown',
+          result: { hasToken: !!response.clientToken },
+          timestamp: new Date().toISOString()
+        });
+        console.log(successLog);
+        log('Success in getClientToken: %s', successLog);
         res.status(200).json({
           statusCode: 200,
           status: true,
@@ -47,6 +74,19 @@ exports.getClientToken = async (req, res) => {
     });
   } catch (error) {
     console.log("error is", error);
+    const errorJson = JSON.stringify({
+      level: 'ERROR',
+      platform: 'braintree',
+      source: 'braintree_api',
+      function: 'getClientToken',
+      account_key: req.body?.account_key || req.query?.account_key || 'unknown',
+      httpStatus: error?.response?.status || null,
+      message: `Failed to generate Braintree client token: ${error?.message || 'Unknown error'}`,
+      detail: null,
+      timestamp: new Date().toISOString()
+    });
+    console.error(errorJson);
+    log('Formatted error in getClientToken: %s', errorJson);
     res.status(400).json({
       statusCode: 400,
       status: false,
@@ -82,6 +122,19 @@ exports.processVaultedPaymentToken = async (req, res) => {
 
     // Handle successful transactions
     if (result.success) {
+      const successLog = JSON.stringify({
+        level: 'INFO',
+        platform: 'braintree',
+        method: req.method,
+        api: req.originalUrl || req.url,
+        function: 'processVaultedPaymentToken',
+        operation: 'Vaulted payment transaction completed successfully',
+        account_key: req.body?.account_key || req.query?.account_key || 'unknown',
+        result: { transactionId: result.transaction.id, status: result.transaction.status },
+        timestamp: new Date().toISOString()
+      });
+      console.log(successLog);
+      log('Success in processVaultedPaymentToken: %s', successLog);
       return res.status(200).json({
         success: true,
         message: "Transaction successful.",
@@ -101,6 +154,19 @@ exports.processVaultedPaymentToken = async (req, res) => {
     });
   } catch (error) {
     log("error is", error);
+    const errorJson = JSON.stringify({
+      level: 'ERROR',
+      platform: 'braintree',
+      source: 'braintree_api',
+      function: 'processVaultedPaymentToken',
+      account_key: req.body?.account_key || req.query?.account_key || 'unknown',
+      httpStatus: error?.response?.status || null,
+      message: `Failed to process vaulted payment token: ${error?.message || 'Unknown error'}`,
+      detail: null,
+      timestamp: new Date().toISOString()
+    });
+    console.error(errorJson);
+    log('Formatted error in processVaultedPaymentToken: %s', errorJson);
     res.status(400).json({
       statusCode: 400,
       status: false,
@@ -136,7 +202,7 @@ exports.createCustomer = async (req, res) => {
 
     if (result.success) {
       log("Customer created successfully:", result.customer.id);
-      console.log("result========>>>",result);
+      console.log("result========>>>", result);
 
       // Get user details
       const getInformation = await finerworksService.GET_INFO(reqBody);
@@ -169,6 +235,19 @@ exports.createCustomer = async (req, res) => {
       log("check if data updates", JSON.stringify(updateData));
       log("Customer Id update in the api:", JSON.stringify(payloadForCompanyInformation));
 
+      const successLog = JSON.stringify({
+        level: 'INFO',
+        platform: 'braintree',
+        method: req.method,
+        api: req.originalUrl || req.url,
+        function: 'createCustomer',
+        operation: 'Braintree customer created successfully',
+        account_key: req.body?.account_key || 'unknown',
+        result: { customerId: result.customer.id },
+        timestamp: new Date().toISOString()
+      });
+      console.log(successLog);
+      log('Success in createCustomer: %s', successLog);
       res.status(200).json({
         statusCode: 200,
         status: true,
@@ -185,6 +264,20 @@ exports.createCustomer = async (req, res) => {
     }
   } catch (error) {
     log("Error is", error);
+    const isFinerworksError = error?.response?.config?.url?.includes('finerworks.com') || error?.config?.url?.includes('finerworks.com');
+    const errorJson = JSON.stringify({
+      level: 'ERROR',
+      platform: 'braintree',
+      source: isFinerworksError ? 'finerworks_api' : 'braintree_api',
+      function: 'createCustomer',
+      account_key: req.body?.account_key || 'unknown',
+      httpStatus: error?.response?.status || null,
+      message: `Failed to create Braintree customer: ${error?.message || 'Unknown error'}`,
+      detail: error?.response?.data?.message || error?.response?.data?.error || null,
+      timestamp: new Date().toISOString()
+    });
+    console.error(errorJson);
+    log('Formatted error in createCustomer: %s', errorJson);
     res.status(400).json({
       statusCode: 400,
       status: false,
@@ -206,6 +299,19 @@ exports.addPaymentCard = async (req, res) => {
       (err, result) => {
         log("result is", result);
         if (err) {
+          const errorJson = JSON.stringify({
+            level: 'ERROR',
+            platform: 'braintree',
+            source: 'braintree_api',
+            function: 'addPaymentCard',
+            account_key: req.body?.account_key || 'unknown',
+            httpStatus: null,
+            message: `Failed to add payment card: ${err?.message || 'Unknown error'}`,
+            detail: null,
+            timestamp: new Date().toISOString()
+          });
+          console.error(errorJson);
+          log('Formatted error in addPaymentCard: %s', errorJson);
           res.status(400).json({
             statusCode: 400,
             status: true,
@@ -213,6 +319,19 @@ exports.addPaymentCard = async (req, res) => {
           });
         } else if (result.success) {
           log("result success", JSON.stringify(result));
+          const successLog = JSON.stringify({
+            level: 'INFO',
+            platform: 'braintree',
+            method: req.method,
+            api: req.originalUrl || req.url,
+            function: 'addPaymentCard',
+            operation: 'Payment card added successfully',
+            account_key: req.body?.account_key || 'unknown',
+            result: { added: true },
+            timestamp: new Date().toISOString()
+          });
+          console.log(successLog);
+          log('Success in addPaymentCard: %s', successLog);
           res.status(200).json({
             statusCode: 200,
             status: true,
@@ -229,6 +348,19 @@ exports.addPaymentCard = async (req, res) => {
     );
   } catch (error) {
     log("error is", error);
+    const errorJson = JSON.stringify({
+      level: 'ERROR',
+      platform: 'braintree',
+      source: 'braintree_api',
+      function: 'addPaymentCard',
+      account_key: req.body?.account_key || 'unknown',
+      httpStatus: error?.response?.status || null,
+      message: `Failed to add payment card: ${error?.message || 'Unknown error'}`,
+      detail: null,
+      timestamp: new Date().toISOString()
+    });
+    console.error(errorJson);
+    log('Formatted error in addPaymentCard: %s', errorJson);
     res.status(400).json({
       statusCode: 400,
       status: false,
@@ -256,6 +388,19 @@ exports.getFullCustomerDetails = async (req, res) => {
       }
 
       if (customer) {
+        const successLog = JSON.stringify({
+          level: 'INFO',
+          platform: 'braintree',
+          method: req.method,
+          api: req.originalUrl || req.url,
+          function: 'getFullCustomerDetails',
+          operation: 'Braintree customer details fetched successfully',
+          account_key: req.body?.account_key || req.query?.account_key || 'unknown',
+          result: { customerId: req.query.customerId },
+          timestamp: new Date().toISOString()
+        });
+        console.log(successLog);
+        log('Success in getFullCustomerDetails: %s', successLog);
         res.status(200).json({
           statusCode: 200,
           status: true,
@@ -271,6 +416,19 @@ exports.getFullCustomerDetails = async (req, res) => {
     });
   } catch (error) {
     log("error is", error);
+    const errorJson = JSON.stringify({
+      level: 'ERROR',
+      platform: 'braintree',
+      source: 'braintree_api',
+      function: 'getFullCustomerDetails',
+      account_key: req.body?.account_key || req.query?.account_key || 'unknown',
+      httpStatus: error?.response?.status || null,
+      message: `Failed to fetch customer details: ${error?.message || 'Unknown error'}`,
+      detail: null,
+      timestamp: new Date().toISOString()
+    });
+    console.error(errorJson);
+    log('Formatted error in getFullCustomerDetails: %s', errorJson);
     res.status(400).json({
       statusCode: 400,
       status: false,
@@ -292,6 +450,19 @@ exports.removePaymentCard = async (req, res) => {
       });
     }
     await gateway.paymentMethod.delete(paymentMethodToken);
+    const successLog = JSON.stringify({
+      level: 'INFO',
+      platform: 'braintree',
+      method: req.method,
+      api: req.originalUrl || req.url,
+      function: 'removePaymentCard',
+      operation: 'Payment card removed successfully',
+      account_key: req.body?.account_key || 'unknown',
+      result: { removed: true },
+      timestamp: new Date().toISOString()
+    });
+    console.log(successLog);
+    log('Success in removePaymentCard: %s', successLog);
     return  res.status(200).json({
       status: true,
       message: "Successfully Removed Payment Method",
@@ -299,6 +470,19 @@ exports.removePaymentCard = async (req, res) => {
 
   } catch (error) {
     log("error is", error);
+    const errorJson = JSON.stringify({
+      level: 'ERROR',
+      platform: 'braintree',
+      source: 'braintree_api',
+      function: 'removePaymentCard',
+      account_key: req.body?.account_key || 'unknown',
+      httpStatus: error?.response?.status || null,
+      message: `Failed to remove payment card: ${error?.message || 'Unknown error'}`,
+      detail: null,
+      timestamp: new Date().toISOString()
+    });
+    console.error(errorJson);
+    log('Formatted error in removePaymentCard: %s', errorJson);
     res.status(400).json({
       statusCode: 400,
       status: false,
