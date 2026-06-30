@@ -55,6 +55,19 @@ exports.addProduct = async (req, res) => {
       getInformation.status &&
       getInformation.status.success
     ) {
+      const successLog = JSON.stringify({
+        level: 'INFO',
+        platform: 'finerworks',
+        method: req.method,
+        api: req.originalUrl || req.url,
+        function: 'addProduct',
+        operation: 'Product added successfully',
+        account_key: req.body?.library?.account_key || req.body?.account_key || req.query?.account_key || 'unknown',
+        result: { count: getInformation?.images?.length || 0 },
+        timestamp: new Date().toISOString()
+      });
+      console.log(successLog);
+      log('Success in addProduct: %s', successLog);
       res.status(200).json({
         statusCode: 200,
         status: true,
@@ -69,6 +82,20 @@ exports.addProduct = async (req, res) => {
     }
   } catch (error) {
     log("Error while adding a new product : ", error);
+    const isFinerworksError = error?.response?.config?.url?.includes('finerworks.com') || error?.config?.url?.includes('finerworks.com');
+    const errorJson = JSON.stringify({
+      level: 'ERROR',
+      platform: 'finerworks',
+      source: isFinerworksError ? 'finerworks_api' : 'lambda',
+      function: 'addProduct',
+      account_key: req.body?.library?.account_key || req.body?.account_key || req.query?.account_key || 'unknown',
+      httpStatus: error?.response?.status || null,
+      message: `Failed to add product: ${error?.message || 'Unknown error'}`,
+      detail: error?.response?.data?.message || error?.response?.data?.error || null,
+      timestamp: new Date().toISOString()
+    });
+    console.error(errorJson);
+    log('Formatted error in addProduct: %s', errorJson);
     res.status(400).json({
       statusCode: 400,
       status: false,
@@ -165,6 +192,19 @@ exports.getProductDetails = async (req, res) => {
       0
     );
 
+    const successLog = JSON.stringify({
+      level: 'INFO',
+      platform: 'finerworks',
+      method: req.method,
+      api: req.originalUrl || req.url,
+      function: 'getProductDetails',
+      operation: 'Product details retrieved successfully',
+      account_key: req.body?.account_key || req.query?.account_key || 'unknown',
+      result: { count: updatedProductList?.length || 0, totalPrice },
+      timestamp: new Date().toISOString()
+    });
+    console.log(successLog);
+    log('Success in getProductDetails: %s', successLog);
     return res.status(200).json({
       statusCode: 200,
       status: true,
@@ -174,7 +214,20 @@ exports.getProductDetails = async (req, res) => {
     });
   } catch (error) {
     console.error("Error fetching product details:", error);
-
+    const isFinerworksError = error?.response?.config?.url?.includes('finerworks.com') || error?.config?.url?.includes('finerworks.com');
+    const errorJson = JSON.stringify({
+      level: 'ERROR',
+      platform: 'finerworks',
+      source: isFinerworksError ? 'finerworks_api' : 'lambda',
+      function: 'getProductDetails',
+      account_key: req.body?.account_key || req.query?.account_key || 'unknown',
+      httpStatus: error?.response?.status || null,
+      message: `Failed to fetch product details: ${error?.message || 'Unknown error'}`,
+      detail: error?.response?.data?.message || error?.response?.data?.error || null,
+      timestamp: new Date().toISOString()
+    });
+    console.error(errorJson);
+    log('Formatted error in getProductDetails: %s', errorJson);
     return res.status(500).json({
       statusCode: 500,
       status: false,
@@ -245,6 +298,19 @@ exports.increaseProductQuantity = async (req, res) => {
       updatePayload
     );
 
+    const successLog = JSON.stringify({
+      level: 'INFO',
+      platform: 'finerworks',
+      method: req.method,
+      api: req.originalUrl || req.url,
+      function: 'increaseProductQuantity',
+      operation: 'Product quantity updated successfully',
+      account_key: req.body?.account_key || req.query?.account_key || 'unknown',
+      result: { orderFullFillmentId: reqBody.orderFullFillmentId, product_guid: reqBody.product_guid },
+      timestamp: new Date().toISOString()
+    });
+    console.log(successLog);
+    log('Success in increaseProductQuantity: %s', successLog);
     return res.status(200).json({
       statusCode: 200,
       status: true,
@@ -254,7 +320,20 @@ exports.increaseProductQuantity = async (req, res) => {
 
   } catch (error) {
     console.error("Error updating product quantity:", error);
-
+    const isFinerworksError = error?.response?.config?.url?.includes('finerworks.com') || error?.config?.url?.includes('finerworks.com');
+    const errorJson = JSON.stringify({
+      level: 'ERROR',
+      platform: 'finerworks',
+      source: isFinerworksError ? 'finerworks_api' : 'lambda',
+      function: 'increaseProductQuantity',
+      account_key: req.body?.account_key || req.query?.account_key || 'unknown',
+      httpStatus: error?.response?.status || null,
+      message: `Failed to update product quantity: ${error?.message || 'Unknown error'}`,
+      detail: error?.response?.data?.message || error?.response?.data?.error || null,
+      timestamp: new Date().toISOString()
+    });
+    console.error(errorJson);
+    log('Formatted error in increaseProductQuantity: %s', errorJson);
     return res.status(500).json({
       statusCode: 500,
       status: false,
@@ -316,6 +395,19 @@ exports.exportToWoocomercev1 = async (req, res) => {
     await finerworksService.UPDATE_VIRTUAL_INVENTORY(
       finalPayload
     );
+    const successLog = JSON.stringify({
+      level: 'INFO',
+      platform: 'woocommerce',
+      method: req.method,
+      api: req.originalUrl || req.url,
+      function: 'exportToWoocomercev1',
+      operation: 'Products successfully exported to WooCommerce',
+      account_key: req.body?.account_key || req.query?.account_key || 'unknown',
+      result: { count: productsList?.length || 0 },
+      timestamp: new Date().toISOString()
+    });
+    console.log(successLog);
+    log('Success in exportToWoocomercev1: %s', successLog);
     return res.status(200).json({
       statusCode: 200,
       status: true,
@@ -325,7 +417,21 @@ exports.exportToWoocomercev1 = async (req, res) => {
     });
   } catch (error) {
     console.error("Error during product export:", error);
-
+    const isWoocommerceError = error?.response?.config?.url?.includes(req.body?.domainName) || error?.config?.url?.includes(req.body?.domainName);
+    const isFinerworksError = error?.response?.config?.url?.includes('finerworks.com') || error?.config?.url?.includes('finerworks.com');
+    const errorJson = JSON.stringify({
+      level: 'ERROR',
+      platform: 'woocommerce',
+      source: isWoocommerceError ? 'woocommerce_api' : (isFinerworksError ? 'finerworks_api' : 'lambda'),
+      function: 'exportToWoocomercev1',
+      account_key: req.body?.account_key || req.query?.account_key || 'unknown',
+      httpStatus: error?.response?.status || null,
+      message: `Failed to export products to WooCommerce: ${error?.message || 'Unknown error'}`,
+      detail: error?.response?.data?.message || error?.response?.data?.error || null,
+      timestamp: new Date().toISOString()
+    });
+    console.error(errorJson);
+    log('Formatted error in exportToWoocomercev1: %s', errorJson);
     return res.status(500).json({
       statusCode: 500,
       status: false,
@@ -340,6 +446,7 @@ exports.productTrashed = async (req, res) => {
   try {
     // Step 1: Extract the payload fields
     const { clientId, account_key, name, product } = req.body;
+
 
     // Step 2: Validate if clientId, account_key, product, and other necessary fields exist
     if (!clientId || !account_key || !name || !product) {
@@ -392,6 +499,19 @@ exports.productTrashed = async (req, res) => {
         finalPayload
       );
       console.log("finalPayload===========", finalPayload);
+      const successLog = JSON.stringify({
+        level: 'INFO',
+        platform: 'finerworks',
+        method: req.method,
+        api: req.originalUrl || req.url,
+        function: 'productTrashed',
+        operation: 'Product trashed and virtual inventory updated successfully',
+        account_key: account_key || 'unknown',
+        result: { sku: productDetails.sku },
+        timestamp: new Date().toISOString()
+      });
+      console.log(successLog);
+      log('Success in productTrashed: %s', successLog);
       return res.status(200).json({
         statusCode: 200,
         status: true,
@@ -408,7 +528,20 @@ exports.productTrashed = async (req, res) => {
 
   } catch (error) {
     console.error("Error during product export:", error);
-
+    const isFinerworksError = error?.response?.config?.url?.includes('finerworks.com') || error?.config?.url?.includes('finerworks.com');
+    const errorJson = JSON.stringify({
+      level: 'ERROR',
+      platform: 'finerworks',
+      source: isFinerworksError ? 'finerworks_api' : 'lambda',
+      function: 'productTrashed',
+      account_key: req.body?.account_key || 'unknown',
+      httpStatus: error?.response?.status || null,
+      message: `Failed to process trashed product: ${error?.message || 'Unknown error'}`,
+      detail: error?.response?.data?.message || error?.response?.data?.error || null,
+      timestamp: new Date().toISOString()
+    });
+    console.error(errorJson);
+    log('Formatted error in productTrashed: %s', errorJson);
     return res.status(500).json({
       statusCode: 500,
       status: false,
@@ -494,6 +627,19 @@ exports.productSkuUpdated = async (req, res) => {
         finalPayload
       );
       console.log("finalPayload===========", finalPayload);
+      const successLog = JSON.stringify({
+        level: 'INFO',
+        platform: 'finerworks',
+        method: req.method,
+        api: req.originalUrl || req.url,
+        function: 'productSkuUpdated',
+        operation: 'Product SKU updated in virtual inventory successfully',
+        account_key: account_key || 'unknown',
+        result: { sku: productDetails.sku },
+        timestamp: new Date().toISOString()
+      });
+      console.log(successLog);
+      log('Success in productSkuUpdated: %s', successLog);
       return res.status(200).json({
         statusCode: 200,
         status: true,
@@ -510,7 +656,20 @@ exports.productSkuUpdated = async (req, res) => {
 
   } catch (error) {
     console.error("Error during product export:", error);
-
+    const isFinerworksError = error?.response?.config?.url?.includes('finerworks.com') || error?.config?.url?.includes('finerworks.com');
+    const errorJson = JSON.stringify({
+      level: 'ERROR',
+      platform: 'finerworks',
+      source: isFinerworksError ? 'finerworks_api' : 'lambda',
+      function: 'productSkuUpdated',
+      account_key: req.body?.account_key || 'unknown',
+      httpStatus: error?.response?.status || null,
+      message: `Failed to update product SKU: ${error?.message || 'Unknown error'}`,
+      detail: error?.response?.data?.message || error?.response?.data?.error || null,
+      timestamp: new Date().toISOString()
+    });
+    console.error(errorJson);
+    log('Formatted error in productSkuUpdated: %s', errorJson);
     return res.status(500).json({
       statusCode: 500,
       status: false,
@@ -576,6 +735,19 @@ exports.productRestored = async (req, res) => {
         finalPayload
       );
       console.log("finalPayload===========", finalPayload);
+      const successLog = JSON.stringify({
+        level: 'INFO',
+        platform: 'finerworks',
+        method: req.method,
+        api: req.originalUrl || req.url,
+        function: 'productRestored',
+        operation: 'Product restored and virtual inventory updated successfully',
+        account_key: account_key || 'unknown',
+        result: { sku: productDetails.sku },
+        timestamp: new Date().toISOString()
+      });
+      console.log(successLog);
+      log('Success in productRestored: %s', successLog);
       return res.status(200).json({
         statusCode: 200,
         status: true,
@@ -592,7 +764,20 @@ exports.productRestored = async (req, res) => {
 
   } catch (error) {
     console.error("Error during product export:", error);
-
+    const isFinerworksError = error?.response?.config?.url?.includes('finerworks.com') || error?.config?.url?.includes('finerworks.com');
+    const errorJson = JSON.stringify({
+      level: 'ERROR',
+      platform: 'finerworks',
+      source: isFinerworksError ? 'finerworks_api' : 'lambda',
+      function: 'productRestored',
+      account_key: req.body?.account_key || 'unknown',
+      httpStatus: error?.response?.status || null,
+      message: `Failed to restore product: ${error?.message || 'Unknown error'}`,
+      detail: error?.response?.data?.message || error?.response?.data?.error || null,
+      timestamp: new Date().toISOString()
+    });
+    console.error(errorJson);
+    log('Formatted error in productRestored: %s', errorJson);
     return res.status(500).json({
       statusCode: 500,
       status: false,

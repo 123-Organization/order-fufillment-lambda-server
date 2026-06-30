@@ -421,6 +421,19 @@ exports.updateOrder = async (req, res) => {
             log(`Order with ${order.orderFullFillmentId} has been successfully updated`);
           }
         }
+        const successLog = JSON.stringify({
+          level: 'INFO',
+          platform: 'finerworks',
+          method: req.method,
+          api: req.originalUrl || req.url,
+          function: 'updateOrder',
+          operation: 'Orders updated successfully',
+          account_key: req.body?.account_key || 'unknown',
+          result: { count: orders?.length || 0 },
+          timestamp: new Date().toISOString()
+        });
+        console.log(successLog);
+        log('Success in updateOrder: %s', successLog);
         res.status(200).json({
           statusCode: 200,
           status: true,
@@ -431,6 +444,20 @@ exports.updateOrder = async (req, res) => {
     }
   } catch (err) {
     log('error is', JSON.stringify(err), err);
+    const isFinerworksError = err?.response?.config?.url?.includes('finerworks.com') || err?.config?.url?.includes('finerworks.com');
+    const errorJson = JSON.stringify({
+      level: 'ERROR',
+      platform: 'finerworks',
+      source: isFinerworksError ? 'finerworks_api' : 'lambda',
+      function: 'updateOrder',
+      account_key: req.body?.account_key || 'unknown',
+      httpStatus: err?.response?.status || null,
+      message: `Failed to update order: ${err?.message || 'Unknown error'}`,
+      detail: err?.response?.data?.message || err?.response?.data?.error || null,
+      timestamp: new Date().toISOString()
+    });
+    console.error(errorJson);
+    log('Formatted error in updateOrder: %s', errorJson);
     res.status(400).json({
       statusCode: 400,
       status: false,
@@ -469,6 +496,19 @@ exports.validateOrders = async (req, res) => {
         payloadToBeSubmitted
       );
       if (submitOrders) {
+        const successLog = JSON.stringify({
+          level: 'INFO',
+          platform: 'finerworks',
+          method: req.method,
+          api: req.originalUrl || req.url,
+          function: 'validateOrders',
+          operation: 'Orders validated successfully',
+          account_key: req.body?.account_key || 'unknown',
+          result: { count: orders?.length || 0 },
+          timestamp: new Date().toISOString()
+        });
+        console.log(successLog);
+        log('Success in validateOrders: %s', successLog);
         res.status(200).json({
           statusCode: 200,
           status: true,
@@ -480,6 +520,20 @@ exports.validateOrders = async (req, res) => {
   } catch (err) {
     const errorMessage = err.response.data;
     console.log("errorMessage", JSON.stringify(errorMessage));
+    const isFinerworksError = err?.response?.config?.url?.includes('finerworks.com') || err?.config?.url?.includes('finerworks.com');
+    const errorJson = JSON.stringify({
+      level: 'ERROR',
+      platform: 'finerworks',
+      source: isFinerworksError ? 'finerworks_api' : 'lambda',
+      function: 'validateOrders',
+      account_key: req.body?.account_key || 'unknown',
+      httpStatus: err?.response?.status || null,
+      message: `Failed to validate orders: ${err?.message || 'Unknown error'}`,
+      detail: err?.response?.data?.message || err?.response?.data?.error || null,
+      timestamp: new Date().toISOString()
+    });
+    console.error(errorJson);
+    log('Formatted error in validateOrders: %s', errorJson);
     const getErrorReason = Object.keys(errorMessage.ModelState)[0];
     const finalMessage = errorMessage.ModelState[getErrorReason][0];
     res.status(400).json({
@@ -564,6 +618,19 @@ exports.uploadOrdersToLocalDatabaseFromExcel = async (req, res) => {
         }
 
       }
+      const successLog = JSON.stringify({
+        level: 'INFO',
+        platform: 'finerworks',
+        method: req.method,
+        api: req.originalUrl || req.url,
+        function: 'uploadOrdersToLocalDatabaseFromExcel',
+        operation: 'Excel orders uploaded to local database successfully',
+        account_key: reqBody?.account_key || 'unknown',
+        result: { count: orders?.length || 0 },
+        timestamp: new Date().toISOString()
+      });
+      console.log(successLog);
+      log('Success in uploadOrdersToLocalDatabaseFromExcel: %s', successLog);
       res.status(200).json({
         statusCode: 200,
         status: true,
@@ -573,6 +640,20 @@ exports.uploadOrdersToLocalDatabaseFromExcel = async (req, res) => {
     }
   } catch (err) {
     console.log('error is', JSON.stringify(err), err);
+    const isFinerworksError = err?.response?.config?.url?.includes('finerworks.com') || err?.config?.url?.includes('finerworks.com');
+    const errorJson = JSON.stringify({
+      level: 'ERROR',
+      platform: 'finerworks',
+      source: isFinerworksError ? 'finerworks_api' : 'lambda',
+      function: 'uploadOrdersToLocalDatabaseFromExcel',
+      account_key: req.body?.account_key || 'unknown',
+      httpStatus: err?.response?.status || null,
+      message: `Failed to upload orders from Excel: ${err?.message || 'Unknown error'}`,
+      detail: err?.response?.data?.message || err?.response?.data?.error || null,
+      timestamp: new Date().toISOString()
+    });
+    console.error(errorJson);
+    log('Formatted error in uploadOrdersToLocalDatabaseFromExcel: %s', errorJson);
   }
 };
 
@@ -614,6 +695,19 @@ exports.uploadOrdersToLocalDatabase = async (req, res) => {
         log("Response after submitted to the local database", JSON.stringify(insertData));
         order.orderFullFillmentId = insertData.record_id;
       }
+      const successLog = JSON.stringify({
+        level: 'INFO',
+        platform: 'finerworks',
+        method: req.method,
+        api: req.originalUrl || req.url,
+        function: 'uploadOrdersToLocalDatabase',
+        operation: 'Orders uploaded to local database successfully',
+        account_key: reqBody?.account_key || 'unknown',
+        result: { count: orders?.length || 0 },
+        timestamp: new Date().toISOString()
+      });
+      console.log(successLog);
+      log('Success in uploadOrdersToLocalDatabase: %s', successLog);
       res.status(200).json({
         statusCode: 200,
         status: true,
@@ -623,6 +717,20 @@ exports.uploadOrdersToLocalDatabase = async (req, res) => {
     }
   } catch (err) {
     console.log('error is', JSON.stringify(err), err);
+    const isFinerworksError = err?.response?.config?.url?.includes('finerworks.com') || err?.config?.url?.includes('finerworks.com');
+    const errorJson = JSON.stringify({
+      level: 'ERROR',
+      platform: 'finerworks',
+      source: isFinerworksError ? 'finerworks_api' : 'lambda',
+      function: 'uploadOrdersToLocalDatabase',
+      account_key: req.body?.account_key || 'unknown',
+      httpStatus: err?.response?.status || null,
+      message: `Failed to upload orders to local database: ${err?.message || 'Unknown error'}`,
+      detail: err?.response?.data?.message || err?.response?.data?.error || null,
+      timestamp: new Date().toISOString()
+    });
+    console.error(errorJson);
+    log('Formatted error in uploadOrdersToLocalDatabase: %s', errorJson);
   }
 };
 

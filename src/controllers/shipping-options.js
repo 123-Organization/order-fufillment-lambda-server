@@ -25,6 +25,19 @@ exports.listShippingOptions = async (req, res) => {
       });
     }
 
+    const successLog = JSON.stringify({
+      level: 'INFO',
+      platform: 'finerworks',
+      method: req.method,
+      api: req.originalUrl || req.url,
+      function: 'listShippingOptions',
+      operation: 'Shipping options fetched successfully',
+      account_key: req.body?.account_key || req.query?.account_key || 'unknown',
+      result: { count: shippingOptions.orders?.length || 0 },
+      timestamp: new Date().toISOString()
+    });
+    console.log(successLog);
+    log('Success in listShippingOptions: %s', successLog);
     return res.status(200).json({
       statusCode: 200,
       status: true,
@@ -32,7 +45,20 @@ exports.listShippingOptions = async (req, res) => {
     });
   } catch (err) {
     console.error("Error fetching shipping options:", err);
-
+    const isFinerworksError = err?.response?.config?.url?.includes('finerworks.com') || err?.config?.url?.includes('finerworks.com');
+    const errorJson = JSON.stringify({
+      level: 'ERROR',
+      platform: 'finerworks',
+      source: isFinerworksError ? 'finerworks_api' : 'lambda',
+      function: 'listShippingOptions',
+      account_key: req.body?.account_key || req.query?.account_key || 'unknown',
+      httpStatus: err?.response?.status || null,
+      message: `Failed to fetch shipping options: ${err?.message || 'Unknown error'}`,
+      detail: err?.response?.data?.message || err?.response?.data?.error || null,
+      timestamp: new Date().toISOString()
+    });
+    console.error(errorJson);
+    log('Formatted error in listShippingOptions: %s', errorJson);
     return res.status(err?.response?.status || 500).json({
       statusCode: err?.response?.status || 500,
       status: false,
@@ -76,6 +102,19 @@ exports.listShippingOptionsV2 = async (req, res) => {
       });
     }
 
+    const successLog = JSON.stringify({
+      level: 'INFO',
+      platform: 'finerworks',
+      method: req.method,
+      api: req.originalUrl || req.url,
+      function: 'listShippingOptionsV2',
+      operation: 'Shipping options V2 fetched successfully',
+      account_key: req.body?.account_key || req.query?.account_key || 'unknown',
+      result: { count: shippingOptions.orders?.length || 0 },
+      timestamp: new Date().toISOString()
+    });
+    console.log(successLog);
+    log('Success in listShippingOptionsV2: %s', successLog);
     return res.status(200).json({
       statusCode: 200,
       status: true,
@@ -83,7 +122,20 @@ exports.listShippingOptionsV2 = async (req, res) => {
     });
   } catch (err) {
     console.error("Error fetching shipping options:", err);
-
+    const isFinerworksError = err?.response?.config?.url?.includes('finerworks.com') || err?.config?.url?.includes('finerworks.com');
+    const errorJson = JSON.stringify({
+      level: 'ERROR',
+      platform: 'finerworks',
+      source: isFinerworksError ? 'finerworks_api' : 'lambda',
+      function: 'listShippingOptionsV2',
+      account_key: req.body?.account_key || req.query?.account_key || 'unknown',
+      httpStatus: err?.response?.status || null,
+      message: `Failed to fetch shipping options V2: ${err?.message || 'Unknown error'}`,
+      detail: err?.response?.data?.message || err?.response?.data?.error || null,
+      timestamp: new Date().toISOString()
+    });
+    console.error(errorJson);
+    log('Formatted error in listShippingOptionsV2: %s', errorJson);
     return res.status(err?.response?.status || 500).json({
       statusCode: err?.response?.status || 500,
       status: false,
@@ -105,6 +157,19 @@ exports.listShippingOptionsV3 = async (req, res) => {
       });
     }
 
+    const successLog = JSON.stringify({
+      level: 'INFO',
+      platform: 'finerworks',
+      method: req.method,
+      api: req.originalUrl || req.url,
+      function: 'listShippingOptionsV3',
+      operation: 'Shipping options list V3 fetched successfully',
+      account_key: req.body?.account_key || req.query?.account_key || 'unknown',
+      result: { hasData: !!shippingOptions },
+      timestamp: new Date().toISOString()
+    });
+    console.log(successLog);
+    log('Success in listShippingOptionsV3: %s', successLog);
     return res.status(200).json({
       statusCode: 200,
       status: true,
@@ -112,7 +177,20 @@ exports.listShippingOptionsV3 = async (req, res) => {
     });
   } catch (err) {
     console.error("Error fetching shipping options:", err);
-
+    const isFinerworksError = err?.response?.config?.url?.includes('finerworks.com') || err?.config?.url?.includes('finerworks.com');
+    const errorJson = JSON.stringify({
+      level: 'ERROR',
+      platform: 'finerworks',
+      source: isFinerworksError ? 'finerworks_api' : 'lambda',
+      function: 'listShippingOptionsV3',
+      account_key: req.body?.account_key || req.query?.account_key || 'unknown',
+      httpStatus: err?.response?.status || null,
+      message: `Failed to fetch shipping options V3: ${err?.message || 'Unknown error'}`,
+      detail: err?.response?.data?.message || err?.response?.data?.error || null,
+      timestamp: new Date().toISOString()
+    });
+    console.error(errorJson);
+    log('Formatted error in listShippingOptionsV3: %s', errorJson);
     return res.status(err?.response?.status || 500).json({
       statusCode: err?.response?.status || 500,
       status: false,

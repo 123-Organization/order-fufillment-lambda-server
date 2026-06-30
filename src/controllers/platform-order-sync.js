@@ -437,6 +437,19 @@ exports.setPlatformOrderSync = async (req, res) => {
       connections,
     });
 
+    const successLog = JSON.stringify({
+      level: 'INFO',
+      platform: platformNorm || 'unknown',
+      method: req.method,
+      api: req.originalUrl || req.url,
+      function: 'setPlatformOrderSync',
+      operation: syncMessage || 'Platform order sync updated',
+      account_key: req.body?.account_key || req.query?.account_key || 'unknown',
+      result: { order_sync, platform: platformNorm },
+      timestamp: new Date().toISOString()
+    });
+    console.log(successLog);
+    log('Success in setPlatformOrderSync: %s', successLog);
     return res.status(200).json({
       success: true,
       message: syncMessage,
@@ -450,6 +463,24 @@ exports.setPlatformOrderSync = async (req, res) => {
         : {}),
     });
   } catch (err) {
+    const isSquarespaceError = err?.response?.config?.url?.includes('squarespace') || err?.config?.url?.includes('squarespace');
+    const isShopifyError = err?.response?.config?.url?.includes('myshopify.com') || err?.config?.url?.includes('myshopify.com');
+    const isFinerworksError = err?.response?.config?.url?.includes('finerworks.com') || err?.config?.url?.includes('finerworks.com');
+    const isWixError = err?.response?.config?.url?.includes('wixapis.com') || err?.config?.url?.includes('wixapis.com');
+    const errorSource = isSquarespaceError ? 'squarespace_api' : (isShopifyError ? 'shopify_api' : (isWixError ? 'wix_api' : (isFinerworksError ? 'finerworks_api' : 'lambda')));
+    const errorJson = JSON.stringify({
+      level: 'ERROR',
+      platform: req.body?.platform || req.query?.platform || 'unknown',
+      source: errorSource,
+      function: 'setPlatformOrderSync',
+      account_key: req.body?.account_key || req.query?.account_key || 'unknown',
+      httpStatus: err?.response?.status || null,
+      message: `Failed to set platform order sync: ${err?.message || 'Unknown error'}`,
+      detail: err?.response?.data?.message || err?.response?.data?.error || null,
+      timestamp: new Date().toISOString()
+    });
+    console.error(errorJson);
+    log('Formatted error in setPlatformOrderSync: %s', errorJson);
     return sendApiError(res, err);
   }
 };
@@ -581,6 +612,19 @@ exports.squarespaceOrderCreateWebhook = async (req, res) => {
       squarespaceOrder.id,
       transformedOrder.order_po
     );
+    const successLog = JSON.stringify({
+      level: 'INFO',
+      platform: 'squarespace',
+      method: req.method,
+      api: req.originalUrl || req.url,
+      function: 'squarespaceOrderCreateWebhook',
+      operation: 'Squarespace order created and submitted to FinerWorks successfully',
+      account_key: trimmedKey,
+      result: { orderId: squarespaceOrder.id, order_po: transformedOrder.order_po },
+      timestamp: new Date().toISOString()
+    });
+    console.log(successLog);
+    log('Success in squarespaceOrderCreateWebhook: %s', successLog);
     return res.status(200).json({
       success: true,
       submitted: true,
@@ -592,6 +636,22 @@ exports.squarespaceOrderCreateWebhook = async (req, res) => {
     });
   } catch (err) {
     log('Squarespace order create webhook failed', err);
+    const isSquarespaceError = err?.response?.config?.url?.includes('squarespace') || err?.config?.url?.includes('squarespace');
+    const isFinerworksError = err?.response?.config?.url?.includes('finerworks.com') || err?.config?.url?.includes('finerworks.com');
+    const errorSource = isSquarespaceError ? 'squarespace_api' : (isFinerworksError ? 'finerworks_api' : 'lambda');
+    const errorJson = JSON.stringify({
+      level: 'ERROR',
+      platform: 'squarespace',
+      source: errorSource,
+      function: 'squarespaceOrderCreateWebhook',
+      account_key: req.query?.account_key || req.query?.accountKey || 'unknown',
+      httpStatus: err?.response?.status || null,
+      message: `Squarespace order create webhook failed: ${err?.message || 'Unknown error'}`,
+      detail: err?.response?.data?.message || err?.response?.data?.error || null,
+      timestamp: new Date().toISOString()
+    });
+    console.error(errorJson);
+    log('Formatted error in squarespaceOrderCreateWebhook: %s', errorJson);
     return sendApiError(res, err);
   }
 };
