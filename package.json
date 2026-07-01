@@ -6,12 +6,23 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "start": "set DEBUG=app:* & node lambda.js",
-    "dev": "set DEBUG=app:* & nodemon lambda.js"
+    "dev": "set DEBUG=app:* & nodemon lambda.js",
+    "lint": "eslint .",
+    "lint:platform": "eslint \"src/controllers/{shopify-*,squarespace-*,wix-*,platform-order-sync,disconnect-store}.js\" \"src/helpers/{shopify-*,squarespace-*,wix-*,platform-connections}.js\"",
+    "lint:file": "eslint",
+    "lint:fix": "eslint --fix .",
+    "lint:fix:platform": "eslint --fix \"src/controllers/{shopify-*,squarespace-*,wix-*,platform-order-sync,disconnect-store}.js\" \"src/helpers/{shopify-*,squarespace-*,wix-*,platform-connections}.js\"",
+    "format": "prettier --write .",
+    "format:platform": "prettier --write \"src/controllers/{shopify-*,squarespace-*,wix-*,platform-order-sync,disconnect-store}.js\" \"src/helpers/{shopify-*,squarespace-*,wix-*,platform-connections}.js\"",
+    "format:check": "prettier --check .",
+    "format:check:platform": "prettier --check \"src/controllers/{shopify-*,squarespace-*,wix-*,platform-order-sync,disconnect-store}.js\" \"src/helpers/{shopify-*,squarespace-*,wix-*,platform-connections}.js\""
   },
   "author": "",
   "license": "ISC",
   "dependencies": {
     "@aws-sdk/client-s3": "^3.511.0",
+    "@aws-sdk/client-dynamodb": "^3.511.0",
+    "@aws-sdk/lib-dynamodb": "^3.511.0",
     "add": "^2.0.6",
     "aws-lambda": "^1.0.7",
     "axios": "^1.6.7",
@@ -22,16 +33,20 @@
     "dotenv": "^16.4.2",
     "express": "^4.18.2",
     "joi": "^17.13.3",
-    "multer": "^1.4.5-lts.1",
-    "multer-s3": "^3.0.1",
     "node-fetch": "^3.3.2",
     "nodemon": "^2.0.22",
     "serverless-http": "^3.2.0",
-    "sharp": "^0.33.2",
     "uuidv4": "^6.2.13",
-    "yarn": "^1.22.22"
+    "yarn": "^1.22.22",
+    "form-data": "^4.0.5",
+    "jsonwebtoken": "^9.0.3"
   },
-  "devDependencies": {
+  "devDependencies": {"@eslint/js": "^9.39.4",
+    "eslint": "^9.39.4",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-n": "^18.0.1",
+    "globals": "^17.6.0",
+    "prettier": "^3.8.3",
     "serverless-build-plugin": "^3.2.0"
   }
 }

@@ -1,5 +1,4 @@
 const debug = require('debug');
-const axios = require('axios');
 const Joi = require('joi');
 const log = debug('app:virtualInventory');
 const finerworksService = require('../helpers/finerworks-service');
@@ -49,6 +48,19 @@ exports.getProductBySku = async (req, res) => {
         }
         const getInformation = await finerworksService.LIST_VIRTUAL_INVENTORY(reqBody);
         if (getInformation && getInformation.status && getInformation.status.success) {
+            const successLog = JSON.stringify({
+                level: 'INFO',
+                platform: 'finerworks',
+                method: req.method,
+                api: req.originalUrl || req.url,
+                function: 'getProductBySku',
+                operation: 'Product fetched by SKU successfully',
+                account_key: req.body?.account_key || req.query?.account_key || 'unknown',
+                result: { count: getInformation?.products?.length || 0 },
+                timestamp: new Date().toISOString()
+            });
+            console.log(successLog);
+            log('Success in getProductBySku: %s', successLog);
             res.status(200).json({
                 statusCode: 200,
                 status: true,
@@ -63,6 +75,20 @@ exports.getProductBySku = async (req, res) => {
         }
     } catch (error) {
         log('Error while fetching list of virtual inventory : ', error);
+        const isFinerworksError = error?.response?.config?.url?.includes('finerworks.com') || error?.config?.url?.includes('finerworks.com');
+        const errorJson = JSON.stringify({
+            level: 'ERROR',
+            platform: 'finerworks',
+            source: isFinerworksError ? 'finerworks_api' : 'lambda',
+            function: 'getProductBySku',
+            account_key: req.body?.account_key || req.query?.account_key || 'unknown',
+            httpStatus: error?.response?.status || null,
+            message: `Failed to fetch product by SKU: ${error?.message || 'Unknown error'}`,
+            detail: error?.response?.data?.message || error?.response?.data?.error || null,
+            timestamp: new Date().toISOString()
+        });
+        console.error(errorJson);
+        log('Formatted error in getProductBySku: %s', errorJson);
         res.status(400).json({
             statusCode: 400,
             status: false,
@@ -84,6 +110,19 @@ exports.listVirtualInventory = async (req, res) => {
         const reqBody = JSON.parse(JSON.stringify(req.body));
         const getInformation = await finerworksService.LIST_VIRTUAL_INVENTORY(reqBody);
         if (getInformation && getInformation.status && getInformation.status.success) {
+            const successLog = JSON.stringify({
+                level: 'INFO',
+                platform: 'finerworks',
+                method: req.method,
+                api: req.originalUrl || req.url,
+                function: 'listVirtualInventory',
+                operation: 'Virtual inventory list fetched successfully',
+                account_key: req.body?.account_key || req.query?.account_key || 'unknown',
+                result: { count: getInformation?.count, page_number: getInformation?.page_number, per_page: getInformation?.per_page },
+                timestamp: new Date().toISOString()
+            });
+            console.log(successLog);
+            log('Success in listVirtualInventory: %s', successLog);
             res.status(200).json({
                 statusCode: 200,
                 status: true,
@@ -101,6 +140,20 @@ exports.listVirtualInventory = async (req, res) => {
         }
     } catch (error) {
         log('Error while fetching list of virtual inventory : ', error);
+        const isFinerworksError = error?.response?.config?.url?.includes('finerworks.com') || error?.config?.url?.includes('finerworks.com');
+        const errorJson = JSON.stringify({
+            level: 'ERROR',
+            platform: 'finerworks',
+            source: isFinerworksError ? 'finerworks_api' : 'lambda',
+            function: 'listVirtualInventory',
+            account_key: req.body?.account_key || req.query?.account_key || 'unknown',
+            httpStatus: error?.response?.status || null,
+            message: `Failed to fetch virtual inventory list: ${error?.message || 'Unknown error'}`,
+            detail: error?.response?.data?.message || error?.response?.data?.error || null,
+            timestamp: new Date().toISOString()
+        });
+        console.error(errorJson);
+        log('Formatted error in listVirtualInventory: %s', errorJson);
         res.status(400).json({
             statusCode: 400,
             status: false,
@@ -115,17 +168,27 @@ exports.listVirtualInventoryV2 = async (req, res) => {
         const reqBody = JSON.parse(JSON.stringify(req.body));
         const getInformation = await finerworksService.LIST_VIRTUAL_INVENTORY(reqBody);
         if (getInformation && getInformation.status && getInformation.status.success) {
-            // res.status(200).json({
-            //     statusCode: 200,
-            //     status: true,
-            //     data: getInformation,
-            //     page_number: getInformation?.page_number,
-            //     per_page: getInformation?.per_page,
-            //     count: getInformation?.count
-            // });
-            res.status(200).json(getInformation);
-
-
+            const successLog = JSON.stringify({
+                level: 'INFO',
+                platform: 'finerworks',
+                method: req.method,
+                api: req.originalUrl || req.url,
+                function: 'listVirtualInventoryV2',
+                operation: 'Virtual inventory V2 list fetched successfully',
+                account_key: req.body?.account_key || req.query?.account_key || 'unknown',
+                result: { count: getInformation?.count, page_number: getInformation?.page_number, per_page: getInformation?.per_page },
+                timestamp: new Date().toISOString()
+            });
+            console.log(successLog);
+            log('Success in listVirtualInventoryV2: %s', successLog);
+            res.status(200).json({
+                statusCode: 200,
+                status: true,
+                data: getInformation,
+                page_number: getInformation?.page_number,
+                per_page: getInformation?.per_page,
+                count: getInformation?.count
+            });
         } else {
             res.status(400).json({
                 statusCode: 400,
@@ -135,6 +198,20 @@ exports.listVirtualInventoryV2 = async (req, res) => {
         }
     } catch (error) {
         log('Error while fetching list of virtual inventory : ', error);
+        const isFinerworksError = error?.response?.config?.url?.includes('finerworks.com') || error?.config?.url?.includes('finerworks.com');
+        const errorJson = JSON.stringify({
+            level: 'ERROR',
+            platform: 'finerworks',
+            source: isFinerworksError ? 'finerworks_api' : 'lambda',
+            function: 'listVirtualInventoryV2',
+            account_key: req.body?.account_key || req.query?.account_key || 'unknown',
+            httpStatus: error?.response?.status || null,
+            message: `Failed to fetch virtual inventory V2 list: ${error?.message || 'Unknown error'}`,
+            detail: error?.response?.data?.message || error?.response?.data?.error || null,
+            timestamp: new Date().toISOString()
+        });
+        console.error(errorJson);
+        log('Formatted error in listVirtualInventoryV2: %s', errorJson);
         res.status(400).json({
             statusCode: 400,
             status: false,
@@ -156,12 +233,11 @@ const UpdateVirtualInventorySchema = Joi.object({
             description: Joi.string().allow("").optional(),
             quantity_in_stock: Joi.number().integer().min(0).required(),
             track_inventory: Joi.boolean().required(),
-            updated: Joi.string().optional(),
             third_party_integrations: Joi.object({
                 etsy_product_id: Joi.any().allow(null).optional(),
-                shopify_product_id: Joi.any().allow(null).optional(),
                 shopify_graphql_product_id: Joi.any().allow(null).optional(),
                 shopify_graphql_variant_id: Joi.any().allow(null).optional(),
+                shopify_product_id: Joi.any().allow(null).optional(),
                 shopify_variant_id: Joi.any().allow(null).optional(),
                 squarespace_product_id: Joi.any().allow(null).optional(),
                 squarespace_variant_id: Joi.any().allow(null).optional(),
@@ -200,6 +276,19 @@ exports.updateVirtualInventory = async (req, res) => {
         const reqBody = JSON.parse(JSON.stringify(req.body));
         const getInformation = await finerworksService.UPDATE_VIRTUAL_INVENTORY(reqBody);
         if (getInformation && getInformation.status && getInformation.status.success) {
+            const successLog = JSON.stringify({
+                level: 'INFO',
+                platform: 'finerworks',
+                method: req.method,
+                api: req.originalUrl || req.url,
+                function: 'updateVirtualInventory',
+                operation: 'Virtual inventory updated successfully',
+                account_key: req.body?.account_key || req.query?.account_key || 'unknown',
+                result: { skus_updated: getInformation?.skus_updated?.length || 0 },
+                timestamp: new Date().toISOString()
+            });
+            console.log(successLog);
+            log('Success in updateVirtualInventory: %s', successLog);
             res.status(200).json({
                 statusCode: 200,
                 status: true,
@@ -213,6 +302,20 @@ exports.updateVirtualInventory = async (req, res) => {
             });
         }
     } catch (error) {
+        const isFinerworksError = error?.response?.config?.url?.includes('finerworks.com') || error?.config?.url?.includes('finerworks.com');
+        const errorJson = JSON.stringify({
+            level: 'ERROR',
+            platform: 'finerworks',
+            source: isFinerworksError ? 'finerworks_api' : 'lambda',
+            function: 'updateVirtualInventory',
+            account_key: req.body?.account_key || req.query?.account_key || 'unknown',
+            httpStatus: error?.response?.status || null,
+            message: `Failed to update virtual inventory: ${error?.message || 'Unknown error'}`,
+            detail: error?.response?.data?.message || error?.response?.data?.error || null,
+            timestamp: new Date().toISOString()
+        });
+        console.error(errorJson);
+        log('Formatted error in updateVirtualInventory: %s', errorJson);
         res.status(400).json({
             statusCode: 400,
             status: false,
@@ -224,8 +327,7 @@ exports.updateVirtualInventory = async (req, res) => {
 
 // # region Delete Virtual Inventory
 const skusSchema = Joi.object({
-    skus: Joi.array().items(Joi.string().required()).required(),
-    account_key: Joi.string().required()
+    skus: Joi.array().items(Joi.string().required()).required()
 });
 // Middleware for validation
 exports.validateSkus = (req, res, next) => {
@@ -240,290 +342,6 @@ exports.validateSkus = (req, res, next) => {
     req.body = value;
     next();
 };
-
-const normalizeShopDomain = (shop) => {
-    const raw = shop != null ? String(shop).trim() : '';
-    if (!raw) return '';
-    if (raw.includes('.')) return raw;
-    return `${raw}.myshopify.com`;
-};
-
-const resolveShopifyAuthByAccountKey = async (accountKey) => {
-    const accountInfo = await finerworksService.GET_INFO({ account_key: accountKey });
-    const connections = accountInfo?.user_account?.connections;
-    const shopifyConn =
-        Array.isArray(connections) && connections.find((c) => c?.name === 'Shopify');
-
-    if (!shopifyConn) return null;
-
-    const data =
-        typeof shopifyConn.data === 'string'
-            ? (() => {
-                try {
-                    return JSON.parse(shopifyConn.data);
-                } catch (e) {
-                    return null;
-                }
-            })()
-            : shopifyConn.data;
-
-    const shop = data?.shop || data?.shop_domain || data?.myshopify_domain || null;
-    const shopDomain = normalizeShopDomain(shop);
-
-    const accessToken =
-        data?.access_token ||
-        data?.accessToken ||
-        shopifyConn?.id ||
-        null;
-
-    return shopDomain && accessToken ? { shopDomain, accessToken } : null;
-};
-
-const skuExistsInShopifyOrders = async ({ shopDomain, accessToken, apiVersion, sku }) => {
-    const endpoint = `https://${shopDomain}/admin/api/${apiVersion}/graphql.json`;
-    const headers = {
-        'X-Shopify-Access-Token': accessToken,
-        'Content-Type': 'application/json'
-    };
-
-    // Shopify order search supports `sku:` query for line item SKUs in many configurations.
-    const query = `
-      query {
-        orders(first: 1, query: "sku:${String(sku).replace(/"/g, '')}") {
-          edges {
-            node { id }
-          }
-        }
-      }
-    `;
-
-    const resp = await axios.post(endpoint, { query, variables: {} }, { headers });
-
-    if (resp.data?.errors) {
-        const msg = Array.isArray(resp.data.errors)
-            ? resp.data.errors.map((e) => e.message).join('; ')
-            : 'Unknown GraphQL error';
-        throw new Error(msg);
-    }
-
-    const edges = resp.data?.data?.orders?.edges;
-    return Array.isArray(edges) && edges.length > 0;
-};
-
-const normalizeShopifyProductGid = (productId) => {
-    if (!productId) return null;
-    const raw = String(productId).trim();
-    if (!raw) return null;
-    if (raw.startsWith('gid://shopify/Product/')) return raw;
-    if (/^\d+$/.test(raw)) return `gid://shopify/Product/${raw}`;
-    return null;
-};
-
-const escapeGraphqlString = (str) =>
-    String(str)
-        .replace(/\\/g, '\\\\')
-        .replace(/"/g, '\\"')
-        .replace(/\n/g, '\\n')
-        .replace(/\r/g, '\\r')
-        .replace(/\t/g, '\\t');
-
-const markShopifyProductAsDeletedFromFinerworks = async ({
-    shopDomain,
-    accessToken,
-    apiVersion,
-    shopifyProductId
-}) => {
-    const productGid = normalizeShopifyProductGid(shopifyProductId);
-    if (!productGid) return { updated: false, reason: 'missing_product_id' };
-
-    const endpoint = `https://${shopDomain}/admin/api/${apiVersion}/graphql.json`;
-    const headers = {
-        'X-Shopify-Access-Token': accessToken,
-        'Content-Type': 'application/json'
-    };
-
-    const productQuery = `
-      query {
-        product(id: "${escapeGraphqlString(productGid)}") {
-          id
-          tags
-        }
-      }
-    `;
-    const productResp = await axios.post(endpoint, { query: productQuery, variables: {} }, { headers });
-    if (productResp.data?.errors) {
-        const msg = Array.isArray(productResp.data.errors)
-            ? productResp.data.errors.map((e) => e.message).join('; ')
-            : 'Unknown GraphQL error';
-        throw new Error(msg);
-    }
-
-    const product = productResp.data?.data?.product;
-    if (!product?.id) return { updated: false, reason: 'product_not_found' };
-
-    const existingTags = Array.isArray(product.tags) ? product.tags : [];
-    const deleteTag = 'deleted from Finer wokrs';
-    const mergedTags = Array.from(new Set([...existingTags, deleteTag]));
-    const tagsLiteral = mergedTags.map((t) => `"${escapeGraphqlString(t)}"`).join(', ');
-
-    // Keep this focused on tagging (admin visibility isn't the real storefront control).
-    const mutation = `
-      mutation {
-        productUpdate(input: {
-          id: "${escapeGraphqlString(product.id)}",
-          status: DRAFT,
-          tags: [${tagsLiteral}]
-        }) {
-          product {
-            id
-            tags
-          }
-          userErrors {
-            field
-            message
-          }
-        }
-      }
-    `;
-
-    const resp = await axios.post(endpoint, { query: mutation, variables: {} }, { headers });
-    if (resp.data?.errors) {
-        const msg = Array.isArray(resp.data.errors)
-            ? resp.data.errors.map((e) => e.message).join('; ')
-            : 'Unknown GraphQL error';
-        throw new Error(msg);
-    }
-
-    const updateData = resp.data?.data?.productUpdate;
-    if (Array.isArray(updateData?.userErrors) && updateData.userErrors.length > 0) {
-        const errMsg = updateData.userErrors.map((e) => `${e.field}: ${e.message}`).join('; ');
-        throw new Error(errMsg);
-    }
-
-    // Best-effort: unpublish from "Online Store" so customers cannot add to cart.
-    // Even if product status still looks "active" in dashboard, unpublishing removes it from storefront.
-    try {
-        const publicationsQuery = `
-          query {
-            publications(first: 20) {
-              edges {
-                node {
-                  id
-                  name
-                }
-              }
-            }
-          }
-        `;
-
-        const pubsResp = await axios.post(
-            endpoint,
-            { query: publicationsQuery, variables: {} },
-            { headers }
-        );
-
-        const pubsErrors = pubsResp.data?.errors;
-        if (!pubsErrors) {
-            const edges = pubsResp.data?.data?.publications?.edges || [];
-            const onlineStorePub = edges
-                .map((e) => e?.node)
-                .find((n) => n?.name && String(n.name).toLowerCase() === 'online store') ||
-                edges
-                    .map((e) => e?.node)
-                    .find((n) => n?.name && String(n.name).toLowerCase().includes('online store'));
-
-            if (onlineStorePub?.id) {
-                const unpublishMutation = `
-                  mutation {
-                    publishableUnpublish(
-                      id: "${escapeGraphqlString(product.id)}",
-                      input: [{ publicationId: "${escapeGraphqlString(onlineStorePub.id)}" }]
-                    ) {
-                      userErrors {
-                        field
-                        message
-                      }
-                    }
-                  }
-                `;
-
-                const unpubResp = await axios.post(
-                    endpoint,
-                    { query: unpublishMutation, variables: {} },
-                    { headers }
-                );
-
-                const unpubErrors = unpubResp.data?.errors;
-                if (!unpubErrors && Array.isArray(unpubResp.data?.data?.publishableUnpublish?.userErrors)) {
-                    const userErrors = unpubResp.data.data.publishableUnpublish.userErrors;
-                    if (userErrors.length > 0) {
-                        // Don't block deletion if unpublish fails; just surface best-effort logs.
-                        console.log('publishableUnpublish userErrors:', userErrors);
-                    }
-                }
-            }
-        }
-    } catch (unpublishErr) {
-        console.log('publishableUnpublish failed (best-effort):', unpublishErr?.message);
-    }
-
-    return { updated: true, product: updateData?.product || null };
-};
-
-const markSkusAsDeletedFromFinerworks = async ({ accountKey, skus }) => {
-    // Mimics the "disconnect" behavior by clearing Shopify GraphQL product id linkage in FinerWorks.
-    const apiVersion = process.env.SHOPIFY_API_VERSION || '2025-10';
-    const shopifyAuth = await resolveShopifyAuthByAccountKey(accountKey);
-
-    for (const sku of skus) {
-        const listResp = await finerworksService.LIST_VIRTUAL_INVENTORY({
-            sku_filter: [sku],
-            account_key: accountKey
-        });
-
-        const current = Array.isArray(listResp?.products) ? listResp.products[0] : null;
-        const integrations = current?.third_party_integrations || {};
-        const shopifyProductId =
-            integrations?.shopify_graphql_product_id ||
-            integrations?.shopify_product_id ||
-            null;
-
-        if (shopifyAuth && shopifyProductId) {
-            await markShopifyProductAsDeletedFromFinerworks({
-                shopDomain: shopifyAuth.shopDomain,
-                accessToken: shopifyAuth.accessToken,
-                apiVersion,
-                shopifyProductId
-            });
-        }
-
-        const item = current
-            ? {
-                sku: current.sku,
-                asking_price: current.asking_price || 0,
-                name: current.name || "Untitled",
-                description: current.description ?? '',
-                quantity_in_stock: current.quantity_in_stock || 0,
-                track_inventory: current.track_inventory ?? true,
-                third_party_integrations: {
-                    ...(current.third_party_integrations || {}),
-                    shopify_graphql_product_id: null
-                }
-            }
-            : {
-                sku,
-                third_party_integrations: {
-                    shopify_graphql_product_id: null
-                }
-            };
-
-        const updatePayload = {
-            virtual_inventory: [item],
-            account_key: accountKey
-        };
-        await finerworksService.UPDATE_VIRTUAL_INVENTORY(updatePayload);
-    }
-};
 /**
  * Delete list of virtual inventory.
  * @param {Object} req - The request object.
@@ -533,90 +351,21 @@ const markSkusAsDeletedFromFinerworks = async ({ accountKey, skus }) => {
 exports.deleteVirtualInventory = async (req, res) => {
     try {
         const reqBody = JSON.parse(JSON.stringify(req.body));
-        console.log("reqBody================",reqBody)
-        
-        // First, check if there are any pending orders for these SKUs
-        const pendingOrdersPayload = {
-            skus: reqBody.skus,
-            account_key: reqBody.account_key
-        };
-        
-        let pendingOrdersResponse;
-        let hasPendingOrders = false;
-        
-        try {
-            pendingOrdersResponse = await finerworksService.LIST_PENDING_ORDERS(pendingOrdersPayload);
-            console.log("pendingOrdersResponse=====", pendingOrdersResponse);
-            
-            // Check if there are any pending orders in the response
-            if (pendingOrdersResponse && 
-                ((pendingOrdersResponse.orders && Array.isArray(pendingOrdersResponse.orders) && pendingOrdersResponse.orders.length > 0) ||
-                 (pendingOrdersResponse.data && Array.isArray(pendingOrdersResponse.data) && pendingOrdersResponse.data.length > 0) ||
-                 (pendingOrdersResponse.status && pendingOrdersResponse.status.success && pendingOrdersResponse.orders && pendingOrdersResponse.orders.length > 0))) {
-                hasPendingOrders = true;
-            }
-        } catch (error) {
-            // If 404 error, it means no pending orders exist - treat as success and allow deletion
-            if (error.response && error.response.status === 404) {
-                console.log("404 received - no pending orders found, proceeding with deletion");
-                hasPendingOrders = false;
-            } else {
-                // For other errors, rethrow to be handled by outer catch
-                throw error;
-            }
-        }
-        
-        // If pending orders exist, block deletion
-        if (hasPendingOrders) {
-            return res.status(400).json({
-                statusCode: 400,
-                status: false,
-                message: "SKUs cannot be deleted because they have pending orders"
-            });
-        }
-
-        // Block deletion if these SKUs already exist in any Shopify order.
-        const apiVersion = process.env.SHOPIFY_API_VERSION || '2025-10';
-        const shopifyAuth = await resolveShopifyAuthByAccountKey(reqBody.account_key);
-        console.log("shopifyAuth====>>>>",shopifyAuth);
-        if (!shopifyAuth) {
-            return res.status(400).json({
-                statusCode: 400,
-                status: false,
-                message: "Shopify connection not found for this account_key"
-            });
-        }
-
-        const skusFoundInShopifyOrders = [];
-        for (const sku of reqBody.skus) {
-            // Ignore empty/invalid SKUs defensively (schema should already validate).
-            if (sku == null || String(sku).trim().length === 0) continue;
-
-            const exists = await skuExistsInShopifyOrders({
-                shopDomain: shopifyAuth.shopDomain,
-                accessToken: shopifyAuth.accessToken,
-                apiVersion,
-                sku
-            });
-
-            if (exists) skusFoundInShopifyOrders.push(sku);
-        }
-        console.log("skusFoundInShopifyOrders====>>>",skusFoundInShopifyOrders);
-
-        if (skusFoundInShopifyOrders.length > 0) {
-            return res.status(400).json({
-                statusCode: 400,
-                status: false,
-                message: "SKUs cannot be deleted because they already exist in Shopify orders",
-                skus: skusFoundInShopifyOrders
-            });
-        }
-        // If no pending orders (including 404 case), proceed with deletion
-        await markSkusAsDeletedFromFinerworks({ accountKey: reqBody.account_key, skus: reqBody.skus });
-
         const getInformation = await finerworksService.DELETE_VIRTUAL_INVENTORY(reqBody);
-        console.log("getInformation====", getInformation);
         if (getInformation && getInformation.status && getInformation.status.success) {
+            const successLog = JSON.stringify({
+                level: 'INFO',
+                platform: 'finerworks',
+                method: req.method,
+                api: req.originalUrl || req.url,
+                function: 'deleteVirtualInventory',
+                operation: 'Virtual inventory deleted successfully',
+                account_key: req.body?.account_key || req.query?.account_key || 'unknown',
+                result: { deleted: true },
+                timestamp: new Date().toISOString()
+            });
+            console.log(successLog);
+            log('Success in deleteVirtualInventory: %s', successLog);
             res.status(200).json({
                 statusCode: 200,
                 status: true,
@@ -630,6 +379,20 @@ exports.deleteVirtualInventory = async (req, res) => {
             });
         }
     } catch (error) {
+        const isFinerworksError = error?.response?.config?.url?.includes('finerworks.com') || error?.config?.url?.includes('finerworks.com');
+        const errorJson = JSON.stringify({
+            level: 'ERROR',
+            platform: 'finerworks',
+            source: isFinerworksError ? 'finerworks_api' : 'lambda',
+            function: 'deleteVirtualInventory',
+            account_key: req.body?.account_key || req.query?.account_key || 'unknown',
+            httpStatus: error?.response?.status || null,
+            message: `Failed to delete virtual inventory: ${error?.message || 'Unknown error'}`,
+            detail: error?.response?.data?.message || error?.response?.data?.error || null,
+            timestamp: new Date().toISOString()
+        });
+        console.error(errorJson);
+        log('Formatted error in deleteVirtualInventory: %s', errorJson);
         res.status(400).json({
             statusCode: 400,
             status: false,
