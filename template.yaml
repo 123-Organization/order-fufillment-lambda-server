@@ -3,6 +3,27 @@ Transform: AWS::Serverless-2016-10-31
 Description: Node.js Lambda function for file management serverless APIs
 
 Resources:
+  SquareAccountsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: square-accounts
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: id
+          AttributeType: S
+        - AttributeName: account_key
+          AttributeType: S
+      KeySchema:
+        - AttributeName: id
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: account-key
+          KeySchema:
+            - AttributeName: account_key
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+
   MyApiGateway:
     Type: AWS::Serverless::Api
     Properties:
@@ -57,7 +78,22 @@ Resources:
                 Resource:
                   - arn:aws:dynamodb:us-east-1:583574610515:table/squarespace-accounts
                   - arn:aws:dynamodb:us-east-1:583574610515:table/squarespace-accounts/index/*
-  
+        - PolicyName: SquareAccountsDynamoDBPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:Scan
+                  - dynamodb:Query
+                Resource:
+                  - !GetAtt SquareAccountsTable.Arn
+                  - !Sub '${SquareAccountsTable.Arn}/index/*'
+
   OrderFullFillmentServerLessDevServerAgain:
     Type: AWS::Serverless::Function
     Properties:
@@ -72,13 +108,32 @@ Resources:
         Variables:
           DEBUG: app*
           SQUARESPACE_ACCOUNTS_TABLE_NAME: squarespace-accounts
+          SQUARE_ACCOUNTS_TABLE_NAME: !Ref SquareAccountsTable
+          SQUARE_ACCOUNTS_ACCOUNT_KEY_GSI: account-key
       Events:
         MainEntryRoute:
-          Type: Api 
+          Type: Api
           Properties:
             RestApiId: !Ref MyApiGateway
             Path: /
             Method: GET
+        SquareRefreshToken:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Method: POST
+            Path: "/api/square/refresh-token"
+        SquareDisconnect:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Method: POST
+            Path: "/api/square/disconnect"
+        SquareTokenRenewalSchedule:
+          Type: Schedule
+          Properties:
+            Schedule: rate(6 hours)
+            Input: '{"squareTokenRenewal": true}'
         UpdateCompanyInformation:
           Type: Api
           Properties:
@@ -371,6 +426,8 @@ Resources:
         Variables:
           DEBUG: app*
           SQUARESPACE_ACCOUNTS_TABLE_NAME: squarespace-accounts
+          SQUARE_ACCOUNTS_TABLE_NAME: !Ref SquareAccountsTable
+          SQUARE_ACCOUNTS_ACCOUNT_KEY_GSI: account-key
       Events:
         ExportToWoocommerce:
           Type: Api
@@ -669,6 +726,18 @@ Resources:
             RestApiId: !Ref MyApiGateway
             Method: GET
             Path: "/api/squarespace/auth"
+        SquareCallback:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Method: GET
+            Path: "/api/square/callback"
+        SquareAuthentication:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Method: GET
+            Path: "/api/square/auth"
         # SquareSpaceBulkOrderFetching :
         #   Type: Api
         #   Properties:
