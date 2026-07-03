@@ -49,5 +49,5 @@ exports.handler = async (event, context) => {
 // const port = 9001;
 // server.listen(port, () => {
 //     log(`start application on port ${port}`)
-//     console.log(`Example app listening on port ${port}`);
+//     console.log(`OFA listening on port ${port}`);
 // });

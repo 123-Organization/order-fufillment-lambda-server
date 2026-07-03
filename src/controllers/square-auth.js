@@ -60,6 +60,40 @@ const squareApiVersionHeader = () => ({
     'Square-Version': process.env.SQUARE_API_VERSION || DEFAULT_SQUARE_API_VERSION,
 });
 
+// 'squareup' (not 'squareup.com') so the sandbox host connect.squareupsandbox.com also matches.
+const errorUrlIncludes = (err, needle) =>
+    Boolean(err?.response?.config?.url?.includes(needle) || err?.config?.url?.includes(needle));
+
+/** Flattens Square's error body ({message, type} or {errors:[{code, detail}]}) into one line. */
+const squareErrorDetail = (err) => {
+    const data = err?.response?.data;
+    if (!data) return null;
+    if (typeof data === 'string') return data.trim().slice(0, 500) || null;
+    const parts = [];
+    if (data.message) parts.push(String(data.message));
+    if (data.type) parts.push(`type=${data.type}`);
+    if (Array.isArray(data.errors)) {
+        for (const e of data.errors) {
+            if (e?.code) parts.push(`code=${e.code}`);
+            if (e?.detail) parts.push(String(e.detail));
+        }
+    }
+    return parts.length ? parts.join(' | ').slice(0, 500) : null;
+};
+
+/** A sandbox/production mismatch between client_id and secret always yields an
+ *  opaque 401 "Not Authorized" from /oauth2/token, so fail fast with a clear message. */
+const getSquareCredentialMismatch = () => {
+    const clientId = process.env.SQUARE_CLIENT_ID;
+    const secret = getSquareClientSecret();
+    if (!clientId || !secret) return null;
+    const secretIsSandbox = secret.startsWith('sandbox-');
+    if (isSandboxClientId(clientId) === secretIsSandbox) return null;
+    return secretIsSandbox
+        ? 'Square credential mismatch: SQUARE_SECRET_KEY is a sandbox secret but SQUARE_CLIENT_ID is not a sandbox application id'
+        : 'Square credential mismatch: SQUARE_CLIENT_ID is a sandbox application id but SQUARE_SECRET_KEY is not a sandbox secret';
+};
+
 /**
  * Initiates Square OAuth connection by redirecting user to Square's /oauth2/authorize.
  * Expected query/body:
@@ -83,6 +117,11 @@ const handleSquareAuth = async (req, res) => {
 
         if (!getSquareClientSecret()) {
             return sendApiError(res, 500, 'SQUARE_SECRET_KEY not configured');
+        }
+
+        const credentialMismatch = getSquareCredentialMismatch();
+        if (credentialMismatch) {
+            return sendApiError(res, 500, credentialMismatch);
         }
 
         const scopes = req.query?.scope || req.body?.scope || process.env.SQUARE_SCOPES || DEFAULT_SQUARE_SCOPES;
@@ -179,6 +218,11 @@ const handleSquareCallback = async (req, res) => {
         const clientSecret = getSquareClientSecret();
         if (!clientId || !clientSecret) {
             return sendApiError(res, 500, 'Square OAuth credentials not configured');
+        }
+
+        const credentialMismatch = getSquareCredentialMismatch();
+        if (credentialMismatch) {
+            return sendApiError(res, 500, credentialMismatch);
         }
 
         const redirectUri = buildRedirectUri(req);
@@ -308,8 +352,8 @@ const handleSquareCallback = async (req, res) => {
             message: 'Square connection added successfully',
         });
     } catch (err) {
-        const isSquareError = err?.response?.config?.url?.includes('squareup.com') || err?.config?.url?.includes('squareup.com');
-        const isFinerworksError = err?.response?.config?.url?.includes('finerworks.com') || err?.config?.url?.includes('finerworks.com');
+        const isSquareError = errorUrlIncludes(err, 'squareup');
+        const isFinerworksError = errorUrlIncludes(err, 'finerworks');
         const errorJson = JSON.stringify({
             level: 'ERROR',
             platform: 'square',
@@ -317,7 +361,7 @@ const handleSquareCallback = async (req, res) => {
             function: 'handleSquareCallback',
             httpStatus: err?.response?.status || null,
             message: `Square OAuth callback failed: ${err?.message || 'Unknown error'}`,
-            detail: err?.response?.data?.message || (Array.isArray(err?.response?.data?.errors) ? err.response.data.errors[0]?.detail : null) || null,
+            detail: squareErrorDetail(err),
             timestamp: new Date().toISOString()
         });
         console.error(errorJson);
@@ -606,7 +650,7 @@ const refreshSquareToken = async (req, res) => {
             account_key: req.body?.account_key || req.query?.account_key || 'unknown',
             httpStatus: err?.response?.status || null,
             message: `Square token refresh failed: ${err?.message || 'Unknown error'}`,
-            detail: err?.response?.data?.message || (Array.isArray(err?.response?.data?.errors) ? err.response.data.errors[0]?.detail : null) || null,
+            detail: squareErrorDetail(err),
             timestamp: new Date().toISOString()
         });
         console.error(errorJson);
@@ -667,7 +711,7 @@ const runSquareTokenRenewalJob = async () => {
                 account_key: account_key || 'unknown',
                 httpStatus: err?.response?.status || null,
                 message: `Square token renewal failed: ${err?.message || 'Unknown error'}`,
-                detail: err?.response?.data?.message || (Array.isArray(err?.response?.data?.errors) ? err.response.data.errors[0]?.detail : null) || null,
+                detail: squareErrorDetail(err),
                 timestamp: new Date().toISOString()
             });
             console.error(errorJsonRoot);

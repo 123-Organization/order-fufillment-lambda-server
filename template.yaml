@@ -117,23 +117,6 @@ Resources:
             RestApiId: !Ref MyApiGateway
             Path: /
             Method: GET
-        SquareRefreshToken:
-          Type: Api
-          Properties:
-            RestApiId: !Ref MyApiGateway
-            Method: POST
-            Path: "/api/square/refresh-token"
-        SquareDisconnect:
-          Type: Api
-          Properties:
-            RestApiId: !Ref MyApiGateway
-            Method: POST
-            Path: "/api/square/disconnect"
-        SquareTokenRenewalSchedule:
-          Type: Schedule
-          Properties:
-            Schedule: rate(6 hours)
-            Input: '{"squareTokenRenewal": true}'
         UpdateCompanyInformation:
           Type: Api
           Properties:
@@ -726,18 +709,6 @@ Resources:
             RestApiId: !Ref MyApiGateway
             Method: GET
             Path: "/api/squarespace/auth"
-        SquareCallback:
-          Type: Api
-          Properties:
-            RestApiId: !Ref MyApiGateway
-            Method: GET
-            Path: "/api/square/callback"
-        SquareAuthentication:
-          Type: Api
-          Properties:
-            RestApiId: !Ref MyApiGateway
-            Method: GET
-            Path: "/api/square/auth"
         # SquareSpaceBulkOrderFetching :
         #   Type: Api
         #   Properties:
@@ -792,3 +763,32 @@ Resources:
             RestApiId: !Ref MyApiGateway
             Method: POST
             Path: "/api/shippo/orders"
+        SquareCallback:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Method: GET
+            Path: "/api/square/callback"
+        SquareAuthentication:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Method: GET
+            Path: "/api/square/auth"
+        SquareRefreshToken:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Method: POST
+            Path: "/api/square/refresh-token"
+        SquareDisconnect:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Method: POST
+            Path: "/api/square/disconnect"
+        SquareTokenRenewalSchedule:
+          Type: Schedule
+          Properties:
+            Schedule: rate(6 hours)
+            Input: '{"squareTokenRenewal": true}'
