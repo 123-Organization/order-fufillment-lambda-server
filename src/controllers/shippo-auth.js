@@ -10,7 +10,8 @@ const SHIPPO_CONNECTION_NAME = 'Shippo';
 exports.connectShippo = async (req, res) => {
   try {
     const { account_key, live_key, test_key } = req.body;
-    if (!account_key || !live_key || !test_key) {
+    // test_key is optional, but live_key and account_key are required
+    if (!account_key || !live_key) {
       return res.status(400).json({ statusCode: 400, status: false, message: 'Account key and Shippo API Keys are required.' });
     }
 
