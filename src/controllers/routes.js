@@ -12,6 +12,7 @@ const { getUserPaymentToken,getCompanyInfo } = require('./payment-token');
 const {updateUserInformation}=require('./userInformation')
 const { handleShopifyAuth, handleShopifyCallback, handleShopifyInstall, handleShopifyDisconnect, disconnectShopifyFromOfa } = require('./shopify-auth');
 const { handleSquarespaceAuth, handleSquarespaceCallback, refreshSquarespaceToken } = require('./squarespace-auth');
+const { handleSquareAuth, handleSquareCallback, refreshSquareToken, handleSquareDisconnect } = require('./square-auth');
 const { connectWix, handleWixAuthStart, connectWixOAuth, handleWixOAuthInstallReturn, connectWixFromInstance } = require('./wix-auth');
 const { disconnectStoreBySlug } = require('./disconnect-store');
 const { syncWixProducts } = require('./wix-products');
@@ -84,6 +85,10 @@ app.get('/shopify/', asyncHandler(handleShopifyInstall));
 app.get('/squarespace/auth', asyncHandler(handleSquarespaceAuth));
 app.get('/squarespace/callback', asyncHandler(handleSquarespaceCallback));
 app.post('/squarespace/refresh-token', asyncHandler(refreshSquarespaceToken));
+app.get('/square/auth', asyncHandler(handleSquareAuth));
+app.get('/square/callback', asyncHandler(handleSquareCallback));
+app.post('/square/refresh-token', asyncHandler(refreshSquareToken));
+app.post('/square/disconnect', asyncHandler(handleSquareDisconnect));
 app.post('/wix/connect', asyncHandler(connectWix));
 app.get('/wix/oauth/start', asyncHandler(handleWixAuthStart));
 app.get('/wix/oauth/install-return', asyncHandler(handleWixOAuthInstallReturn));

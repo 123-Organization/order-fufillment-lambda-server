@@ -2,6 +2,28 @@ AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
 Description: Node.js Lambda function for file management serverless APIs
 Resources:
+  SquareAccountsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: square-accounts
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+      - AttributeName: id
+        AttributeType: S
+      - AttributeName: account_key
+        AttributeType: S
+      KeySchema:
+      - AttributeName: id
+        KeyType: HASH
+      GlobalSecondaryIndexes:
+      - IndexName: account-key
+        KeySchema:
+        - AttributeName: account_key
+          KeyType: HASH
+        Projection:
+          ProjectionType: ALL
+    Metadata:
+      SamResourceId: SquareAccountsTable
   MyApiGateway:
     Type: AWS::Serverless::Api
     Properties:
@@ -57,6 +79,23 @@ Resources:
             Resource:
             - arn:aws:dynamodb:us-east-1:583574610515:table/squarespace-accounts
             - arn:aws:dynamodb:us-east-1:583574610515:table/squarespace-accounts/index/*
+      - PolicyName: SquareAccountsDynamoDBPolicy
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Effect: Allow
+            Action:
+            - dynamodb:GetItem
+            - dynamodb:PutItem
+            - dynamodb:UpdateItem
+            - dynamodb:DeleteItem
+            - dynamodb:Scan
+            - dynamodb:Query
+            Resource:
+            - Fn::GetAtt:
+              - SquareAccountsTable
+              - Arn
+            - Fn::Sub: ${SquareAccountsTable.Arn}/index/*
     Metadata:
       SamResourceId: MyLambdaExecutionRole
   OrderFullFillmentServerLessDevServerAgain:
@@ -69,13 +108,16 @@ Resources:
         - MyLambdaExecutionRole
         - Arn
       Runtime: nodejs18.x
-      CodeUri: s3://order-fullfilment-app-lambda-server/5d8a173f5ad53483cd47dd509f717f19
+      CodeUri: s3://order-fullfilment-app-lambda-server/c4c8b6f206c532a5d45a58f77e227b7e
       MemorySize: 3008
       Timeout: 900
       Environment:
         Variables:
           DEBUG: app*
           SQUARESPACE_ACCOUNTS_TABLE_NAME: squarespace-accounts
+          SQUARE_ACCOUNTS_TABLE_NAME:
+            Ref: SquareAccountsTable
+          SQUARE_ACCOUNTS_ACCOUNT_KEY_GSI: account-key
       Events:
         MainEntryRoute:
           Type: Api
@@ -397,13 +439,16 @@ Resources:
         - MyLambdaExecutionRole
         - Arn
       Runtime: nodejs18.x
-      CodeUri: s3://order-fullfilment-app-lambda-server/5d8a173f5ad53483cd47dd509f717f19
+      CodeUri: s3://order-fullfilment-app-lambda-server/c4c8b6f206c532a5d45a58f77e227b7e
       MemorySize: 3008
       Timeout: 900
       Environment:
         Variables:
           DEBUG: app*
           SQUARESPACE_ACCOUNTS_TABLE_NAME: squarespace-accounts
+          SQUARE_ACCOUNTS_TABLE_NAME:
+            Ref: SquareAccountsTable
+          SQUARE_ACCOUNTS_ACCOUNT_KEY_GSI: account-key
       Events:
         ExportToWoocommerce:
           Type: Api
@@ -733,7 +778,7 @@ Resources:
         - MyLambdaExecutionRole
         - Arn
       Runtime: nodejs18.x
-      CodeUri: s3://order-fullfilment-app-lambda-server/5d8a173f5ad53483cd47dd509f717f19
+      CodeUri: s3://order-fullfilment-app-lambda-server/c4c8b6f206c532a5d45a58f77e227b7e
       MemorySize: 3008
       Timeout: 900
       Environment:
@@ -755,5 +800,38 @@ Resources:
               Ref: MyApiGateway
             Method: POST
             Path: /api/shippo/orders
+        SquareCallback:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: GET
+            Path: /api/square/callback
+        SquareAuthentication:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: GET
+            Path: /api/square/auth
+        SquareRefreshToken:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: POST
+            Path: /api/square/refresh-token
+        SquareDisconnect:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: POST
+            Path: /api/square/disconnect
+        SquareTokenRenewalSchedule:
+          Type: Schedule
+          Properties:
+            Schedule: rate(6 hours)
+            Input: '{"squareTokenRenewal": true}'
     Metadata:
       SamResourceId: OrderFullFillmentServerLessDevServerAgainNew
