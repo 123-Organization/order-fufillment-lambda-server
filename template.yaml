@@ -787,6 +787,12 @@ Resources:
             RestApiId: !Ref MyApiGateway
             Method: POST
             Path: "/api/square/disconnect"
+        SquareSyncProducts:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Method: POST
+            Path: "/api/square/sync-products"
         SquareTokenRenewalSchedule:
           Type: Schedule
           Properties:

@@ -108,7 +108,7 @@ Resources:
         - MyLambdaExecutionRole
         - Arn
       Runtime: nodejs18.x
-      CodeUri: s3://order-fullfilment-app-lambda-server/c4c8b6f206c532a5d45a58f77e227b7e
+      CodeUri: s3://order-fullfilment-app-lambda-server/dd4dcf5d831ac7ff998abfa75fcb0c74
       MemorySize: 3008
       Timeout: 900
       Environment:
@@ -439,7 +439,7 @@ Resources:
         - MyLambdaExecutionRole
         - Arn
       Runtime: nodejs18.x
-      CodeUri: s3://order-fullfilment-app-lambda-server/c4c8b6f206c532a5d45a58f77e227b7e
+      CodeUri: s3://order-fullfilment-app-lambda-server/dd4dcf5d831ac7ff998abfa75fcb0c74
       MemorySize: 3008
       Timeout: 900
       Environment:
@@ -778,7 +778,7 @@ Resources:
         - MyLambdaExecutionRole
         - Arn
       Runtime: nodejs18.x
-      CodeUri: s3://order-fullfilment-app-lambda-server/c4c8b6f206c532a5d45a58f77e227b7e
+      CodeUri: s3://order-fullfilment-app-lambda-server/dd4dcf5d831ac7ff998abfa75fcb0c74
       MemorySize: 3008
       Timeout: 900
       Environment:
