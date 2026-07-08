@@ -323,6 +323,8 @@ const ordersSchema = Joi.object({
                         etsy_product_id: Joi.any().optional().allow(null),
                         shopify_product_id: Joi.any().optional().allow(null),
                         shopify_variant_id: Joi.any().optional().allow(null),
+                        square_product_id: Joi.any().optional().allow(null),
+                        square_variant_id: Joi.any().optional().allow(null),
                         squarespace_product_id: Joi.any().optional().allow(null),
                         squarespace_variant_id: Joi.any().optional().allow(null),
                         wix_inventory_id: Joi.any().optional().allow(null),

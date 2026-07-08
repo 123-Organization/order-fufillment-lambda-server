@@ -60,6 +60,18 @@ function toCents(n) {
   return Math.round(x * 100);
 }
 
+/**
+ * Square requires an ISO 4217 code in price_money.currency. OFA rows carry a
+ * `monetary_format` field, but it sometimes holds a unit like "ea" instead of a
+ * currency — only trust it when it looks like a real 3-letter code.
+ */
+function pickCurrency(p, fallback) {
+  const c = String(p?.monetary_format || '')
+    .trim()
+    .toUpperCase();
+  return /^[A-Z]{3}$/.test(c) ? c : fallback;
+}
+
 function pickQty(p) {
   const q = Number(p?.quantity_in_stock ?? p?.quantity ?? p?.inventory_quantity ?? 0);
   if (Number.isFinite(q) && q >= 0) return Math.round(q);
@@ -126,12 +138,18 @@ function uniqueVariationLabels(items, labelFn) {
  * items sharing the same `image_guid` are one product with multiple variants
  * (same logic as the Wix/Squarespace sync).
  */
+function isAlreadyOnSquare(p) {
+  const tpi = p?.third_party_integrations;
+  // square_item_id is the legacy field name from early exports.
+  return !!(tpi && (tpi.square_product_id || tpi.square_item_id));
+}
+
 function buildSyncJobs(rawProducts) {
   const processedGuid = new Set();
   const jobs = [];
   for (const p of rawProducts) {
     // Already exported to Square once — do not create a duplicate item.
-    if (p?.third_party_integrations && p.third_party_integrations.square_item_id) {
+    if (isAlreadyOnSquare(p)) {
       continue;
     }
     const g = String(p?.image_guid || '').trim();
@@ -142,9 +160,7 @@ function buildSyncJobs(rawProducts) {
     if (processedGuid.has(g)) continue;
     processedGuid.add(g);
     const items = rawProducts.filter(
-      (q) =>
-        String(q?.image_guid || '').trim() === g &&
-        !(q?.third_party_integrations && q.third_party_integrations.square_item_id)
+      (q) => String(q?.image_guid || '').trim() === g && !isAlreadyOnSquare(q)
     );
     if (!items.length) continue;
     if (items.length <= 1) {
@@ -277,7 +293,7 @@ function buildCatalogUpsertBody({ items, currency }) {
         name: multiVariant ? labels[idx] : 'Regular',
         ...(sku ? { sku } : {}),
         pricing_type: 'FIXED_PRICING',
-        price_money: { amount: toCents(pickPrice(p)), currency },
+        price_money: { amount: toCents(pickPrice(p)), currency: pickCurrency(p, currency) },
         track_inventory: true,
         sellable: true,
         stockable: true,
@@ -453,8 +469,8 @@ async function updateVirtualInventoryWithSquareIds(accountKey, items, itemId, va
       track_inventory: true,
       third_party_integrations: {
         ...(src?.third_party_integrations || {}),
-        square_item_id: String(itemId),
-        ...(variationId ? { square_variation_id: String(variationId) } : {}),
+        square_product_id: String(itemId),
+        ...(variationId ? { square_variant_id: String(variationId) } : {}),
       },
     };
 
@@ -486,7 +502,7 @@ async function updateVirtualInventoryWithSquareIds(accountKey, items, itemId, va
  * - Each variation carries its SKU and price; quantities are pushed to the Square
  *   Inventory API at the resolved location (`location_id` override supported)
  * - Square ids are written back to FinerWorks virtual inventory
- *   (`third_party_integrations.square_item_id` / `square_variation_id`)
+ *   (`third_party_integrations.square_product_id` / `square_variant_id`)
  */
 const syncSquareProducts = async (req, res) => {
   try {
