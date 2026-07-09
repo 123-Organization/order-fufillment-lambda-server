@@ -27,27 +27,27 @@ function isScheduledSquarespaceRenewal(event) {
 }
 
 // Lambda handler function
-// exports.handler = async (event, context) => {
-//     if (isScheduledSquareRenewal(event)) {
-//         const summary = await runSquareTokenRenewalJob();
-//         return {
-//             statusCode: 200,
-//             body: JSON.stringify({ ok: true, summary })
-//         };
-//     }
+exports.handler = async (event, context) => {
+    if (isScheduledSquareRenewal(event)) {
+        const summary = await runSquareTokenRenewalJob();
+        return {
+            statusCode: 200,
+            body: JSON.stringify({ ok: true, summary })
+        };
+    }
 
-//     if (isScheduledSquarespaceRenewal(event)) {
-//         const summary = await runSquarespaceTokenRenewalJob();
-//         return {
-//             statusCode: 200,
-//             body: JSON.stringify({ ok: true, summary })
-//         };
-//     }
+    if (isScheduledSquarespaceRenewal(event)) {
+        const summary = await runSquarespaceTokenRenewalJob();
+        return {
+            statusCode: 200,
+            body: JSON.stringify({ ok: true, summary })
+        };
+    }
 
-//     return await serverlessApp(event, context);
-// };
-const port = 9001;
-server.listen(port, () => {
-    log(`start application on port ${port}`)
-    console.log(`OFA listening on port ${port}`);
-});
+    return await serverlessApp(event, context);
+};
+// const port = 9001;
+// server.listen(port, () => {
+//     log(`start application on port ${port}`)
+//     console.log(`OFA listening on port ${port}`);
+// });
