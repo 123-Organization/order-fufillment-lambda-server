@@ -768,4 +768,9 @@ module.exports = {
   buildSyncJobs,
   buildCatalogUpsertBody,
   extractIdMappings,
+  // Shared Square helpers (used by square-orders)
+  resolveSquareAuth,
+  buildSquareHeaders,
+  summarizeSquareHttpError,
+  syncSquareTokensToDynamo,
 };
