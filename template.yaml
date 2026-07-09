@@ -793,6 +793,18 @@ Resources:
             RestApiId: !Ref MyApiGateway
             Method: POST
             Path: "/api/square/sync-products"
+        SquareOrders:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Method: POST
+            Path: "/api/square/orders"
+        SquareOrderById:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Method: POST
+            Path: "/api/square/order-by-id"
         SquareTokenRenewalSchedule:
           Type: Schedule
           Properties:
