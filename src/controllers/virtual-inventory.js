@@ -239,6 +239,8 @@ const UpdateVirtualInventorySchema = Joi.object({
                 shopify_graphql_variant_id: Joi.any().allow(null).optional(),
                 shopify_product_id: Joi.any().allow(null).optional(),
                 shopify_variant_id: Joi.any().allow(null).optional(),
+                square_product_id: Joi.any().allow(null).optional(),
+                square_variant_id: Joi.any().allow(null).optional(),
                 squarespace_product_id: Joi.any().allow(null).optional(),
                 squarespace_variant_id: Joi.any().allow(null).optional(),
                 wix_inventory_id: Joi.any().allow(null).optional(),

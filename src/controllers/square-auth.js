@@ -140,9 +140,13 @@ const handleSquareAuth = async (req, res) => {
             scope: scopes,
             redirect_uri: redirectUri,
             state,
-            // Always show the account picker instead of silently reusing an existing Square session.
-            session: 'false',
         });
+        // Sandbox only supports the default session=true; forcing the login page
+        // there dead-ends because test accounts can't sign in through it.
+        if (getSquareEnvironment() === 'production') {
+            // Always show the account picker instead of silently reusing an existing Square session.
+            qs.set('session', 'false');
+        }
 
         const authUrl = `${getSquareBaseUrl()}/oauth2/authorize?${qs.toString()}`;
         console.log('square authUrl====>>>', authUrl);
@@ -444,6 +448,8 @@ async function getFinerworksSquareOAuthSnapshot(account_key) {
         merchant_id: data.merchant_id ?? null,
         redirect_uri: data.redirect_uri ?? null,
         scope: data.scope ?? null,
+        expires_at: data.expires_at ?? null,
+        needs_reauth: data.needs_reauth === true,
     };
 }
 
@@ -912,4 +918,11 @@ module.exports = {
     refreshSquareToken,
     runSquareTokenRenewalJob,
     handleSquareDisconnect,
+    // Shared Square helpers (used by square-products sync)
+    getSquareBaseUrl,
+    squareApiVersionHeader,
+    refreshSquareTokensCore,
+    getFinerworksSquareOAuthSnapshot,
+    isSquareInvalidTokenError,
+    squareErrorDetail,
 };
