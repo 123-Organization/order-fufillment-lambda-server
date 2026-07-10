@@ -805,6 +805,18 @@ Resources:
             RestApiId: !Ref MyApiGateway
             Method: POST
             Path: "/api/square/order-by-id"
+        SquareFulfillOrder:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Method: POST
+            Path: "/api/square/fulfill-order"
+        SquareOrderCreateWebhook:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Method: POST
+            Path: "/api/webhooks/square/order-create"
         SquareTokenRenewalSchedule:
           Type: Schedule
           Properties:

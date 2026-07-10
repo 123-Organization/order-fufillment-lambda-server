@@ -14,7 +14,7 @@ const { handleShopifyAuth, handleShopifyCallback, handleShopifyInstall, handleSh
 const { handleSquarespaceAuth, handleSquarespaceCallback, refreshSquarespaceToken } = require('./squarespace-auth');
 const { handleSquareAuth, handleSquareCallback, refreshSquareToken, handleSquareDisconnect } = require('./square-auth');
 const { syncSquareProducts } = require('./square-products');
-const { getSquareOrders, getSquareOrderById } = require('./square-orders');
+const { getSquareOrders, getSquareOrderById, fulfillSquareOrderWithTrackingInfo } = require('./square-orders');
 const { connectWix, handleWixAuthStart, connectWixOAuth, handleWixOAuthInstallReturn, connectWixFromInstance } = require('./wix-auth');
 const { disconnectStoreBySlug } = require('./disconnect-store');
 const { syncWixProducts } = require('./wix-products');
@@ -22,7 +22,7 @@ const { getWixOrders, getWixOrderByNumber, fulfillWixOrderWithTrackingInfo } = r
 const { getSquarespaceOrders, getSquarespaceOrderByNumber, validateSquarespaceAccessToken, fulfillSquareSpaceOrderWithTrackingInfo } = require('./squarespace-orders');
 const { getShopifyOrders, getShopifyOrderByName, fulfillShopifyOrder, updateOrderReferenceNumbers, updateOrderFulfillmentStatus, syncShopifyProducts, createShopifyCarrierService, listShopifyCarrierServices, deleteShopifyCarrierService, shopifyCarrierServiceCallback, registerShopifyWebhook, registerShopifyOrderCreateWebhook, listShopifyWebhooks, deleteShopifyWebhookById, shopifyProductDeleteWebhook, shopifyOrdersCreateWebhook, createUsCanadaShippingProfile } = require('./shopify-orders');
 const { syncSquarespaceProducts } = require('./squarespace-products');
-const { setPlatformOrderSync, squarespaceOrderCreateWebhook } = require('./platform-order-sync');
+const { setPlatformOrderSync, squarespaceOrderCreateWebhook, squareOrderCreateWebhook } = require('./platform-order-sync');
 const { connectShippo, getShippoStatus } = require('./shippo-auth');
 const { fetchShippoOrders } = require('./shippo-orders');
 const healthCheck = require('./health-check');
@@ -94,6 +94,7 @@ app.post('/square/disconnect', asyncHandler(handleSquareDisconnect));
 app.post('/square/sync-products', asyncHandler(syncSquareProducts));
 app.post('/square/orders', asyncHandler(getSquareOrders));
 app.post('/square/order-by-id', asyncHandler(getSquareOrderById));
+app.post('/square/fulfill-order', asyncHandler(fulfillSquareOrderWithTrackingInfo));
 app.post('/wix/connect', asyncHandler(connectWix));
 app.get('/wix/oauth/start', asyncHandler(handleWixAuthStart));
 app.get('/wix/oauth/install-return', asyncHandler(handleWixOAuthInstallReturn));
@@ -136,5 +137,6 @@ app.post('/shippo/orders', asyncHandler(fetchShippoOrders));
 app.post('/webhooks/product-delete', asyncHandler(shopifyProductDeleteWebhook));
 app.post('/webhooks/orders-create', asyncHandler(shopifyOrdersCreateWebhook));
 app.post('/webhooks/squarespace/order-create', asyncHandler(squarespaceOrderCreateWebhook));
+app.post('/webhooks/square/order-create', asyncHandler(squareOrderCreateWebhook));
 
 module.exports = app;

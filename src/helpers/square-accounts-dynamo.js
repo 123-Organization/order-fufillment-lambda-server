@@ -186,8 +186,30 @@ const deleteSquareAccountsByAccountKey = async (account_key) => {
     }
 };
 
+/**
+ * Resolves the OFA tenant for an inbound Square webhook: events carry only merchant_id
+ * (subscriptions are application-level), and merchant_id is stored on each row by the
+ * OAuth callback / token renewal. Table has no merchant_id index, so this scans.
+ */
+const findAccountKeyBySquareMerchantId = async (merchant_id) => {
+    const TableName = tableName();
+    if (!TableName) {
+        console.warn('SQUARE_ACCOUNTS_TABLE_NAME not set; cannot resolve merchant_id');
+        return null;
+    }
+    const mid = String(merchant_id || '').trim();
+    if (!mid) return null;
+
+    const rows = await scanAllSquareAccounts();
+    const match = rows.find(
+        (r) => String(r?.merchant_id || '').trim() === mid && r?.account_key
+    );
+    return match ? String(match.account_key).trim() : null;
+};
+
 module.exports = {
     putSquareAccount,
     scanAllSquareAccounts,
     deleteSquareAccountsByAccountKey,
+    findAccountKeyBySquareMerchantId,
 };

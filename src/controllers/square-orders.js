@@ -1,4 +1,6 @@
 const axios = require('axios');
+const crypto = require('crypto');
+const finerworksService = require('../helpers/finerworks-service');
 const { sendApiError } = require('../helpers/api-error');
 const {
   getSquareBaseUrl,
@@ -555,7 +557,235 @@ const getSquareOrderById = async (req, res) => {
   }
 };
 
+/** First SHIPMENT fulfillment on the order (tracking updates attach to it), or null. */
+function findShipmentFulfillment(order) {
+  const fulfillments = Array.isArray(order?.fulfillments) ? order.fulfillments : [];
+  return fulfillments.find((f) => String(f?.type || '').toUpperCase() === 'SHIPMENT') || null;
+}
+
+/**
+ * Like POST /wix/fulfill-order and /squarespace/fulfill-order: loads tracking from FinerWorks
+ * GET_ORDER_STATUS, then marks the Square order shipped. Square has no separate fulfillment
+ * endpoint — the order itself is sparse-updated (PUT /v2/orders/{order_id} with the current
+ * `version`) setting a SHIPMENT fulfillment to COMPLETED with shipment_details tracking info.
+ *
+ * Body/query: account_key (required), order_id (Square order id), orderNumber (FinerWorks
+ * order_pos key). Optional: access_token override.
+ *
+ * Requires OAuth permission: ORDERS_WRITE.
+ */
+const fulfillSquareOrderWithTrackingInfo = async (req, res) => {
+  try {
+    const account_key =
+      req.body?.account_key ||
+      req.body?.accountKey ||
+      req.query?.account_key ||
+      req.query?.accountKey;
+
+    const access_token =
+      req.body?.access_token || req.query?.access_token || req.headers['x-square-access-token'];
+
+    const orderIdRaw =
+      req.body?.order_id || req.body?.orderId || req.query?.order_id || req.query?.orderId;
+
+    const orderNumberRaw =
+      req.body?.orderNumber ||
+      req.body?.order_number ||
+      req.body?.orderName ||
+      req.body?.order_name ||
+      req.query?.orderNumber ||
+      req.query?.order_number;
+
+    if (!account_key || !String(account_key).trim()) {
+      return sendApiError(res, 400, 'account_key is required');
+    }
+    if (!orderIdRaw || !String(orderIdRaw).trim()) {
+      return sendApiError(res, 400, 'Missing required parameter: order_id (Square order id)');
+    }
+    if (!orderNumberRaw || !String(orderNumberRaw).trim()) {
+      return sendApiError(
+        res,
+        400,
+        'Missing required parameter: orderNumber (used for FinerWorks GET_ORDER_STATUS)'
+      );
+    }
+
+    const orderId = String(orderIdRaw).trim();
+    const orderNumber = String(orderNumberRaw).trim();
+
+    const squareAuth = await resolveSquareAuth({ account_key, access_token });
+    if (!squareAuth?.accessToken) {
+      return sendApiError(
+        res,
+        401,
+        'Square credentials not configured. Connect Square for this account or pass access_token.'
+      );
+    }
+
+    const baseUrl = getSquareBaseUrl();
+    const { withAuthRetry } = createSquareAuthRetry(account_key, squareAuth);
+
+    const orderFetch = await fetchSquareOrderById({ baseUrl, withAuthRetry, orderId });
+    if (!orderFetch.ok) {
+      if (orderFetch.status === 404) {
+        return sendApiError(res, 404, `Square order not found for order_id: ${orderId}`, {
+          orderId,
+          ...orderFetch.squarePayload,
+        });
+      }
+      return sendApiError(
+        res,
+        orderFetch.status,
+        'Failed to load Square order before fulfillment',
+        orderFetch.squarePayload
+      );
+    }
+
+    const squareOrder = orderFetch.order;
+    if (!squareOrder) {
+      return sendApiError(res, 502, 'Square returned an empty order payload');
+    }
+
+    const selectOrderId = {
+      order_pos: [orderNumber],
+      account_key: String(account_key).trim(),
+    };
+
+    let orderStatusData = null;
+    try {
+      orderStatusData = await finerworksService.GET_ORDER_STATUS(selectOrderId);
+    } catch (error) {
+      const errorJson = JSON.stringify({
+        level: 'ERROR',
+        platform: 'square',
+        source: 'finerworks_api',
+        function: 'fulfillSquareOrderWithTrackingInfo',
+        account_key: req.body?.account_key || req.query?.account_key || 'unknown',
+        orderId,
+        orderNumber,
+        httpStatus: error?.response?.status || null,
+        message: `Failed to fetch order status from FinerWorks: ${error?.message || 'Unknown error'}`,
+        detail: error?.response?.data?.message || null,
+        timestamp: new Date().toISOString()
+      });
+      console.error(errorJson);
+      log('Formatted error in fulfillSquareOrderWithTrackingInfo: %s', errorJson);
+      return sendApiError(res, error);
+    }
+    console.log('shipment', orderStatusData)
+    const shipment = orderStatusData?.orders?.[0]?.shipments?.[0] || {};
+    const trackingNumber =
+      shipment?.tracking_number != null ? String(shipment.tracking_number).trim() : '';
+    const trackingUrlRaw =
+      shipment?.tracking_url != null ? String(shipment.tracking_url).trim() : '';
+    const carrierName = shipment?.carrier != null ? String(shipment.carrier).trim() : '';
+    const shippedAtIso = toIsoOrNull(shipment?.shipment_date);
+
+    if (!trackingNumber) {
+      return sendApiError(res, 400, 'Missing tracking number in FinerWorks shipment data');
+    }
+
+    const shipmentDetails = {
+      tracking_number: trackingNumber,
+      ...(carrierName ? { carrier: carrierName } : {}),
+      ...(trackingUrlRaw && /^https?:\/\//i.test(trackingUrlRaw)
+        ? { tracking_url: trackingUrlRaw }
+        : {}),
+      ...(shippedAtIso ? { shipped_at: shippedAtIso } : {}),
+    };
+
+    const existingShipment = findShipmentFulfillment(squareOrder);
+    const fulfillmentPatch = {
+      ...(existingShipment?.uid ? { uid: existingShipment.uid } : {}),
+      type: 'SHIPMENT',
+      state: 'COMPLETED',
+      shipment_details: shipmentDetails,
+    };
+
+    const updateBody = {
+      idempotency_key: crypto.randomUUID(),
+      order: {
+        location_id: squareOrder.location_id,
+        version: squareOrder.version,
+        fulfillments: [fulfillmentPatch],
+      },
+    };
+
+    const r = await withAuthRetry((h) =>
+      axios.put(`${baseUrl}/v2/orders/${encodeURIComponent(orderId)}`, updateBody, {
+        headers: h,
+        timeout: 120000,
+        validateStatus: () => true,
+      })
+    );
+
+    if (r.status < 200 || r.status >= 300) {
+      const st = r.status >= 400 && r.status < 600 ? r.status : 502;
+      return sendApiError(
+        res,
+        st,
+        'Failed to update Square order fulfillment',
+        summarizeSquareHttpError(r)
+      );
+    }
+
+    const updatedOrder = r?.data?.order ?? null;
+    const successLog = JSON.stringify({
+      level: 'INFO',
+      platform: 'square',
+      method: req.method,
+      api: req.originalUrl || req.url,
+      function: 'fulfillSquareOrderWithTrackingInfo',
+      operation: 'Square order fulfilled with tracking info successfully',
+      account_key: String(account_key).trim(),
+      result: {
+        orderId,
+        orderNumber,
+        fulfillmentUid: existingShipment?.uid || updatedOrder?.fulfillments?.[0]?.uid || null,
+        trackingNumber,
+        trackingUrl: shipmentDetails.tracking_url || null,
+        carrier: carrierName || null,
+        shippedAt: shippedAtIso,
+      },
+      timestamp: new Date().toISOString()
+    });
+    console.log('Success in fulfillSquareOrderWithTrackingInfo: %s', successLog);
+    log('Success in fulfillSquareOrderWithTrackingInfo: %s', successLog);
+    return res.status(200).json({
+      success: true,
+      message: 'Square order fulfilled with tracking info',
+      data: r.data,
+    });
+  } catch (err) {
+    const isSquareError =
+      err?.response?.config?.url?.includes('squareup') || err?.config?.url?.includes('squareup');
+    const isFinerworksError =
+      err?.response?.config?.url?.includes('finerworks.com') ||
+      err?.config?.url?.includes('finerworks.com');
+    const errorJson = JSON.stringify({
+      level: 'ERROR',
+      platform: 'square',
+      source: isSquareError ? 'square_api' : (isFinerworksError ? 'finerworks_api' : 'lambda'),
+      function: 'fulfillSquareOrderWithTrackingInfo',
+      account_key: req.body?.account_key || req.query?.account_key || 'unknown',
+      orderId: req.body?.order_id || req.body?.orderId || req.query?.order_id || 'unknown',
+      orderNumber: req.body?.orderNumber || req.query?.orderNumber || 'unknown',
+      httpStatus: err?.response?.status || null,
+      message: `Square order fulfillment failed: ${err?.message || 'Unknown error'}`,
+      detail: err?.response?.data?.message || err?.response?.data?.errors?.[0]?.detail || null,
+      timestamp: new Date().toISOString()
+    });
+    console.error(errorJson);
+    log('Formatted error in fulfillSquareOrderWithTrackingInfo: %s', errorJson);
+    return sendApiError(res, err);
+  }
+};
+
 module.exports = {
   getSquareOrders,
   getSquareOrderById,
+  fulfillSquareOrderWithTrackingInfo,
+  // Shared Square order helpers (used by the order.created webhook receiver)
+  createSquareAuthRetry,
+  fetchSquareOrderById,
 };

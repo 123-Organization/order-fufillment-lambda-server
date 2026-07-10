@@ -29,11 +29,30 @@ const {
   enrichOrderItemsWithProductGuids,
   buildSquarespaceFulfillmentWebhookUrl,
 } = require('../helpers/squarespace-order-webhook');
+const {
+  SQUARE_ORDER_SYNC_EVENT_TYPES,
+  getSquareWebhookAccessToken,
+  listSquareWebhookSubscriptions,
+  createSquareWebhookSubscription,
+  updateSquareWebhookSubscription,
+  findOrderSyncSubscription,
+  subscriptionHasEventTypes,
+} = require('../helpers/square-webhook-api');
+const {
+  buildSquareCatalogSkuMap,
+  transformSquareOrderToFinerWorksPayload,
+  enrichOrderItemsWithProductGuids: enrichSquareOrderItemsWithProductGuids,
+  buildSquareFulfillmentWebhookUrl,
+} = require('../helpers/square-order-webhook');
+const { findAccountKeyBySquareMerchantId } = require('../helpers/square-accounts-dynamo');
+const { getSquareBaseUrl } = require('./square-auth');
+const { resolveSquareAuth, summarizeSquareHttpError } = require('./square-products');
+const { createSquareAuthRetry, fetchSquareOrderById } = require('./square-orders');
 const debug = require('debug');
 const { sendApiError } = require('../helpers/api-error');
 const log = debug('app:platformOrderSync');
 
-const SUPPORTED_PLATFORMS = ['squarespace', 'wix', 'shopify'];
+const SUPPORTED_PLATFORMS = ['squarespace', 'wix', 'shopify', 'square'];
 
 const SHOPIFY_ORDER_CREATE_WEBHOOK = {
   topic: 'order/create',
@@ -203,6 +222,70 @@ async function disableSquarespaceOrderSync(account_key, subscriptionId) {
   });
 }
 
+function buildSquareOrderWebhookUrl() {
+  const apiBase = String(
+    process.env.SQUARE_ORDER_CREATE_WEBHOOK_URL || process.env.OFA_PUBLIC_API_BASE_URL || ''
+  )
+    .trim()
+    .replace(/\/$/, '');
+  if (!apiBase) {
+    return null;
+  }
+  // No account_key in the URL: the subscription is shared by all merchants of the app;
+  // the receiver resolves the tenant from the event's merchant_id.
+  return `${apiBase}/api/webhooks/square/order-create`;
+}
+
+/**
+ * Square webhook subscriptions are application-level (one subscription receives payment events
+ * for every merchant that authorized the app), so enabling ensures the shared subscription
+ * exists/is enabled with the payment.created/payment.updated event types (OFA only wants PAID
+ * orders — see SQUARE_ORDER_SYNC_EVENT_TYPES). Per-tenant on/off is the order_sync flag checked
+ * by the receiver — which is also why disabling a single tenant must NOT delete the subscription.
+ */
+async function enableSquareOrderSync() {
+  const endpointUrl = buildSquareOrderWebhookUrl();
+  if (!endpointUrl || !endpointUrl.toLowerCase().startsWith('https://')) {
+    const err = new Error(
+      'Square order webhook URL is not configured. Set SQUARE_ORDER_CREATE_WEBHOOK_URL or OFA_PUBLIC_API_BASE_URL (https).'
+    );
+    err.status = 500;
+    throw err;
+  }
+
+  const webhookToken = getSquareWebhookAccessToken();
+  if (!webhookToken) {
+    const err = new Error(
+      'Square webhook credentials not configured. Set SQUARE_WEBHOOK_ACCESS_TOKEN (application personal access token).'
+    );
+    err.status = 500;
+    throw err;
+  }
+
+  const existing = await listSquareWebhookSubscriptions(webhookToken);
+  let webhookSubscription = findOrderSyncSubscription(existing, endpointUrl);
+
+  if (!webhookSubscription) {
+    webhookSubscription = await createSquareWebhookSubscription(webhookToken, {
+      notificationUrl: endpointUrl,
+      eventTypes: SQUARE_ORDER_SYNC_EVENT_TYPES,
+      name: 'OFA order sync',
+    });
+  } else if (
+    webhookSubscription.enabled === false ||
+    !subscriptionHasEventTypes(webhookSubscription, SQUARE_ORDER_SYNC_EVENT_TYPES)
+  ) {
+    // Upgrades legacy order.created subscriptions to the payment event types in place.
+    webhookSubscription =
+      (await updateSquareWebhookSubscription(webhookToken, webhookSubscription.id, {
+        enabled: true,
+        event_types: SQUARE_ORDER_SYNC_EVENT_TYPES,
+      })) || webhookSubscription;
+  }
+
+  return { endpointUrl, webhookSubscription };
+}
+
 function validateShopifyShopDomain(storeName) {
   const shopDomain = normalizeShopDomain(storeName);
   if (!shopDomain || !shopDomain.match(/^[a-z0-9][a-z0-9-]*\.myshopify\.com$/)) {
@@ -338,6 +421,9 @@ function applyOrderSyncToConnection(conn, order_sync, dataPatch = {}) {
  * Squarespace: registers/deletes order.create webhook subscription and persists order_sync inside connection.data (JSON).
  * Shopify: registers/deletes orders/create webhook (requires storeName and access_token; webhook URL is fixed).
  * Wix: updates order_sync inside connection.data only (no webhook registration).
+ * Square: ensures the app-level payment.created/payment.updated webhook subscription exists on
+ *   enable (orders are pushed to OFA only once paid); disable only flips order_sync (the
+ *   subscription is shared across all merchants, so it is never deleted).
  */
 exports.setPlatformOrderSync = async (req, res) => {
   try {
@@ -425,6 +511,26 @@ exports.setPlatformOrderSync = async (req, res) => {
         syncMessage = shopifyWebhookResult.message;
         connections[idx] = applyOrderSyncToConnection(existingConn, false);
       }
+    } else if (connectionName === 'Square') {
+      if (order_sync) {
+        const result = await enableSquareOrderSync();
+        webhookSubscription = result.webhookSubscription;
+        syncMessage = 'Square payment webhook registered successfully (orders sync to OFA when paid)';
+        connections[idx] = applyOrderSyncToConnection(existingConn, true, {
+          webhook_subscription_id:
+            webhookSubscription?.id || existingData.webhook_subscription_id || null,
+          webhook_subscription_secret:
+            webhookSubscription?.signature_key ||
+            existingData.webhook_subscription_secret ||
+            null,
+          order_create_webhook_url: result.endpointUrl,
+        });
+      } else {
+        // App-level subscription stays registered for other merchants; the receiver
+        // ignores events for tenants whose order_sync flag is off.
+        syncMessage = 'Square order sync disabled';
+        connections[idx] = applyOrderSyncToConnection(existingConn, false);
+      }
     } else {
       connections[idx] = applyOrderSyncToConnection(existingConn, order_sync);
       syncMessage = order_sync
@@ -467,7 +573,9 @@ exports.setPlatformOrderSync = async (req, res) => {
     const isShopifyError = err?.response?.config?.url?.includes('myshopify.com') || err?.config?.url?.includes('myshopify.com');
     const isFinerworksError = err?.response?.config?.url?.includes('finerworks.com') || err?.config?.url?.includes('finerworks.com');
     const isWixError = err?.response?.config?.url?.includes('wixapis.com') || err?.config?.url?.includes('wixapis.com');
-    const errorSource = isSquarespaceError ? 'squarespace_api' : (isShopifyError ? 'shopify_api' : (isWixError ? 'wix_api' : (isFinerworksError ? 'finerworks_api' : 'lambda')));
+    // 'squareup' (not 'squareup.com') so the sandbox host connect.squareupsandbox.com also matches.
+    const isSquareError = err?.response?.config?.url?.includes('squareup') || err?.config?.url?.includes('squareup');
+    const errorSource = isSquarespaceError ? 'squarespace_api' : (isShopifyError ? 'shopify_api' : (isWixError ? 'wix_api' : (isSquareError ? 'square_api' : (isFinerworksError ? 'finerworks_api' : 'lambda'))));
     const errorJson = JSON.stringify({
       level: 'ERROR',
       platform: req.body?.platform || req.query?.platform || 'unknown',
@@ -652,6 +760,316 @@ exports.squarespaceOrderCreateWebhook = async (req, res) => {
     });
     console.error(errorJson);
     log('Formatted error in squarespaceOrderCreateWebhook: %s', errorJson);
+    return sendApiError(res, err);
+  }
+};
+
+/** Only push fully paid orders to OFA: at least one tender applied and nothing left due.
+ *  (A shipping order's state stays OPEN until fulfillment, so state is not a paid signal.) */
+function isSquareOrderFullyPaid(order) {
+  const tenders = Array.isArray(order?.tenders) ? order.tenders : [];
+  if (!tenders.length) return false;
+  const netDue = order?.net_amount_due_money?.amount;
+  if (netDue != null && Number(netDue) > 0) return false;
+  return true;
+}
+
+/**
+ * Square order-sync webhook receiver (app-level subscription registered when order_sync
+ * is enabled for any tenant).
+ *
+ * Subscribed to payment.created / payment.updated because OFA should only receive PAID
+ * orders (order.created fires before payment; also handled for legacy subscriptions).
+ * Payment events are ignored until payment.status === COMPLETED, and the loaded order is
+ * ignored until fully paid, so multi-payment orders submit once, at the final payment.
+ *
+ * Square events carry merchant_id + object ids only, with no per-tenant URL params — the
+ * tenant is resolved merchant_id → account_key via the square-accounts DynamoDB table.
+ * The full order is loaded from Square, line-item SKUs are resolved through the Catalog
+ * API (Square order line items don't carry SKUs), mapped to FinerWorks, and submitted
+ * with source=square and the /square/fulfill-order callback URL.
+ */
+exports.squareOrderCreateWebhook = async (req, res) => {
+  try {
+    log('Square order create webhook received', req.body?.type, req.query);
+
+    const eventType = req.body?.type != null ? String(req.body.type).trim() : '';
+    const isPaymentEvent = eventType === 'payment.created' || eventType === 'payment.updated';
+    if (eventType && !isPaymentEvent && eventType !== 'order.created') {
+      return res.status(200).json({
+        success: true,
+        ignored: true,
+        message: `Unsupported Square webhook event: ${eventType}`,
+      });
+    }
+
+    const merchantId = req.body?.merchant_id ? String(req.body.merchant_id).trim() : null;
+
+    let squareOrderId = null;
+    if (isPaymentEvent) {
+      const payment = req.body?.data?.object?.payment || {};
+      const paymentStatus = payment?.status != null ? String(payment.status).trim().toUpperCase() : '';
+      if (paymentStatus !== 'COMPLETED') {
+        return res.status(200).json({
+          success: true,
+          ignored: true,
+          message: `Square payment not completed yet (status: ${paymentStatus || 'unknown'})`,
+        });
+      }
+      squareOrderId = payment?.order_id || null;
+      if (!squareOrderId) {
+        // Payments not linked to an order (e.g. quick charge) have nothing to sync.
+        return res.status(200).json({
+          success: true,
+          ignored: true,
+          message: 'Square payment has no order_id; nothing to sync',
+        });
+      }
+    } else {
+      squareOrderId =
+        req.body?.data?.object?.order_created?.order_id ||
+        req.body?.data?.id ||
+        req.body?.order_id ||
+        null;
+    }
+
+    if (!squareOrderId || !String(squareOrderId).trim()) {
+      return sendApiError(
+        res,
+        400,
+        'Missing Square order id in webhook payload (data.object.payment.order_id)'
+      );
+    }
+
+    let account_key = req.query?.account_key || req.query?.accountKey || null;
+    if ((!account_key || !String(account_key).trim()) && merchantId) {
+      account_key = await findAccountKeyBySquareMerchantId(merchantId);
+    }
+
+    if (!account_key || !String(account_key).trim()) {
+      const logDataAccErr = JSON.stringify({
+        level: 'INFO',
+        platform: 'square',
+        method: req.method,
+        api: req.originalUrl || req.url,
+        function: 'squareOrderCreateWebhook',
+        operation: 'Webhook ignored — could not resolve account_key from merchant_id',
+        account_key: 'unknown',
+        result: { ignored: true, merchant_id: merchantId },
+        timestamp: new Date().toISOString()
+      });
+      log('%s', logDataAccErr);
+      console.log(logDataAccErr);
+      return res.status(200).json({
+        success: true,
+        ignored: true,
+        message: 'Could not resolve account_key for this Square merchant',
+        merchant_id: merchantId,
+      });
+    }
+
+    const { valid, error } = validateAccountKey(account_key);
+    if (!valid) {
+      return sendApiError(res, 400, error.message);
+    }
+
+    const trimmedKey = String(account_key).trim();
+
+    const getInformation = await finerworksService.GET_INFO({ account_key: trimmedKey });
+    const connections = getInformation?.user_account?.connections || [];
+    const conn = Array.isArray(connections)
+      ? connections.find((c) => c && c.name === 'Square')
+      : null;
+
+    if (!conn || !isOrderSyncEnabled(conn, 'Square')) {
+      return res.status(200).json({
+        success: true,
+        ignored: true,
+        message: 'Order sync is disabled for this Square connection',
+      });
+    }
+
+    const squareAuth = await resolveSquareAuth({ account_key: trimmedKey, access_token: null });
+    if (!squareAuth?.accessToken) {
+      return sendApiError(res, 401, 'Square credentials not configured for this account');
+    }
+
+    const baseUrl = getSquareBaseUrl();
+    const { withAuthRetry } = createSquareAuthRetry(trimmedKey, squareAuth);
+
+    const orderFetch = await fetchSquareOrderById({
+      baseUrl,
+      withAuthRetry,
+      orderId: String(squareOrderId).trim(),
+    });
+
+    if (!orderFetch.ok || !orderFetch.order) {
+      const status = orderFetch.status === 404 ? 404 : orderFetch.status || 502;
+      return sendApiError(res, status, 'Failed to fetch Square order details', {
+        orderId: String(squareOrderId),
+        ...(orderFetch.squarePayload || {}),
+      });
+    }
+
+    const squareOrder = orderFetch.order;
+
+    if (String(squareOrder?.state || '').toUpperCase() === 'CANCELED') {
+      return res.status(200).json({
+        success: true,
+        ignored: true,
+        message: 'Square order is canceled',
+        orderId: squareOrder.id,
+      });
+    }
+
+    if (!isSquareOrderFullyPaid(squareOrder)) {
+      const logDataUnpaid = JSON.stringify({
+        level: 'INFO',
+        platform: 'square',
+        method: req.method,
+        api: req.originalUrl || req.url,
+        function: 'squareOrderCreateWebhook',
+        operation: 'Webhook ignored — Square order not fully paid yet',
+        account_key: trimmedKey,
+        result: {
+          ignored: true,
+          orderId: squareOrder.id,
+          state: squareOrder?.state ?? null,
+          netAmountDue: squareOrder?.net_amount_due_money?.amount ?? null,
+          tendersCount: Array.isArray(squareOrder?.tenders) ? squareOrder.tenders.length : 0,
+        },
+        timestamp: new Date().toISOString()
+      });
+      log('%s', logDataUnpaid);
+      console.log(logDataUnpaid);
+      return res.status(200).json({
+        success: true,
+        ignored: true,
+        message: 'Square order is not fully paid yet; it will sync when payment completes',
+        orderId: squareOrder.id,
+      });
+    }
+
+    let shippingOptions = null;
+    try {
+      shippingOptions = await finerworksService.SHIPPING_OPTIONS_LIST();
+    } catch (shipErr) {
+      log('SHIPPING_OPTIONS_LIST failed: %s', shipErr?.message);
+    }
+
+    let skuByCatalogObjectId = null;
+    try {
+      skuByCatalogObjectId = await buildSquareCatalogSkuMap({
+        baseUrl,
+        withAuthRetry,
+        order: squareOrder,
+      });
+    } catch (catalogErr) {
+      const status = catalogErr?.response?.status || 502;
+      return sendApiError(
+        res,
+        status >= 400 && status < 600 ? status : 502,
+        'Failed to resolve Square catalog SKUs for order line items',
+        catalogErr?.response ? summarizeSquareHttpError(catalogErr.response) : {}
+      );
+    }
+
+    const transformedOrder = transformSquareOrderToFinerWorksPayload(squareOrder, {
+      skuByCatalogObjectId,
+      shippingOptions: shippingOptions?.shipping_options ?? shippingOptions,
+    });
+
+    if (!transformedOrder.order_items?.length) {
+      return res.status(200).json({
+        success: true,
+        ignored: true,
+        message: 'No FinerWorks line items (Square catalog SKU must start with AP)',
+        orderId: squareOrder.id,
+        order_po: transformedOrder.order_po,
+      });
+    }
+
+    transformedOrder.order_items = await enrichSquareOrderItemsWithProductGuids(
+      transformedOrder.order_items,
+      trimmedKey
+    );
+
+    const fulfillmentUrl = buildSquareFulfillmentWebhookUrl({
+      account_key: trimmedKey,
+      orderNumber: transformedOrder.order_po,
+      orderId: squareOrder.id,
+    });
+    if (fulfillmentUrl) {
+      transformedOrder.webhook_order_status_url = fulfillmentUrl;
+    }
+
+    const finalPayload = {
+      orders: [transformedOrder],
+      validate_only: false,
+      payment_token: process.env.SQUARE_WEBHOOK_PAYMENT_TOKEN || 'xxxx',
+      account_key: trimmedKey,
+    };
+
+    let submitData = null;
+    try {
+      log('Submitting Square order to FinerWorks order_po=%s', transformedOrder.order_po);
+      console.log('finalPayload==============>>>>>>>', finalPayload);
+      submitData = await finerworksService.SUBMIT_ORDERS(finalPayload);
+      console.log('submitData==============>>>>>>>', submitData);
+    } catch (submitErr) {
+      log('SUBMIT_ORDERS failed: %s', submitErr?.message);
+      const status = submitErr?.response?.status === 400 ? 400 : 502;
+      return sendApiError(res, status, 'Failed to submit Square order to FinerWorks', {
+        orderId: squareOrder.id,
+        orderNumber: transformedOrder.order_po,
+      });
+    }
+
+    const successLog = JSON.stringify({
+      level: 'INFO',
+      platform: 'square',
+      method: req.method,
+      api: req.originalUrl || req.url,
+      function: 'squareOrderCreateWebhook',
+      operation: 'Square order created and submitted to FinerWorks successfully',
+      account_key: trimmedKey,
+      result: {
+        orderId: squareOrder.id,
+        order_po: transformedOrder.order_po,
+        merchant_id: merchantId,
+        lineItemsCount: transformedOrder.order_items?.length ?? 0,
+      },
+      timestamp: new Date().toISOString()
+    });
+    console.log(successLog);
+    log('Success in squareOrderCreateWebhook: %s', successLog);
+    return res.status(200).json({
+      success: true,
+      submitted: true,
+      topic: eventType || 'order.created',
+      orderId: squareOrder.id,
+      order_po: transformedOrder.order_po,
+      account_key: trimmedKey,
+      submitData,
+    });
+  } catch (err) {
+    log('Square order create webhook failed', err);
+    const isSquareError = err?.response?.config?.url?.includes('squareup') || err?.config?.url?.includes('squareup');
+    const isFinerworksError = err?.response?.config?.url?.includes('finerworks.com') || err?.config?.url?.includes('finerworks.com');
+    const errorSource = isSquareError ? 'square_api' : (isFinerworksError ? 'finerworks_api' : 'lambda');
+    const errorJson = JSON.stringify({
+      level: 'ERROR',
+      platform: 'square',
+      source: errorSource,
+      function: 'squareOrderCreateWebhook',
+      account_key: req.query?.account_key || req.query?.accountKey || 'unknown',
+      httpStatus: err?.response?.status || null,
+      message: `Square order create webhook failed: ${err?.message || 'Unknown error'}`,
+      detail: err?.response?.data?.message || err?.response?.data?.errors?.[0]?.detail || null,
+      timestamp: new Date().toISOString()
+    });
+    console.error(errorJson);
+    log('Formatted error in squareOrderCreateWebhook: %s', errorJson);
     return sendApiError(res, err);
   }
 };
