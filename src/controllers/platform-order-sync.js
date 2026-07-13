@@ -791,7 +791,7 @@ function isSquareOrderFullyPaid(order) {
  */
 exports.squareOrderCreateWebhook = async (req, res) => {
   try {
-    log('Square order create webhook received', req.body?.type, req.query);
+    log('Square order create webhook received', req.body?.type, req.query, req.body);
 
     const eventType = req.body?.type != null ? String(req.body.type).trim() : '';
     const isPaymentEvent = eventType === 'payment.created' || eventType === 'payment.updated';
