@@ -191,7 +191,7 @@ function transformSquareOrderToFinerWorksPayload(
     ship_by_date: null,
     customs_tax_info: null,
     gift_message: null,
-    test_mode: false, // As per client's info we have set it to false.
+    test_mode: true, // As square is in development mode.
     webhook_order_status_url: null,
     document_url: null,
     acct_number_ups: null,
