@@ -108,7 +108,7 @@ Resources:
         - MyLambdaExecutionRole
         - Arn
       Runtime: nodejs18.x
-      CodeUri: s3://order-fullfilment-app-lambda-server/d76821543d1df8feee8b917b4cc26a53
+      CodeUri: s3://order-fullfilment-app-lambda-server/ac6c2f88b365822d2a8bb6300190bbac
       MemorySize: 3008
       Timeout: 900
       Environment:
@@ -439,7 +439,7 @@ Resources:
         - MyLambdaExecutionRole
         - Arn
       Runtime: nodejs18.x
-      CodeUri: s3://order-fullfilment-app-lambda-server/d76821543d1df8feee8b917b4cc26a53
+      CodeUri: s3://order-fullfilment-app-lambda-server/ac6c2f88b365822d2a8bb6300190bbac
       MemorySize: 3008
       Timeout: 900
       Environment:
@@ -778,7 +778,7 @@ Resources:
         - MyLambdaExecutionRole
         - Arn
       Runtime: nodejs18.x
-      CodeUri: s3://order-fullfilment-app-lambda-server/d76821543d1df8feee8b917b4cc26a53
+      CodeUri: s3://order-fullfilment-app-lambda-server/ac6c2f88b365822d2a8bb6300190bbac
       MemorySize: 3008
       Timeout: 900
       Environment:
@@ -849,6 +849,20 @@ Resources:
               Ref: MyApiGateway
             Method: POST
             Path: /api/square/order-by-id
+        SquareFulfillOrder:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: POST
+            Path: /api/square/fulfill-order
+        SquareOrderCreateWebhook:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: POST
+            Path: /api/webhooks/square/order-create
         SquareTokenRenewalSchedule:
           Type: Schedule
           Properties:
