@@ -71,7 +71,7 @@ exports.disconnectStoreBySlug = async (req, res) => {
         result: { disconnected: false, reason: 'not_found' },
         timestamp: new Date().toISOString()
       });
-      console.log(successLog);
+      // console.log(successLog);
       log('Success in disconnectStoreBySlug: %s', successLog);
       return res.status(200).json({
         success: true,
