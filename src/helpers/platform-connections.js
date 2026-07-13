@@ -3,6 +3,7 @@ const PLATFORM_TO_CONNECTION_NAME = {
   wix: 'Wix',
   shopify: 'Shopify',
   shippo: 'Shippo',
+  square: 'Square',
 };
 
 function normalizePlatform(input) {
