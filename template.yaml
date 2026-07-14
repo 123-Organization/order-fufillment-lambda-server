@@ -58,7 +58,7 @@ Resources:
                   - arn:aws:dynamodb:us-east-1:583574610515:table/squarespace-accounts
                   - arn:aws:dynamodb:us-east-1:583574610515:table/squarespace-accounts/index/*
   
-  OrderFullFillmentServerLessProdServer1:
+  OrderFullFillmentServerLessProdServer:
     Type: AWS::Serverless::Function
     Properties:
       FunctionName: OrderFulfillmentServerlessProdAgain1
@@ -340,7 +340,7 @@ Resources:
               Ref: ProdApiGateway
             Method: POST
             Path: /api/submit-orders-v2
-  OrderFullFillmentServerLessProdServerV22:
+  OrderFullFillmentServerLessProdServerV2:
     Type: AWS::Serverless::Function
     Properties:
       FunctionName: OrderFulfillmentServerlessProdV2Again2
@@ -512,7 +512,7 @@ Resources:
             RestApiId: !Ref ProdApiGateway
             Method: GET
             Path: "/api/squarespace/auth"
-  OrderFullFillmentServerLessProdServerAgainNew2:
+  OrderFullFillmentServerLessProdServerAgainNew:
     Type: AWS::Serverless::Function
     Properties:
       FunctionName: OrderFullFillmentServerLessProdServerAgainNew2
