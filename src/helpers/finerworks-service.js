@@ -279,7 +279,7 @@ exports.DELETE_PENDING_ORDER = async (payload) => {
  * @returns {Promise<Object>} - The response data from the API.
  */
 exports.LIST_PENDING_ORDERS = async (payload) => {
-  console.log("payload===",payload);
+  console.log("payload===", payload);
   const postData = await axios({
     method: 'POST',
     url: process.env.FINER_WORKS_URL + 'list_pending_orders',
@@ -312,3 +312,17 @@ exports.SHIPPING_OPTIONS_LIST = async (type) => {
   }
 };
 
+/**
+ * Lists account images (supports pagination payload keys when provided by callers).
+ * @param {Object} payload - Optional filter/pagination payload.
+ * @returns {Promise<Object>} - Response data from FinerWorks.
+ */
+exports.LIST_IMAGES = async (payload = {}) => {
+  const postData = await axios({
+    method: 'POST',
+    url: process.env.FINER_WORKS_URL + 'list_images',
+    headers: getHeaders(),
+    data: payload
+  });
+  return postData.data;
+};

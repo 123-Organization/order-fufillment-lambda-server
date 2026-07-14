@@ -1,0 +1,6 @@
+node_modules/
+.aws-sam/
+packaged.yaml
+coverage/
+dist/
+package-lock.json
