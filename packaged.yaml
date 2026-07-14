@@ -59,17 +59,17 @@ Resources:
             - arn:aws:dynamodb:us-east-1:583574610515:table/squarespace-accounts/index/*
     Metadata:
       SamResourceId: ProdLambdaExecutionRole
-  OrderFullFillmentServerLessProdServer1:
+  OrderFullFillmentServerLessProdServer:
     Type: AWS::Serverless::Function
     Properties:
-      FunctionName: OrderFulfillmentServerlessProdAgain1
+      FunctionName: OrderFulfillmentServerlessProdAgain
       Handler: lambda.handler
       Role:
         Fn::GetAtt:
         - ProdLambdaExecutionRole
         - Arn
       Runtime: nodejs18.x
-      CodeUri: s3://order-fullfilment-app-lambda-server/3de655feb3899e08baa779ad7c51a156
+      CodeUri: s3://orderfullfilmentprodbucketlambda/c50e714367a6294323a8a15a6714fe6c
       MemorySize: 3008
       Timeout: 900
       Environment:
@@ -351,18 +351,18 @@ Resources:
             Method: POST
             Path: /api/submit-orders-v2
     Metadata:
-      SamResourceId: OrderFullFillmentServerLessProdServer1
-  OrderFullFillmentServerLessProdServerV22:
+      SamResourceId: OrderFullFillmentServerLessProdServer
+  OrderFullFillmentServerLessProdServerV2:
     Type: AWS::Serverless::Function
     Properties:
-      FunctionName: OrderFulfillmentServerlessProdV2Again2
+      FunctionName: OrderFulfillmentServerlessProdV2Again
       Handler: lambda.handler
       Role:
         Fn::GetAtt:
         - ProdLambdaExecutionRole
         - Arn
       Runtime: nodejs18.x
-      CodeUri: s3://order-fullfilment-app-lambda-server/3de655feb3899e08baa779ad7c51a156
+      CodeUri: s3://orderfullfilmentprodbucketlambda/c50e714367a6294323a8a15a6714fe6c
       MemorySize: 3008
       Timeout: 900
       Environment:
@@ -546,18 +546,18 @@ Resources:
             Method: GET
             Path: /api/squarespace/auth
     Metadata:
-      SamResourceId: OrderFullFillmentServerLessProdServerV22
-  OrderFullFillmentServerLessProdServerAgainNew2:
+      SamResourceId: OrderFullFillmentServerLessProdServerV2
+  OrderFullFillmentServerLessProdServerAgainNew:
     Type: AWS::Serverless::Function
     Properties:
-      FunctionName: OrderFullFillmentServerLessProdServerAgainNew2
+      FunctionName: OrderFullFillmentServerLessProdServerAgainNew
       Handler: lambda.handler
       Role:
         Fn::GetAtt:
         - ProdLambdaExecutionRole
         - Arn
       Runtime: nodejs18.x
-      CodeUri: s3://order-fullfilment-app-lambda-server/3de655feb3899e08baa779ad7c51a156
+      CodeUri: s3://orderfullfilmentprodbucketlambda/c50e714367a6294323a8a15a6714fe6c
       MemorySize: 3008
       Timeout: 900
       Environment:
@@ -756,12 +756,12 @@ Resources:
             Method: POST
             Path: /api/squarespace/sync-products
     Metadata:
-      SamResourceId: OrderFullFillmentServerLessProdServerAgainNew2
+      SamResourceId: OrderFullFillmentServerLessProdServerAgainNew
   OrderFullFillmentServerLessDevServerLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
       LogGroupName:
-        Fn::Sub: /aws/lambda/${OrderFullFillmentServerLessProdServer1}
+        Fn::Sub: /aws/lambda/${OrderFullFillmentServerLessProdServer}
       RetentionInDays: 30
     Metadata:
       SamResourceId: OrderFullFillmentServerLessDevServerLogGroup
