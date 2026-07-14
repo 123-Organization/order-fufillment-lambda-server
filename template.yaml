@@ -61,7 +61,7 @@ Resources:
   OrderFullFillmentServerLessProdServer:
     Type: AWS::Serverless::Function
     Properties:
-      FunctionName: OrderFulfillmentServerlessProdAgain1
+      FunctionName: OrderFulfillmentServerlessProdAgain
       Handler: lambda.handler
       Role: !GetAtt ProdLambdaExecutionRole.Arn
       Runtime: nodejs18.x
@@ -343,7 +343,7 @@ Resources:
   OrderFullFillmentServerLessProdServerV2:
     Type: AWS::Serverless::Function
     Properties:
-      FunctionName: OrderFulfillmentServerlessProdV2Again2
+      FunctionName: OrderFulfillmentServerlessProdV2Again
       Handler: lambda.handler
       Role: !GetAtt ProdLambdaExecutionRole.Arn
       Runtime: nodejs18.x
@@ -515,7 +515,7 @@ Resources:
   OrderFullFillmentServerLessProdServerAgainNew:
     Type: AWS::Serverless::Function
     Properties:
-      FunctionName: OrderFullFillmentServerLessProdServerAgainNew2
+      FunctionName: OrderFullFillmentServerLessProdServerAgainNew
       Handler: lambda.handler
       Role: !GetAtt ProdLambdaExecutionRole.Arn
       Runtime: nodejs18.x
@@ -700,5 +700,5 @@ Resources:
   OrderFullFillmentServerLessDevServerLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
-      LogGroupName: !Sub /aws/lambda/${OrderFullFillmentServerLessProdServer1}
+      LogGroupName: !Sub /aws/lambda/${OrderFullFillmentServerLessProdServer}
       RetentionInDays: 30
