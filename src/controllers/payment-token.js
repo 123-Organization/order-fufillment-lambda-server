@@ -17,7 +17,7 @@ exports.getUserPaymentToken = async (req, res) => {
       const requestPayload = {
         payment_profile_id: payment_profile_id,
       };
-      console.log("requestPayload",requestPayload);
+      console.log("requestPayload", requestPayload);
       const getInformation = await finerworksService.GET_PAYMENT_TOKEN(
         requestPayload
       );
@@ -68,7 +68,7 @@ exports.getUserPaymentToken = async (req, res) => {
 exports.getCompanyInfo = async (req, res) => {
   try {
     // Prepare the request payload with only the necessary credentials
-   
+
     console.log("came herererererere")
     // Perform the API call
     const response = await finerworksService.GET_COMPANY_INFO();

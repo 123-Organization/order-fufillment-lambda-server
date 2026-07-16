@@ -9,7 +9,7 @@ const finerworksService = require("../helpers/finerworks-service");
 //     privateKey: 'c0a5b9010c6c7f80f9aa1be4e18c7986'
 // });
 
-// Helper function to handle Braintree errors. Might be used later for more detailed error handling.
+// Helper function to handle Braintree errors
 // const getErrorMessage = (error) => {
 //   if (error instanceof braintree.errors.AuthenticationError) return "Invalid API credentials.";
 //   if (error instanceof braintree.errors.AuthorizationError) return "Access denied.";
@@ -36,7 +36,6 @@ exports.getClientToken = async (req, res) => {
   try {
     gateway.clientToken.generate({}, (err, response) => {
       if (err) {
-        const isBraintreeError = true; // braintree gateway callback error
         const errorJson = JSON.stringify({
           level: 'ERROR',
           platform: 'braintree',
@@ -73,7 +72,6 @@ exports.getClientToken = async (req, res) => {
       }
     });
   } catch (error) {
-    console.log("error is", error);
     const errorJson = JSON.stringify({
       level: 'ERROR',
       platform: 'braintree',
@@ -153,7 +151,6 @@ exports.processVaultedPaymentToken = async (req, res) => {
       errors: errorMessages.length ? errorMessages : result.message,
     });
   } catch (error) {
-    log("error is", error);
     const errorJson = JSON.stringify({
       level: 'ERROR',
       platform: 'braintree',
@@ -225,16 +222,15 @@ exports.createCustomer = async (req, res) => {
       if (hasAnyValue(getInformation.user_account.billing_info)) {
         payloadForCompanyInformation.billing_info = getInformation.user_account.billing_info;
       }
-      console.log("getInformation=======>>>>>",getInformation);
+      console.log("getInformation=======>>>>>", getInformation);
       log("payloadForCompanyInformation", JSON.stringify(payloadForCompanyInformation));
-      console.log("payloadForCompanyInformation=======>>>>>",payloadForCompanyInformation);
+      console.log("payloadForCompanyInformation=======>>>>>", payloadForCompanyInformation);
 
       // Update company information
       const updateData = await finerworksService.UPDATE_INFO(payloadForCompanyInformation);
-      console.log("updateData=============>>>>>>>>>>>",updateData);
+      console.log("updateData=============>>>>>>>>>>>", updateData);
       log("check if data updates", JSON.stringify(updateData));
       log("Customer Id update in the api:", JSON.stringify(payloadForCompanyInformation));
-
       const successLog = JSON.stringify({
         level: 'INFO',
         platform: 'braintree',
@@ -318,7 +314,6 @@ exports.addPaymentCard = async (req, res) => {
             message: err,
           });
         } else if (result.success) {
-          log("result success", JSON.stringify(result));
           const successLog = JSON.stringify({
             level: 'INFO',
             platform: 'braintree',
@@ -347,7 +342,6 @@ exports.addPaymentCard = async (req, res) => {
       }
     );
   } catch (error) {
-    log("error is", error);
     const errorJson = JSON.stringify({
       level: 'ERROR',
       platform: 'braintree',
@@ -463,7 +457,7 @@ exports.removePaymentCard = async (req, res) => {
     });
     console.log(successLog);
     log('Success in removePaymentCard: %s', successLog);
-    return  res.status(200).json({
+    return res.status(200).json({
       status: true,
       message: "Successfully Removed Payment Method",
     });

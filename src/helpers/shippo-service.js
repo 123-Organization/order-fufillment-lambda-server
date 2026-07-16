@@ -3,7 +3,7 @@ const axios = require('axios');
 const SHIPPO_BASE_URL = 'https://api.goshippo.com';
 
 const getHeaders = (liveKey, testKey) => {
-  if(!liveKey) {
+  if (!liveKey) {
     throw new Error('Live Key is required to determine the connection for Shippo requests.');
   }
   const apiKey = String(process.env.SHIPPO_MODE || 'live').toLowerCase() === 'test' ? testKey : liveKey;

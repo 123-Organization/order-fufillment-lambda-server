@@ -105,7 +105,7 @@ const getSquarespaceOrders = async (req, res) => {
         : { count: orders.length, firstOrderIds: orders.slice(0, 5).map(o => o?.id) },
       timestamp: new Date().toISOString()
     });
-    console.log('Success in getSquarespaceOrders: %s',successLog);
+    console.log('Success in getSquarespaceOrders: %s', successLog);
     log('Success in getSquarespaceOrders: %s', successLog);
     return res.status(200).json({
       success: true,

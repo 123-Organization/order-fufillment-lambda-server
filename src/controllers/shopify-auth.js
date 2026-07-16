@@ -1,9 +1,9 @@
 const axios = require('axios');
 const crypto = require('crypto');
-const finerworksService = require('../helpers/finerworks-service');
-const { sendApiError } = require('../helpers/api-error');
+const finerworksService = require("../helpers/finerworks-service");
 const debug = require('debug');
 const log = debug('app:shopifyAuth');
+const { sendApiError } = require('../helpers/api-error');
 
 require('dotenv').config();
 
@@ -15,7 +15,7 @@ const validateHmac = (query) => {
   // Sort and combine the remaining parameters
   const sortedParams = Object.keys(restParams)
     .sort()
-    .map((key) => `${key}=${restParams[key]}`)
+    .map(key => `${key}=${restParams[key]}`)
     .join('&');
 
   // Calculate HMAC using the app's secret key
@@ -25,7 +25,10 @@ const validateHmac = (query) => {
     .digest('hex');
 
   // Compare the calculated HMAC with the one from the query
-  return crypto.timingSafeEqual(Buffer.from(hmac), Buffer.from(calculatedHmac));
+  return crypto.timingSafeEqual(
+    Buffer.from(hmac),
+    Buffer.from(calculatedHmac)
+  );
 };
 
 const handleShopifyAuth = async (req, res) => {
@@ -33,27 +36,35 @@ const handleShopifyAuth = async (req, res) => {
     const { code, shop, hmac } = req.query;
 
     if (!code || !shop || !hmac) {
-      return sendApiError(res, 400, 'Missing required parameters');
+      return res.status(400).json({
+        success: false,
+        message: 'Missing required parameters'
+      });
     }
 
     // Validate the HMAC
     if (!validateHmac(req.query)) {
-      return sendApiError(res, 401, 'Invalid HMAC. Request could not be verified');
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid HMAC. Request could not be verified'
+      });
     }
 
     // Validate the shop domain
     if (!shop.match(/^[a-zA-Z0-9][a-zA-Z0-9-]*\.myshopify\.com$/)) {
-      return sendApiError(res, 400, 'Invalid shop domain');
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid shop domain'
+      });
     }
 
     const response = await axios.post(`https://${shop}/admin/oauth/access_token`, {
       client_id: process.env.SHOPIFY_CLIENT_ID,
       client_secret: process.env.SHOPIFY_CLIENT_SECRET,
-      code: code,
+      code: code
     });
 
     console.log('Shopify Access Token:', response.data.access_token);
-
     const successLog = JSON.stringify({
       level: 'INFO',
       platform: 'shopify',
@@ -69,9 +80,11 @@ const handleShopifyAuth = async (req, res) => {
     log('Success in handleShopifyAuth: %s', successLog);
     return res.status(200).json({
       success: true,
-      message: 'Authorization successful',
+      message: 'Authorization successful'
     });
+
   } catch (error) {
+    console.error('Shopify auth error:', error);
     const errorJson = JSON.stringify({
       level: 'ERROR',
       platform: 'shopify',
@@ -85,7 +98,10 @@ const handleShopifyAuth = async (req, res) => {
     });
     console.error(errorJson);
     log('Formatted error in handleShopifyAuth: %s', errorJson);
-    return sendApiError(res, error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to authorize with Shopify'
+    });
   }
 };
 
@@ -98,24 +114,26 @@ const handleShopifyCallback = async (req, res) => {
     delete queryParams.account_key;
     delete queryParams.timestamp;
     // delete queryParams.shop_info;
-    console.log('queryParams=======', queryParams);
+    console.log("queryParams=======", queryParams);
 
     const getInformation = await finerworksService.GET_INFO({ account_key: account_key });
-    console.log('getInformation=======', getInformation.user_account.connections);
+    console.log("getInformation=======", getInformation.user_account.connections);
     const connections = getInformation.user_account.connections;
     if (connections === null) {
       const payloadForCompanyInformation = {
+
         name: 'Shopify',
         id: queryParams.access_token,
-        data: JSON.stringify(queryParams),
+        data: JSON.stringify(queryParams)
+
       };
-      const connections2 = [];
+      const connections2 = []
       connections2.push(payloadForCompanyInformation);
       const payloadForCompanyInformationv2 = {
         account_key: account_key,
-        connections: connections2,
+        connections: connections2
       };
-      console.log('payloadForCompanyInformation=======>>>>', payloadForCompanyInformationv2);
+      console.log("payloadForCompanyInformation=======>>>>", payloadForCompanyInformationv2);
       await finerworksService.UPDATE_INFO(payloadForCompanyInformationv2);
       const newConnSuccessLog = JSON.stringify({
         level: 'INFO',
@@ -132,30 +150,34 @@ const handleShopifyCallback = async (req, res) => {
       log('Success in handleShopifyCallback: %s', newConnSuccessLog);
       return res.status(200).json({
         success: true,
-        message: 'Shopify connection added successfully',
+        message: 'Shopify connection added successfully'
       });
     }
-    const filteredConnections = connections.filter((conn) => conn.name === 'Shopify');
-    console.log('filteredConnections=======', filteredConnections);
+    const filteredConnections = connections.filter(conn => conn.name === 'Shopify');
+    console.log("filteredConnections=======", filteredConnections);
     if (filteredConnections.length > 0) {
-      const shopifyIndex = connections.findIndex((conn) => conn.name === 'Shopify');
+      const shopifyIndex = connections.findIndex(conn => conn.name === 'Shopify');
       if (shopifyIndex !== -1) {
         connections.splice(shopifyIndex, 1);
-        console.log('Removed Shopify connection:', connections);
+        console.log("Removed Shopify connection:", connections);
         await finerworksService.UPDATE_INFO({ account_key: account_key, connections: connections });
         const payloadForCompanyInformation = {
+
           name: 'Shopify',
           id: queryParams.access_token,
-          data: JSON.stringify(queryParams),
+          data: JSON.stringify(queryParams)
+
         };
         connections.push(payloadForCompanyInformation);
 
         const payloadForCompanyInformationv2 = {
           account_key: account_key,
-          connections: connections,
+          connections: connections
         };
-        console.log('payloadForCompanyInformation=======>>>>', payloadForCompanyInformationv2);
+        console.log("payloadForCompanyInformation=======>>>>", payloadForCompanyInformationv2);
         await finerworksService.UPDATE_INFO(payloadForCompanyInformationv2);
+
+
       }
       const existingConnSuccessLog = JSON.stringify({
         level: 'INFO',
@@ -172,21 +194,24 @@ const handleShopifyCallback = async (req, res) => {
       log('Success in handleShopifyCallback: %s', existingConnSuccessLog);
       return res.status(200).json({
         success: true,
-        message: 'Shopify connection already exists',
+        message: 'Shopify connection already exists'
       });
+
     } else {
       const payloadForCompanyInformation = {
+
         name: 'Shopify',
         id: queryParams.access_token,
-        data: JSON.stringify(queryParams),
+        data: JSON.stringify(queryParams)
+
       };
       connections.push(payloadForCompanyInformation);
 
       const payloadForCompanyInformationv2 = {
         account_key: account_key,
-        connections: connections,
+        connections: connections
       };
-      console.log('payloadForCompanyInformation=======>>>>', payloadForCompanyInformationv2);
+      console.log("payloadForCompanyInformation=======>>>>", payloadForCompanyInformationv2);
       await finerworksService.UPDATE_INFO(payloadForCompanyInformationv2);
       const addedConnSuccessLog = JSON.stringify({
         level: 'INFO',
@@ -203,9 +228,10 @@ const handleShopifyCallback = async (req, res) => {
       log('Success in handleShopifyCallback: %s', addedConnSuccessLog);
       return res.status(200).json({
         success: true,
-        message: 'Shopify connection added successfully',
+        message: 'Shopify connection added successfully'
       });
     }
+
 
     // Return all query parameters in the response
     // return res.status(200).json({
@@ -214,7 +240,9 @@ const handleShopifyCallback = async (req, res) => {
     //     queryParameters: queryParams,
     //     rawQuery: req.url.split('?')[1] || ''
     // });
+
   } catch (error) {
+    console.error('Shopify callback error:', error);
     const errorJson = JSON.stringify({
       level: 'ERROR',
       platform: 'shopify',
@@ -228,7 +256,11 @@ const handleShopifyCallback = async (req, res) => {
     });
     console.error(errorJson);
     log('Formatted error in handleShopifyCallback: %s', errorJson);
-    return sendApiError(res, error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to process Shopify callback',
+      error: error.message
+    });
   }
 };
 
@@ -238,7 +270,10 @@ const handleShopifyInstall = async (req, res) => {
 
     // Validate shop parameter
     if (!shop) {
-      return sendApiError(res, 400, 'Missing required parameter: shop');
+      return res.status(400).json({
+        success: false,
+        message: 'Missing required parameter: shop'
+      });
     }
 
     // Normalize shop domain (add .myshopify.com if not present)
@@ -249,35 +284,40 @@ const handleShopifyInstall = async (req, res) => {
 
     // Validate the shop domain format
     if (!shopDomain.match(/^[a-zA-Z0-9][a-zA-Z0-9-]*\.myshopify\.com$/)) {
-      return sendApiError(res, 400, 'Invalid shop domain format. Expected: shopname.myshopify.com');
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid shop domain format. Expected: shopname.myshopify.com'
+      });
     }
 
     // Check for required environment variables
     if (!process.env.SHOPIFY_CLIENT_ID) {
-      return sendApiError(res, 500, 'Shopify Client ID not configured');
+      return res.status(500).json({
+        success: false,
+        message: 'Shopify Client ID not configured'
+      });
     }
 
     // Generate a random state/nonce for CSRF protection
     const state = crypto.randomBytes(16).toString('hex');
 
     // Determine redirect URI (use callback endpoint or environment variable)
-    const redirectUri =
-      process.env.SHOPIFY_REDIRECT_URI || `${req.protocol}://${req.get('host')}/shopify/callback`;
+    const redirectUri = process.env.SHOPIFY_REDIRECT_URI ||
+      `${req.protocol}://${req.get('host')}/shopify/callback`;
 
     // Define required scopes (adjust based on your app's needs)
-    const scopes =
-      process.env.SHOPIFY_SCOPES || 'read_products,write_products,read_orders,write_orders';
+    const scopes = process.env.SHOPIFY_SCOPES || 'read_products,write_products,read_orders,write_orders';
 
     // Construct Shopify OAuth authorization URL
-    const authUrl =
-      `https://${shopDomain}/admin/oauth/authorize?` +
+    const authUrl = `https://${shopDomain}/admin/oauth/authorize?` +
       `client_id=${process.env.SHOPIFY_CLIENT_ID}&` +
       `scope=${encodeURIComponent(scopes)}&` +
       `redirect_uri=${encodeURIComponent(redirectUri)}&` +
       `state=${state}`;
-    console.log('authUrl==========', authUrl);
+    console.log("authUrl==========", authUrl);
     console.log(`Redirecting to Shopify OAuth for shop: ${shopDomain}`);
 
+    // Redirect user to Shopify authorization page
     const successLog = JSON.stringify({
       level: 'INFO',
       platform: 'shopify',
@@ -291,9 +331,10 @@ const handleShopifyInstall = async (req, res) => {
     });
     console.log(successLog);
     log('Success in handleShopifyInstall: %s', successLog);
-    // Redirect user to Shopify authorization page
     return res.redirect(authUrl);
+
   } catch (error) {
+    console.error('Shopify install error:', error);
     const errorJson = JSON.stringify({
       level: 'ERROR',
       platform: 'shopify',

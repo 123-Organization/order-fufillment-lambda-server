@@ -1,4 +1,4 @@
-;
+
 const finerworksService = require("../helpers/finerworks-service");
 const debug = require("debug");
 const log = debug("app:uploadOrders");
@@ -62,8 +62,12 @@ exports.viewAllOrders = async (req, res) => {
       const numB = parseInt(b.order_po.replace(/\D/g, ""), 10);
       return numA - numB;
     });
+<<<<<<< HEAD
+=======
 
-    
+>>>>>>> master
+
+
     if (allOrders.length === 0) {
       log("No orders found after processing for account ID:", accountId);
       return res.status(200).json({
@@ -96,6 +100,10 @@ exports.viewAllOrders = async (req, res) => {
     });
     console.log(successLog);
     log('Success in viewAllOrders: %s', successLog);
+<<<<<<< HEAD
+=======
+
+>>>>>>> master
     res.status(200).json({
       statusCode: 200,
       status: true,
@@ -125,6 +133,10 @@ exports.viewAllOrders = async (req, res) => {
     });
     console.error(errorJson);
     log('Formatted error in viewAllOrders: %s', errorJson);
+<<<<<<< HEAD
+=======
+
+>>>>>>> master
     res.status(500).json({
       statusCode: 500,
       status: false,
@@ -234,7 +246,7 @@ exports.updateOrderByProductSkuCode = async (req, res) => {
     const selectData = await finerworksService.SELECT_QUERY_FINERWORKS(
       selectPayload
     );
-    console.log("selectData=====>>>>>", selectData);
+    // console.log("selectData=====>>>>>", selectData);
 
     log("Order Data", JSON.stringify(selectData));
     if (selectData?.data.length === 0) {
@@ -246,7 +258,7 @@ exports.updateOrderByProductSkuCode = async (req, res) => {
     }
     const orderDetails = selectData.data[0];
     // If order exist then find the product details
-    const { skuCode, productCode, fromTheInventory, account_key } = reqBody;
+    const { skuCode, productCode, fromTheInventory, account_key, product_guid } = reqBody;
     const searchListVirtualInventoryParams = {};
     if (skuCode !== "") {
       searchListVirtualInventoryParams.sku_filter = [skuCode];
@@ -255,7 +267,7 @@ exports.updateOrderByProductSkuCode = async (req, res) => {
       searchListVirtualInventoryParams.product_code_filter = [productCode];
     }
     if (account_key) {
-      searchListVirtualInventoryParams.account_key = [account_key];
+      searchListVirtualInventoryParams.account_key = account_key;
     }
     log(
       "Request come to search product from virtual inventory for the payload",
@@ -277,7 +289,7 @@ exports.updateOrderByProductSkuCode = async (req, res) => {
           message: "SKU Code is already there",
         });
       }
-      console.log("searchListVirtualInventoryParams=====",searchListVirtualInventoryParams);
+      console.log("searchListVirtualInventoryParams=====", searchListVirtualInventoryParams);
       getProductDetails = await finerworksService.LIST_VIRTUAL_INVENTORY(
         searchListVirtualInventoryParams
       );
@@ -351,7 +363,7 @@ exports.updateOrderByProductSkuCode = async (req, res) => {
       };
 
       log("Product details from API", JSON.stringify(getProductDetails));
-      console.log("payload=====",payload);
+      console.log("payload=====", payload);
       getProductDetails = await finerworksService.GET_PRODUCTS_DETAILS(payload);
       log("Get product details", JSON.stringify(getProductDetails));
       console.log("getProductDetails", getProductDetails);
@@ -364,7 +376,7 @@ exports.updateOrderByProductSkuCode = async (req, res) => {
           product_qty: products?.[0]?.quantity ?? null,
           product_sku: products?.[0]?.sku ? products?.[0]?.sku : products?.[0]?.product_code,
           product_title: products?.[0]?.name ?? null,
-          product_guid: generateGUID(),
+          product_guid: product_guid ? product_guid : generateGUID(),
           template: null,
           custom_data_1: null,
           custom_data_2: null,
@@ -388,7 +400,7 @@ exports.updateOrderByProductSkuCode = async (req, res) => {
           fieldupdates: `FulfillmentData='${urlEncodedData}'`,
           where: `FulfillmentID=${reqBody.orderFullFillmentId}`,
         };
-        console.log("updatePayload=====",updatePayload);
+        console.log("updatePayload=====", updatePayload);
         const updateQueryExecute =
           await finerworksService.UPDATE_QUERY_FINERWORKS(updatePayload);
         if (updateQueryExecute) {
@@ -540,7 +552,6 @@ exports.updateOrderByValidProductSkuCode = async (req, res) => {
 
       }
     } else if (productCode) {
-      console.log("got the entry 12121212")
       const payload = {
         products: [{
           product_qty: 1,
@@ -617,6 +628,8 @@ exports.updateOrderByValidProductSkuCode = async (req, res) => {
     });
   }
 };
+
+
 
 function generateGUID() {
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
@@ -752,7 +765,6 @@ exports.createNewOrder = async (req, res) => {
       });
     }
   } catch (err) {
-    log("Error comes while creating a new order", JSON.stringify(err), err);
     const isFinerworksError = err?.response?.config?.url?.includes('finerworks.com') || err?.config?.url?.includes('finerworks.com');
     const errorJson = JSON.stringify({
       level: 'ERROR',
@@ -960,7 +972,6 @@ exports.submitOrders = async (req, res) => {
       log('Success in submitOrders: %s', successLog);
     }
   } catch (err) {
-    log("Error comes while submitting a new order", JSON.stringify(err), err);
     const isFinerworksError = err?.response?.config?.url?.includes('finerworks.com') || err?.config?.url?.includes('finerworks.com');
     const errorJson = JSON.stringify({
       level: 'ERROR',
@@ -988,7 +999,7 @@ exports.submitOrders = async (req, res) => {
 exports.submitOrdersV2 = async (req, res) => {
   try {
     const reqBody = JSON.parse(JSON.stringify(req.body));
-    if (!reqBody?.orders || !reqBody?.payment_token || !reqBody?.accountId || !reqBody?.account_key) {
+    if (!reqBody?.orders || !reqBody?.accountId || !reqBody?.account_key) {
       res.status(400).json({
         statusCode: 400,
         status: false,
@@ -1023,7 +1034,7 @@ exports.submitOrdersV2 = async (req, res) => {
       const finalPayload = {
         orders: finalOrders,
         validate_only: false,
-        payment_token,
+        payment_token: payment_token ? payment_token : '',
         account_key: account_key,
         accountId: accountId
       };
@@ -1100,7 +1111,6 @@ exports.submitOrdersV2 = async (req, res) => {
 
           return null;
         }).filter(Boolean); // Remove null entries (if any)
-
         const successLog = JSON.stringify({
           level: 'INFO',
           platform: 'finerworks',
@@ -1193,7 +1203,6 @@ exports.orderSubmitStatus = async (req, res) => {
       }
     }
   } catch (err) {
-    log("Error comes while creating a new order", JSON.stringify(err), err);
     const isFinerworksError = err?.response?.config?.url?.includes('finerworks.com') || err?.config?.url?.includes('finerworks.com');
     const errorJson = JSON.stringify({
       level: 'ERROR',
@@ -1369,7 +1378,6 @@ const callApiWithMissingOrders = async (missingOrders, platformName, res, domain
     const allOrderDetails = [];
 
     if (platformName === 'woocommerce') {
-      console.log("hererererererererererrrrrrrrrrrrrrrrrr", domainName);
       for (const order of missingOrders) {
         console.log("order======", order);
         try {
@@ -1534,9 +1542,12 @@ exports.disconnectAndProcess = async (req, res) => {
           message: "Deauthorize API endpoint is not configured in environment variables.",
         });
       }
-
-      internalApiResponse = await axios.post(apiEndpoint);
-      console.log("internalApiResponse=========>>>>>>", internalApiResponse);
+      try {
+        internalApiResponse = await axios.post(apiEndpoint);
+        console.log("internalApiResponse=========>>>>>>", internalApiResponse);
+      } catch (error) {
+        console.log("error=========>>>>>>", error);
+      }
 
       const getInformation = await finerworksService.GET_INFO({ account_key: client_id });
       console.log("getInformation==============>>>>>>>>>>", getInformation);
@@ -1546,6 +1557,7 @@ exports.disconnectAndProcess = async (req, res) => {
 
       // Filter out objects with name === "WooCommerce"
       const filteredConnections = connections.filter(conn => conn.name !== "WooCommerce");
+      console.log("filteredConnections====>>>>", filteredConnections);
 
       console.log("Filtered connections:", filteredConnections);
       const payloadForCompanyInformation = {
@@ -1573,6 +1585,19 @@ exports.disconnectAndProcess = async (req, res) => {
       });
     }
 
+    const successLog = JSON.stringify({
+      level: 'INFO',
+      platform: 'woocommerce',
+      method: req.method,
+      api: req.originalUrl || req.url,
+      function: 'disconnectAndProcess',
+      operation: 'Client deauthorized successfully',
+      account_key: req.body?.client_id || 'unknown',
+      result: { deauthorized: true },
+      timestamp: new Date().toISOString()
+    });
+    console.log(successLog);
+    log('Success in disconnectAndProcess: %s', successLog);
     // Success
     const successLog = JSON.stringify({
       level: 'INFO',
@@ -1681,7 +1706,10 @@ exports.connectAndProcess = async (req, res) => {
         };
         console.log("Updated payloadForCompanyInformation (Connection Exists):", payloadForCompanyInformation);
         await finerworksService.UPDATE_INFO(payloadForCompanyInformation);
+<<<<<<< HEAD
 
+=======
+>>>>>>> master
         const successLog = JSON.stringify({
           level: 'INFO',
           platform: 'woocommerce',
@@ -1717,7 +1745,10 @@ exports.connectAndProcess = async (req, res) => {
 
     // Update the connections with the payload
     await finerworksService.UPDATE_INFO(payloadForCompanyInformation);
+<<<<<<< HEAD
 
+=======
+>>>>>>> master
     const successLog = JSON.stringify({
       level: 'INFO',
       platform: 'woocommerce',
@@ -1731,6 +1762,10 @@ exports.connectAndProcess = async (req, res) => {
     });
     console.log(successLog);
     log('Success in connectAndProcess: %s', successLog);
+<<<<<<< HEAD
+=======
+
+>>>>>>> master
     return res.status(200).json({
       statusCode: 200,
       status: true,
@@ -1798,7 +1833,10 @@ exports.connectAndProcessOfa = async (req, res) => {
 
     const getInformation = await finerworksService.GET_INFO({ account_key: account_key });
     console.log("Fetched Information from Finerworks:", getInformation);
+<<<<<<< HEAD
 
+=======
+>>>>>>> master
     // Use getInformation.user_account for internal API payload
     const internalApiPayload = {
       user_account: getInformation.user_account // Pass user_account from the fetched information
@@ -1997,6 +2035,76 @@ exports.sendOrderDetails = async (req, res) => {
   }
 };
 
+exports.updateOrderItemImage = async (req, res) => {
+  try {
+    const reqBody = JSON.parse(JSON.stringify(req.body));
+
+    if (!reqBody.orderFullFillmentId) {
+      res.status(400).json({
+        statusCode: 400,
+        status: false,
+        message: "Orderfullfillment Id is required.",
+      });
+    }
+    if (!reqBody.product_sku) {
+      res.status(400).json({
+        statusCode: 400,
+        status: false,
+        message: "Sku code or Product Guid is required",
+      });
+    }
+
+    // Fetch first if order is exist
+    log(
+      "Request comes to get order details to update product details",
+      JSON.stringify(reqBody)
+    );
+    const selectPayload = {
+      query: `SELECT * FROM ${process.env.FINER_fwAPI_FULFILLMENTS_TABLE} WHERE  FulfillmentID=${reqBody.orderFullFillmentId} AND FulfillmentAccountID=${reqBody.accountId}`,
+    };
+    console.log("selectPayload=====>>>>>", selectPayload);
+    log("Select query to fetch the orders", JSON.stringify(selectPayload));
+    const selectData = await finerworksService.SELECT_QUERY_FINERWORKS(
+      selectPayload
+    );
+    console.log("selectData========>>>>>>>>", selectData.data[0]);
+
+    const CollectedorderDetails = selectData.data[0];
+    const previousOrder = urlDecodeJSON(CollectedorderDetails.FulfillmentData);
+    console.log("selectData========>>>>>>>>", previousOrder);
+    previousOrder.order_items.forEach(item => {
+      if (item.product_sku === reqBody.product_sku) {
+        item.product_image = reqBody.product_image;
+      }
+    });
+    console.log("previousOrder===============", previousOrder);
+
+    const urlEncodedData = urlEncodeJSON(previousOrder);
+    const updatePayload = {
+      tablename: process.env.FINER_fwAPI_FULFILLMENTS_TABLE,
+      fieldupdates: `FulfillmentData='${urlEncodedData}'`,
+      where: `FulfillmentID=${reqBody.orderFullFillmentId}`,
+    };
+    const updateQueryExecute =
+      await finerworksService.UPDATE_QUERY_FINERWORKS(updatePayload);
+
+    return res.status(200).json({
+      statusCode: 200,
+      status: true,
+      message: "Order item image updated successfully.",
+      data: previousOrder
+    });
+
+
+  } catch (err) {
+    const errorMessage = err.response.data;
+    res.status(400).json({
+      statusCode: 400,
+      status: false,
+      message: errorMessage,
+    });
+  }
+};
 
 
 
@@ -2166,7 +2274,13 @@ function urlDecodeJSON(data) {
 }
 function urlEncodeJSON(data) {
   const jsonString = JSON.stringify(data);
-  const encodedString = encodeURIComponent(jsonString);
+  // encodeURIComponent intentionally does NOT encode: ! ' ( ) *
+  // We must encode these too (especially `'`), because the result is embedded
+  // into SQL strings like FulfillmentData='...'
+  const encodedString = encodeURIComponent(jsonString).replace(
+    /[!'()*]/g,
+    (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`
+  );
   return encodedString;
 }
 

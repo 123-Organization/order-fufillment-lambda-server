@@ -75,8 +75,8 @@ const getShopShippingMarkupPercent = async (shopInput) => {
     const data = resp?.data;
     const percent =
       data?.success === true &&
-      data?.hasMarkup === true &&
-      String(data?.markup?.type).toLowerCase() === 'percent'
+        data?.hasMarkup === true &&
+        String(data?.markup?.type).toLowerCase() === 'percent'
         ? Number(data?.markup?.value)
         : null;
 
@@ -171,13 +171,13 @@ const mapInventoryProductToShopifyInput = (product) => {
     metafields:
       product?.product_guid != null && String(product.product_guid).trim() !== ''
         ? [
-            {
-              namespace: 'custom',
-              key: 'product_guid',
-              type: 'single_line_text_field',
-              value: String(product.product_guid).trim(),
-            },
-          ]
+          {
+            namespace: 'custom',
+            key: 'product_guid',
+            type: 'single_line_text_field',
+            value: String(product.product_guid).trim(),
+          },
+        ]
         : undefined,
   };
 
@@ -3218,18 +3218,18 @@ const buildFulfillmentMutation = (fulfillmentOrderId, lineItems, trackingInfo) =
   const fulfillmentLineItems =
     lineItems && lineItems.length > 0
       ? lineItems.map((item) => ({
-          id: item.lineItemId,
-          quantity: item.quantity || null,
-        }))
+        id: item.lineItemId,
+        quantity: item.quantity || null,
+      }))
       : null;
 
   // Build tracking info if provided
   const trackingInput = trackingInfo
     ? {
-        number: trackingInfo.number || null,
-        url: trackingInfo.url || null,
-        company: trackingInfo.company || null,
-      }
+      number: trackingInfo.number || null,
+      url: trackingInfo.url || null,
+      company: trackingInfo.company || null,
+    }
     : null;
 
   // If line items are specified, use them; otherwise fulfill all
@@ -4216,7 +4216,7 @@ const updateOrderReferenceNumbers = async (req, res) => {
         },
         timestamp: new Date().toISOString()
       });
-      console.log('Success in updateOrderReferenceNumbers: %s',successLog);
+      console.log('Success in updateOrderReferenceNumbers: %s', successLog);
       log('Success in updateOrderReferenceNumbers: %s', successLog);
     }
     return res.status(statusCode).json({
@@ -4989,11 +4989,11 @@ const syncShopifyProducts = async (req, res) => {
               // "Option does not exist" and prevents variant creation.
               optionValues: hasGroupedVariants
                 ? buildVariantOptionValues(
-                    src,
-                    Array.isArray(product?.productOptions)
-                      ? product.productOptions.map((o) => o && o.name).filter(Boolean)
-                      : undefined
-                  )
+                  src,
+                  Array.isArray(product?.productOptions)
+                    ? product.productOptions.map((o) => o && o.name).filter(Boolean)
+                    : undefined
+                )
                 : undefined,
             });
           }
@@ -5830,33 +5830,33 @@ const shopifyCarrierServiceCallback = async (req, res) => {
 
     const rates = Array.isArray(shippingOptions)
       ? shippingOptions.map((opt) => {
-          const methodName = opt.shipping_method || opt.name || 'Shipping';
-          const code =
-            opt.shipping_code ||
-            opt.shipping_class_code ||
-            opt.id ||
-            methodName.toLowerCase().replace(/\s+/g, '_');
+        const methodName = opt.shipping_method || opt.name || 'Shipping';
+        const code =
+          opt.shipping_code ||
+          opt.shipping_class_code ||
+          opt.id ||
+          methodName.toLowerCase().replace(/\s+/g, '_');
 
-          // `rate` is the shipping charge in major currency units (e.g., dollars)
-          const price = opt.rate || 0;
-          const basePriceMinor = Number(price);
-          const totalPriceMinor = Number.isFinite(basePriceMinor)
-            ? basePriceMinor * markupMultiplier
-            : 0;
+        // `rate` is the shipping charge in major currency units (e.g., dollars)
+        const price = opt.rate || 0;
+        const basePriceMinor = Number(price);
+        const totalPriceMinor = Number.isFinite(basePriceMinor)
+          ? basePriceMinor * markupMultiplier
+          : 0;
 
-          const description =
-            opt.transit_time && opt.carrier
-              ? `${opt.shipping_method} - ${opt.carrier} (${opt.transit_time})`
-              : opt.shipping_method || methodName;
+        const description =
+          opt.transit_time && opt.carrier
+            ? `${opt.shipping_method} - ${opt.carrier} (${opt.transit_time})`
+            : opt.shipping_method || methodName;
 
-          return {
-            service_name: methodName,
-            service_code: String(code),
-            total_price: String(Number.isFinite(totalPriceMinor) ? totalPriceMinor * 100 : 0),
-            currency,
-            description,
-          };
-        })
+        return {
+          service_name: methodName,
+          service_code: String(code),
+          total_price: String(Number.isFinite(totalPriceMinor) ? totalPriceMinor * 100 : 0),
+          currency,
+          description,
+        };
+      })
       : [];
 
     // Final response to Shopify / frontend
@@ -6513,23 +6513,23 @@ const clearShopifyGraphqlProductIdForSkus = async ({ accountKey, skus }) => {
 
       const item = current
         ? {
-            sku: current.sku,
-            asking_price: current.asking_price ?? 0,
-            name: current.name ?? 'Untitled',
-            description: current.description ?? '',
-            quantity_in_stock: current.quantity_in_stock ?? 0,
-            track_inventory: current.track_inventory ?? true,
-            third_party_integrations: {
-              ...(current.third_party_integrations || {}),
-              shopify_graphql_product_id: null,
-            },
-          }
+          sku: current.sku,
+          asking_price: current.asking_price ?? 0,
+          name: current.name ?? 'Untitled',
+          description: current.description ?? '',
+          quantity_in_stock: current.quantity_in_stock ?? 0,
+          track_inventory: current.track_inventory ?? true,
+          third_party_integrations: {
+            ...(current.third_party_integrations || {}),
+            shopify_graphql_product_id: null,
+          },
+        }
         : {
-            sku,
-            third_party_integrations: {
-              shopify_graphql_product_id: null,
-            },
-          };
+          sku,
+          third_party_integrations: {
+            shopify_graphql_product_id: null,
+          },
+        };
 
       const updatePayload = {
         virtual_inventory: [item],

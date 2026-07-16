@@ -204,50 +204,50 @@ const handleSquarespaceCallback = async (req, res) => {
     // Replace existing Squarespace connection (if any).
     const nextConnections = Array.isArray(connections)
       ? (() => {
-          const idx = connections.findIndex((c) => c && c.name === 'Squarespace');
-          const copy = JSON.parse(JSON.stringify(connections));
-          const previous = idx !== -1 ? copy[idx] : null;
-          let previousData = {};
-          if (previous?.data) {
-            try {
-              previousData =
-                typeof previous.data === 'string'
-                  ? JSON.parse(previous.data)
-                  : { ...previous.data };
-            } catch (_) {
-              previousData = {};
-            }
+        const idx = connections.findIndex((c) => c && c.name === 'Squarespace');
+        const copy = JSON.parse(JSON.stringify(connections));
+        const previous = idx !== -1 ? copy[idx] : null;
+        let previousData = {};
+        if (previous?.data) {
+          try {
+            previousData =
+              typeof previous.data === 'string'
+                ? JSON.parse(previous.data)
+                : { ...previous.data };
+          } catch (_) {
+            previousData = {};
           }
-          if (idx !== -1) copy.splice(idx, 1);
-          const mergedData = {
-            ...previousData,
-            ...tokenData,
-            redirect_uri: redirectUri,
-            state_nonce: stateObj?.nonce,
-            needs_reauth: false,
-          };
-          if (previous?.order_sync === true && mergedData.order_sync === undefined) {
-            mergedData.order_sync = true;
-          }
+        }
+        if (idx !== -1) copy.splice(idx, 1);
+        const mergedData = {
+          ...previousData,
+          ...tokenData,
+          redirect_uri: redirectUri,
+          state_nonce: stateObj?.nonce,
+          needs_reauth: false,
+        };
+        if (previous?.order_sync === true && mergedData.order_sync === undefined) {
+          mergedData.order_sync = true;
+        }
 
-          copy.push({
-            name: 'Squarespace',
-            // Keep the same pattern as Shopify: id stores access token.
-            id: tokenData.access_token,
-            data: JSON.stringify(mergedData),
-          });
-          return copy;
-        })()
+        copy.push({
+          name: 'Squarespace',
+          // Keep the same pattern as Shopify: id stores access token.
+          id: tokenData.access_token,
+          data: JSON.stringify(mergedData),
+        });
+        return copy;
+      })()
       : [
-          {
-            name: 'Squarespace',
-            id: tokenData.access_token,
-            data: JSON.stringify({
-              ...tokenData,
-              needs_reauth: false,
-            }),
-          },
-        ];
+        {
+          name: 'Squarespace',
+          id: tokenData.access_token,
+          data: JSON.stringify({
+            ...tokenData,
+            needs_reauth: false,
+          }),
+        },
+      ];
 
     await finerworksService.UPDATE_INFO({
       account_key,

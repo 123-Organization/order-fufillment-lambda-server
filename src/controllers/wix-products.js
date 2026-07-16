@@ -267,8 +267,8 @@ function buildAuthHeaders(wixAuth) {
     Authorization:
       wixAuth.authType === 'oauth'
         ? String(wixAuth.accessToken)
-            .trim()
-            .match(/^Bearer\s+/i)
+          .trim()
+          .match(/^Bearer\s+/i)
           ? String(wixAuth.accessToken).trim()
           : `Bearer ${String(wixAuth.accessToken).trim()}`
         : wixAuth.accessToken,
@@ -299,15 +299,15 @@ function buildProductRequestBody({ items, currency, multiVariant }) {
         ...(descHtml ? { plainDescription: descHtml } : {}),
         ...(imageUrls.length
           ? {
-              media: {
-                itemsInfo: {
-                  items: imageUrls.map((url) => ({
-                    url,
-                    altText: name,
-                  })),
-                },
+            media: {
+              itemsInfo: {
+                items: imageUrls.map((url) => ({
+                  url,
+                  altText: name,
+                })),
               },
-            }
+            },
+          }
           : {}),
         variantsInfo: {
           variants: [
@@ -363,15 +363,15 @@ function buildProductRequestBody({ items, currency, multiVariant }) {
       ...(descHtml ? { plainDescription: descHtml } : {}),
       ...(imageUrls.length
         ? {
-            media: {
-              itemsInfo: {
-                items: imageUrls.map((url) => ({
-                  url,
-                  altText: name,
-                })),
-              },
+          media: {
+            itemsInfo: {
+              items: imageUrls.map((url) => ({
+                url,
+                altText: name,
+              })),
             },
-          }
+          },
+        }
         : {}),
       options: [
         {

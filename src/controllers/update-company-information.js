@@ -19,7 +19,7 @@ const businessInfoSchema = Joi.object({
   province: Joi.string().optional().allow(null),
   zip_postal_code: Joi.string().required(),
   country_code: Joi.string().length(2).required(), // assuming country_code is a 2-character country code
-  phone: Joi.string().pattern(/^\d+$/).required(), // simple validation for numeric phone number
+  phone: Joi.string().required(), // simple validation for numeric phone number
   email: Joi.string().email().optional().allow(null), // allowing null or valid email
   address_order_po: Joi.string().optional().allow(null),
 });
@@ -34,79 +34,84 @@ const businessInfoSchema = Joi.object({
  */
 exports.updateCompanyInformation = async (req, res) => {
   try {
-      const reqBody = JSON.parse(JSON.stringify(req.body));
-      const payloadForCompanyInformation = {};
-      const accountKeyRegex = /^[a-f0-9]{8}-([a-f0-9]{4}-){3}[a-f0-9]{12}$/i;
-      if (!reqBody.account_key || !accountKeyRegex.test(reqBody.account_key)) {
+    const reqBody = JSON.parse(JSON.stringify(req.body));
+    const payloadForCompanyInformation = {};
+    const accountKeyRegex = /^[a-f0-9]{8}-([a-f0-9]{4}-){3}[a-f0-9]{12}$/i;
+    if (!reqBody.account_key || !accountKeyRegex.test(reqBody.account_key)) {
+      return res.status(400).json({
+        statusCode: 400,
+        status: false,
+        message: 'Invalid account key format. Must be a valid UUID.',
+      });
+    }
+
+    payloadForCompanyInformation.account_key = reqBody.account_key;
+
+    if (reqBody.business_info) {
+      // Validate the business_info object using Joi
+      const { error } = businessInfoSchema.validate(reqBody.business_info);
+
+      if (error) {
         return res.status(400).json({
           statusCode: 400,
           status: false,
-          message: 'Invalid account key format. Must be a valid UUID.',
+          message: error.details[0].message,
         });
       }
 
-      payloadForCompanyInformation.account_key = reqBody.account_key;
-
-      if (reqBody.business_info) {
-        // Validate the business_info object using Joi
-        const { error } = businessInfoSchema.validate(reqBody.business_info);
-
-        if (error) {
-            return res.status(400).json({
-                statusCode: 400,
-                status: false,
-                message: error.details[0].message,
-            });
-        }
-
-        payloadForCompanyInformation.business_info = reqBody.business_info;
+      payloadForCompanyInformation.business_info = reqBody.business_info;
     }
 
-      if (reqBody.billing_info) {
-          /** check for the validations for the billing_info */
-          payloadForCompanyInformation.billing_info = reqBody.billing_info;
-      }
-      if(reqBody.shipping_preferences){
-        payloadForCompanyInformation.shipping_preferences = reqBody.shipping_preferences;
-      }
-      /** Check for connections */
-      if(reqBody.connections){
-        payloadForCompanyInformation.connections = reqBody.connections;
-      }
+    if (reqBody.billing_info) {
+      /** check for the validations for the billing_info */
+      payloadForCompanyInformation.billing_info = reqBody.billing_info;
+    }
+    if (reqBody.shipping_preferences) {
+      payloadForCompanyInformation.shipping_preferences = reqBody.shipping_preferences;
+    }
+    /** Check for connections */
+    if (reqBody.connections) {
+      payloadForCompanyInformation.connections = reqBody.connections;
+    }
 
-      if(reqBody.logo_url){
-        payloadForCompanyInformation.logo_url = reqBody.logo_url;
-      }
+    if (reqBody.logo_url) {
+      payloadForCompanyInformation.logo_url = reqBody.logo_url;
+    }
 
-      const updateInformation = await finerworksService.UPDATE_INFO(payloadForCompanyInformation);
-      if(!updateInformation?.status){
-        res.status(400).json({
-          statusCode: 400,
-          status: false,
-          message: updateInformation.message,
-        });
-      }
-      if (updateInformation) {
-          const successLog = JSON.stringify({
-            level: 'INFO',
-            platform: 'finerworks',
-            method: req.method,
-            api: req.originalUrl || req.url,
-            function: 'updateCompanyInformation',
-            operation: 'Company information updated successfully',
-            account_key: req.body?.account_key || 'unknown',
-            result: { updated: true },
-            timestamp: new Date().toISOString()
-          });
-          console.log(successLog);
-          log('Success in updateCompanyInformation: %s', successLog);
-          res.status(200).json({
-              statusCode: 200,
-              status: true,
-              message: "company information has been updated successfully",
-              data: updateInformation?.user_account
-          });
-      }
+    if (reqBody.logo_data) {
+      payloadForCompanyInformation.logo_data = reqBody.logo_data;
+    }
+    console.log("payloadForCompanyInformation====", payloadForCompanyInformation);
+
+    const updateInformation = await finerworksService.UPDATE_INFO(payloadForCompanyInformation);
+    if (!updateInformation?.status) {
+      res.status(400).json({
+        statusCode: 400,
+        status: false,
+        message: updateInformation.message,
+      });
+    }
+    if (updateInformation) {
+      const successLog = JSON.stringify({
+        level: 'INFO',
+        platform: 'finerworks',
+        method: req.method,
+        api: req.originalUrl || req.url,
+        function: 'updateCompanyInformation',
+        operation: 'Company information updated successfully',
+        account_key: req.body?.account_key || 'unknown',
+        result: { updated: true },
+        timestamp: new Date().toISOString()
+      });
+      console.log(successLog);
+      log('Success in updateCompanyInformation: %s', successLog);
+      res.status(200).json({
+        statusCode: 200,
+        status: true,
+        message: "company information has been updated successfully",
+        data: updateInformation?.user_account
+      });
+    }
   } catch (error) {
     const isFinerworksError = error?.response?.config?.url?.includes('finerworks.com') || error?.config?.url?.includes('finerworks.com');
     const errorJson = JSON.stringify({
@@ -123,9 +128,9 @@ exports.updateCompanyInformation = async (req, res) => {
     console.error(errorJson);
     log('Formatted error in updateCompanyInformation: %s', errorJson);
     res.status(400).json({
-          statusCode: 400,
-          status: false,
-          message: error.response.data,
-      });
+      statusCode: 400,
+      status: false,
+      message: error.response.data,
+    });
   }
 };

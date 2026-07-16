@@ -292,7 +292,7 @@ async function createWixAccessTokenFromInstance({ instance_id }) {
   if (!clientId || !clientSecret) {
     const err = new Error(
       'Wix App OAuth not configured. For Wix Apps (site-level access), Wix requires WIX_CLIENT_ID + WIX_CLIENT_SECRET and an instance_id for the target site. ' +
-        'If you only have a clientId, that typically refers to Wix Headless visitor OAuth, which is a different flow and does not grant site owner/store management access.'
+      'If you only have a clientId, that typically refers to Wix Headless visitor OAuth, which is a different flow and does not grant site owner/store management access.'
     );
     err.statusCode = 500;
     throw err;

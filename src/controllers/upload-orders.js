@@ -736,6 +736,108 @@ exports.uploadOrdersToLocalDatabase = async (req, res) => {
   }
 };
 
+exports.uploadOrdersToLocalDatabaseShopify = async (req, res) => {
+  try {
+    const reqBody = JSON.parse(JSON.stringify(req.body));
+    if (!reqBody?.orders) {
+      res.status(400).json({
+        statusCode: 400,
+        status: false,
+        message: "Bad Request. Orders are required.",
+      });
+    } else {
+      const uploadedFromAppName = reqBody.uploadedFrom ?? 'Finerworks';
+      const ordersToBeSubmitted = reqBody.orders;
+      const consolidatedOrdersData = consolidateOrderItems(ordersToBeSubmitted);
+      const payloadToBeSubmitted = {
+        orders: consolidatedOrdersData.orders,
+        validate_only: false,
+        payment_token: reqBody.payment_token,
+      };
+      const { orders } = payloadToBeSubmitted;
+
+      const selectPayload = {
+        query: `SELECT * FROM ${process.env.FINER_fwAPI_FULFILLMENTS_TABLE} WHERE FulfillmentAccountID=${reqBody.accountId} AND FulfillmentSubmitted=0 AND FulfillmentDeleted=0 AND FulfillmentAppName='${uploadedFromAppName}'`,
+      };
+      const selectData = await finerworksService.SELECT_QUERY_FINERWORKS(selectPayload);
+      const orderData = getFulfillmentData(selectData.data);
+
+      const existingOrderKeys = new Set(
+        orderData.map(row => {
+          return `${row.order_po}|${row.source}`;
+        })
+      );
+
+      for (const order of orders) {
+        const orderKey = `${order.order_po}|${order.source}`;
+        if (existingOrderKeys.has(orderKey)) {
+
+          console.log(`Skipping duplicate order_po ${order.order_po} for source ${uploadedFromAppName}`);
+          continue;
+        }
+        if (Array.isArray(order.order_items)) {
+          for (const item of order.order_items) {
+            if (item.product_qty === 0) {
+              item.product_qty = 1;
+            }
+          }
+        }
+        order.createdAt = new Date();
+        order.submittedAt = null;
+        // order.source = uploadedFromAppName;
+        const urlEncodedData = urlEncodeJSON(order);
+        const insertPayload = {
+          tablename: process.env.FINER_fwAPI_FULFILLMENTS_TABLE,
+          fields:
+            "FulfillmentAccountID, FulfillmentData, FulfillmentSubmitted, FulfillmentAppName ",
+          values: `'${reqBody.accountId}', '${urlEncodedData}', 0, '${uploadedFromAppName}'`,
+        };
+        log("insertPayload for the creation of the order in the local database", JSON.stringify(insertPayload));
+        const insertData = await finerworksService.INSERT_QUERY_FINERWORKS(
+          insertPayload
+        );
+        log("Response after submitted to the local database", JSON.stringify(insertData));
+        order.orderFullFillmentId = insertData.record_id;
+      }
+      const successLog = JSON.stringify({
+        level: 'INFO',
+        platform: 'finerworks',
+        method: req.method,
+        api: req.originalUrl || req.url,
+        function: 'uploadOrdersToLocalDatabase',
+        operation: 'Orders uploaded to local database successfully',
+        account_key: reqBody?.account_key || 'unknown',
+        result: { count: orders?.length || 0 },
+        timestamp: new Date().toISOString()
+      });
+      console.log(successLog);
+      log('Success in uploadOrdersToLocalDatabase: %s', successLog);
+      res.status(200).json({
+        statusCode: 200,
+        status: true,
+        message: "Orders have been submitted successfully",
+        data: orders,
+      });
+    }
+  } catch (err) {
+    console.log('error is', JSON.stringify(err), err);
+    const isFinerworksError = err?.response?.config?.url?.includes('finerworks.com') || err?.config?.url?.includes('finerworks.com');
+    const errorJson = JSON.stringify({
+      level: 'ERROR',
+      platform: 'finerworks',
+      source: isFinerworksError ? 'finerworks_api' : 'lambda',
+      function: 'uploadOrdersToLocalDatabase',
+      account_key: req.body?.account_key || 'unknown',
+      httpStatus: err?.response?.status || null,
+      message: `Failed to upload orders to local database: ${err?.message || 'Unknown error'}`,
+      detail: err?.response?.data?.message || err?.response?.data?.error || null,
+      timestamp: new Date().toISOString()
+    });
+    console.error(errorJson);
+    log('Formatted error in uploadOrdersToLocalDatabase: %s', errorJson);
+  }
+};
+
 
 function urlEncodeJSON(data) {
   const jsonString = JSON.stringify(data);
@@ -748,6 +850,13 @@ function consolidateOrderItems(ordersData) {
 
   ordersData.forEach((order) => {
     const orderPO = order.order_po;
+    if (order.recipient.country_code === 'US' || order.recipient.country_code === 'us') {
+      order.recipient.state_code = order.recipient.state_code;
+      order.recipient.province = '';
+    } else {
+      order.recipient.province = order.recipient.province;
+      order.recipient.state_code = '';
+    }
     if (!consolidatedOrders[orderPO]) {
       // If the order PO doesn't exist in consolidated orders, add it
       consolidatedOrders[orderPO] = { ...order };

@@ -29,25 +29,6 @@ const {
   enrichOrderItemsWithProductGuids,
   buildSquarespaceFulfillmentWebhookUrl,
 } = require('../helpers/squarespace-order-webhook');
-const {
-  SQUARE_ORDER_SYNC_EVENT_TYPES,
-  getSquareWebhookAccessToken,
-  listSquareWebhookSubscriptions,
-  createSquareWebhookSubscription,
-  updateSquareWebhookSubscription,
-  findOrderSyncSubscription,
-  subscriptionHasEventTypes,
-} = require('../helpers/square-webhook-api');
-const {
-  buildSquareCatalogSkuMap,
-  transformSquareOrderToFinerWorksPayload,
-  enrichOrderItemsWithProductGuids: enrichSquareOrderItemsWithProductGuids,
-  buildSquareFulfillmentWebhookUrl,
-} = require('../helpers/square-order-webhook');
-const { findAccountKeyBySquareMerchantId } = require('../helpers/square-accounts-dynamo');
-const { getSquareBaseUrl } = require('./square-auth');
-const { resolveSquareAuth, summarizeSquareHttpError } = require('./square-products');
-const { createSquareAuthRetry, fetchSquareOrderById } = require('./square-orders');
 const debug = require('debug');
 const { sendApiError } = require('../helpers/api-error');
 const log = debug('app:platformOrderSync');
@@ -60,23 +41,6 @@ const SHOPIFY_ORDER_CREATE_WEBHOOK = {
     'https://d7z22w3j4h.execute-api.us-east-1.amazonaws.com/Prod/api/webhooks/webhooks/orders-create',
   format: 'json',
 };
-
-function parseOrderSyncFlag(value) {
-  if (typeof value === 'boolean') return value;
-  if (value === 1 || value === '1' || value === 'true') return true;
-  if (value === 0 || value === '0' || value === 'false') return false;
-  return null;
-}
-
-function buildSquarespaceOrderWebhookUrl(account_key) {
-  const apiBase = String(process.env.SQUARESPACE_ORDER_CREATE_WEBHOOK_URL || '')
-    .trim()
-    .replace(/\/$/, '');
-  if (!apiBase) {
-    return null;
-  }
-  return `${apiBase}/api/webhooks/squarespace/order-create?account_key=${encodeURIComponent(account_key)}`;
-}
 
 async function refreshSquarespaceAccessToken(account_key, squarespaceData) {
   const refresh_token = squarespaceData?.refresh_token;
@@ -187,41 +151,6 @@ async function withSquarespaceAccessToken(account_key, fn) {
   }
 }
 
-async function enableSquarespaceOrderSync(account_key) {
-  const endpointUrl = buildSquarespaceOrderWebhookUrl(account_key);
-  if (!endpointUrl || !endpointUrl.toLowerCase().startsWith('https://')) {
-    const err = new Error(
-      'Squarespace order webhook URL is not configured. Set SQUARESPACE_ORDER_CREATE_WEBHOOK_URL or OFA_PUBLIC_API_BASE_URL (https).'
-    );
-    err.status = 500;
-    throw err;
-  }
-
-  let webhookSubscription = null;
-
-  await withSquarespaceAccessToken(account_key, async (accessToken) => {
-    const existing = await listSquarespaceWebhookSubscriptions(accessToken);
-    webhookSubscription = findOrderCreateSubscription(existing, endpointUrl);
-
-    if (!webhookSubscription) {
-      webhookSubscription = await createSquarespaceWebhookSubscription(accessToken, {
-        endpointUrl,
-        topics: ['order.create'],
-      });
-    }
-  });
-
-  return { endpointUrl, webhookSubscription };
-}
-
-async function disableSquarespaceOrderSync(account_key, subscriptionId) {
-  if (!subscriptionId) return;
-
-  await withSquarespaceAccessToken(account_key, async (accessToken) => {
-    await deleteSquarespaceWebhookSubscription(accessToken, subscriptionId);
-  });
-}
-
 function buildSquareOrderWebhookUrl() {
   const apiBase = String(
     process.env.SQUARE_ORDER_CREATE_WEBHOOK_URL || process.env.OFA_PUBLIC_API_BASE_URL || ''
@@ -294,6 +223,125 @@ function validateShopifyShopDomain(storeName) {
     throw err;
   }
   return shopDomain;
+}
+
+function parseOrderSyncFlag(value) {
+  if (typeof value === 'boolean') return value;
+  if (value === 1 || value === '1' || value === 'true') return true;
+  if (value === 0 || value === '0' || value === 'false') return false;
+  return null;
+}
+
+function buildSquarespaceOrderWebhookUrl(account_key) {
+  const apiBase = String(process.env.SQUARESPACE_ORDER_CREATE_WEBHOOK_URL || '')
+    .trim()
+    .replace(/\/$/, '');
+  if (!apiBase) {
+    return null;
+  }
+  return `${apiBase}/api/webhooks/squarespace/order-create?account_key=${encodeURIComponent(account_key)}`;
+}
+
+async function refreshSquarespaceAccessToken(account_key, squarespaceData) {
+  const refresh_token = squarespaceData?.refresh_token;
+  if (!refresh_token) {
+    const err = new Error('Squarespace refresh_token missing; reconnect the store');
+    err.status = 400;
+    throw err;
+  }
+
+  const clientId = process.env.SQUARESPACE_CLIENT_ID;
+  const clientSecret = process.env.SQUARESPACE_CLIENT_SECRET;
+  if (!clientId || !clientSecret) {
+    const err = new Error('Squarespace OAuth credentials not configured');
+    err.status = 500;
+    throw err;
+  }
+
+  const tokenUrl = 'https://login.squarespace.com/api/1/login/oauth/provider/tokens';
+  const basicAuth = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
+  const tokenResp = await axios.post(
+    tokenUrl,
+    {
+      grant_type: 'refresh_token',
+      refresh_token: String(refresh_token).trim(),
+    },
+    {
+      headers: {
+        Authorization: `Basic ${basicAuth}`,
+        'Content-Type': 'application/json',
+        'User-Agent': process.env.SQUARESPACE_USER_AGENT || 'ofa-node',
+      },
+      timeout: 20000,
+    }
+  );
+
+  const tokenData = tokenResp?.data || {};
+  if (!tokenData?.access_token) {
+    const err = new Error('Token refresh succeeded but access_token missing');
+    err.status = 400;
+    throw err;
+  }
+
+  const getInformation = await finerworksService.GET_INFO({ account_key });
+  const connections = cloneConnections(getInformation?.user_account?.connections);
+  const idx = findConnectionIndex(connections, 'Squarespace');
+  if (idx === -1) {
+    const err = new Error('Squarespace connection not found');
+    err.status = 400;
+    throw err;
+  }
+
+  const merged = {
+    ...squarespaceData,
+    ...tokenData,
+    refresh_token: tokenData.refresh_token || refresh_token,
+  };
+
+  connections[idx] = {
+    ...connections[idx],
+    name: 'Squarespace',
+    id: tokenData.access_token,
+    data: JSON.stringify(merged),
+  };
+
+  await finerworksService.UPDATE_INFO({ account_key, connections });
+  return { accessToken: tokenData.access_token, connections, connectionIndex: idx, data: merged };
+}
+
+async function enableSquarespaceOrderSync(account_key) {
+  const endpointUrl = buildSquarespaceOrderWebhookUrl(account_key);
+  if (!endpointUrl || !endpointUrl.toLowerCase().startsWith('https://')) {
+    const err = new Error(
+      'Squarespace order webhook URL is not configured. Set SQUARESPACE_ORDER_CREATE_WEBHOOK_URL or OFA_PUBLIC_API_BASE_URL (https).'
+    );
+    err.status = 500;
+    throw err;
+  }
+
+  let webhookSubscription = null;
+
+  await withSquarespaceAccessToken(account_key, async (accessToken) => {
+    const existing = await listSquarespaceWebhookSubscriptions(accessToken);
+    webhookSubscription = findOrderCreateSubscription(existing, endpointUrl);
+
+    if (!webhookSubscription) {
+      webhookSubscription = await createSquarespaceWebhookSubscription(accessToken, {
+        endpointUrl,
+        topics: ['order.create'],
+      });
+    }
+  });
+
+  return { endpointUrl, webhookSubscription };
+}
+
+async function disableSquarespaceOrderSync(account_key, subscriptionId) {
+  if (!subscriptionId) return;
+
+  await withSquarespaceAccessToken(account_key, async (accessToken) => {
+    await deleteSquarespaceWebhookSubscription(accessToken, subscriptionId);
+  });
 }
 
 async function enableShopifyOrderSync(req, existingData) {

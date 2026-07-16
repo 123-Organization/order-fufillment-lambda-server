@@ -22,8 +22,8 @@ function extractAccountKey(req) {
 
   const fromBody =
     req.body &&
-    typeof req.body === 'object' &&
-    !Buffer.isBuffer(req.body)
+      typeof req.body === 'object' &&
+      !Buffer.isBuffer(req.body)
       ? req.body.account_key ?? req.body.accountKey ?? null
       : null;
 

@@ -2,19 +2,16 @@ const { Router } = require('express');
 const asyncHandler = require('../middleware/async-handler');
 const { updateCompanyInformation } = require('./update-company-information');
 const { getCompanyInformation } = require('./get-company-information');
-const { getClientToken, addPaymentCard, createCustomer, getFullCustomerDetails, processVaultedPaymentToken,removePaymentCard } = require('./payment-information');
-const { validateOrders, validateSubmitOrders, uploadOrdersToLocalDatabase, updateOrder,uploadOrdersToLocalDatabaseFromExcel } = require('./upload-orders'); 
-const { listVirtualInventory,listVirtualInventoryV2, validateListVirtualInventory, validateUpdateVirtualInventory, updateVirtualInventory, validateSkus, deleteVirtualInventory, getProductBySku } = require('./virtual-inventory');
-const { validateAddProduct, addProduct, getProductDetails,increaseProductQuantity,exportToWoocomercev1,productTrashed,productRestored,productSkuUpdated } = require('./products-management');
-const { viewOrderDetails, viewAllOrders, updateOrderByProductSkuCode, createNewOrder, deleteOrder, orderSubmitStatus, getOrderPrice, submitOrders,submitOrdersV2,getOrderDetailsById,softDeleteOrders ,disconnectAndProcess,connectAndProcess,connectAndProcessOfa,disconnectProductsFromInventory,updateOrderByValidProductSkuCode,testAccountKey,checkDomain,sendOrderDetails} = require('./orders');
-const { listShippingOptions,listShippingOptionsV2,listShippingOptionsV3 } = require('./shipping-options');
-const { getUserPaymentToken,getCompanyInfo } = require('./payment-token');
-const {updateUserInformation}=require('./userInformation')
+const { getClientToken, addPaymentCard, createCustomer, getFullCustomerDetails, processVaultedPaymentToken, removePaymentCard } = require('./payment-information');
+const { validateOrders, validateSubmitOrders, uploadOrdersToLocalDatabase, uploadOrdersToLocalDatabaseShopify, updateOrder, uploadOrdersToLocalDatabaseFromExcel } = require('./upload-orders');
+const { listVirtualInventory, listVirtualInventoryV2, validateListVirtualInventory, validateUpdateVirtualInventory, updateVirtualInventory, validateSkus, deleteVirtualInventory, getProductBySku } = require('./virtual-inventory');
+const { validateAddProduct, addProduct, getProductDetails, increaseProductQuantity, exportToWoocomercev1, productTrashed, productRestored, productSkuUpdated } = require('./products-management');
+const { viewOrderDetails, viewAllOrders, updateOrderByProductSkuCode, createNewOrder, deleteOrder, orderSubmitStatus, getOrderPrice, submitOrders, submitOrdersV2, getOrderDetailsById, softDeleteOrders, disconnectAndProcess, connectAndProcess, connectAndProcessOfa, disconnectProductsFromInventory, updateOrderByValidProductSkuCode, testAccountKey, checkDomain, sendOrderDetails } = require('./orders');
+const { listShippingOptions, listShippingOptionsV2, listShippingOptionsV3 } = require('./shipping-options');
+const { getUserPaymentToken, getCompanyInfo } = require('./payment-token');
+const { updateUserInformation } = require('./userInformation');
 const { handleShopifyAuth, handleShopifyCallback, handleShopifyInstall, handleShopifyDisconnect, disconnectShopifyFromOfa } = require('./shopify-auth');
 const { handleSquarespaceAuth, handleSquarespaceCallback, refreshSquarespaceToken } = require('./squarespace-auth');
-const { handleSquareAuth, handleSquareCallback, refreshSquareToken, handleSquareDisconnect } = require('./square-auth');
-const { syncSquareProducts } = require('./square-products');
-const { getSquareOrders, getSquareOrderById, fulfillSquareOrderWithTrackingInfo } = require('./square-orders');
 const { connectWix, handleWixAuthStart, connectWixOAuth, handleWixOAuthInstallReturn, connectWixFromInstance } = require('./wix-auth');
 const { disconnectStoreBySlug } = require('./disconnect-store');
 const { syncWixProducts } = require('./wix-products');
@@ -30,7 +27,7 @@ const app = Router();
 
 // Health-check route wired to separate controller
 app.get('/health-check', healthCheck);
-app.put('/update-company-information',updateCompanyInformation);
+app.put('/update-company-information', updateCompanyInformation);
 app.get('/get-info', getCompanyInformation);
 app.get('/get-user-details', getCompanyInformation);
 app.get('/get-client-token', getClientToken);
@@ -42,11 +39,12 @@ app.post('/validate-orders', validateSubmitOrders, validateOrders);
 app.post('/get-order-price', getOrderPrice);
 app.post('/get-product-details', getProductDetails);
 app.post('/shipping-options', listShippingOptions);
-app.post('/list-virtual-inventory', validateListVirtualInventory, listVirtualInventory);
+app.post('/list-virtual-inventory', listVirtualInventory);
 app.put('/update-virtual-inventory', validateUpdateVirtualInventory, updateVirtualInventory);
 app.delete('/delete-virtual-inventory', validateSkus, deleteVirtualInventory);
 app.post('/add-product', validateAddProduct, addProduct);
 app.post('/upload-orders', uploadOrdersToLocalDatabase);
+app.post('/upload-orders-shopify', uploadOrdersToLocalDatabaseShopify);
 app.post('/view-all-orders', viewAllOrders);
 app.put('/update-orders', updateOrder);
 app.get('/get-product-by-sku/:sku', getProductBySku);
@@ -54,7 +52,7 @@ app.post('/view-order-details', viewOrderDetails);
 app.post('/update-order-by-product', updateOrderByProductSkuCode);
 app.post('/create-new-order', createNewOrder);
 app.delete('/delete-order', deleteOrder);
-app.delete('/submit-order', validateSubmitOrders,submitOrders);
+app.delete('/submit-order', validateSubmitOrders, submitOrders);
 app.post('/order-submit-status', orderSubmitStatus);
 app.get('/get-user-payment-tokens', getUserPaymentToken);
 app.post('/process-vaulted-payment', processVaultedPaymentToken);
@@ -133,10 +131,13 @@ app.post('/shippo/connect', asyncHandler(connectShippo));
 app.post('/shippo/status', asyncHandler(getShippoStatus));
 app.post('/shippo/orders', asyncHandler(fetchShippoOrders));
 
+app.post('/shippo/connect', asyncHandler(connectShippo));
+app.post('/shippo/status', asyncHandler(getShippoStatus));
+app.post('/shippo/orders', asyncHandler(fetchShippoOrders));
+
 // Shopify webhooks (called by Shopify)
 app.post('/webhooks/product-delete', asyncHandler(shopifyProductDeleteWebhook));
 app.post('/webhooks/orders-create', asyncHandler(shopifyOrdersCreateWebhook));
 app.post('/webhooks/squarespace/order-create', asyncHandler(squarespaceOrderCreateWebhook));
-app.post('/webhooks/square/order-create', asyncHandler(squareOrderCreateWebhook));
 
 module.exports = app;

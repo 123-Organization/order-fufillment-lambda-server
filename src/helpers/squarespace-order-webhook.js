@@ -185,11 +185,11 @@ async function enrichOrderItemsWithProductGuids(orderItems, account_key) {
           product_guid: guid,
           product_image: imageUrl
             ? {
-                pixel_width: 600,
-                pixel_height: 600,
-                product_url_file: imageUrl,
-                product_url_thumbnail: imageUrl,
-              }
+              pixel_width: 600,
+              pixel_height: 600,
+              product_url_file: imageUrl,
+              product_url_thumbnail: imageUrl,
+            }
             : placeholderProductImage(),
         };
       } catch (_) {

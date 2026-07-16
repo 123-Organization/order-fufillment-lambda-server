@@ -15,6 +15,17 @@ exports.listShippingOptions = async (req, res) => {
       });
     }
 
+    if (Array.isArray(req.body.orders)) {
+      req.body.orders = req.body.orders.map((item) => {
+        if (item.order_po.includes("WIX")) {
+          item.recipient.state_code = item.recipient.state_code.split("-")[1];
+        }
+        return {
+          ...item,
+        };
+      });
+    }
+
     const shippingOptions = await finerworksService.SHIPPING_OPTIONS_MULTIPLE(req.body);
 
     if (!shippingOptions || !shippingOptions.orders || shippingOptions.orders.length === 0) {
@@ -24,6 +35,19 @@ exports.listShippingOptions = async (req, res) => {
         message: "No shipping options found",
       });
     }
+    const successLog = JSON.stringify({
+      level: 'INFO',
+      platform: 'finerworks',
+      method: req.method,
+      api: req.originalUrl || req.url,
+      function: 'listShippingOptions',
+      operation: 'Shipping options fetched successfully',
+      account_key: req.body?.account_key || req.query?.account_key || 'unknown',
+      result: { count: shippingOptions.orders?.length || 0 },
+      timestamp: new Date().toISOString()
+    });
+    console.log(successLog);
+    log('Success in listShippingOptions: %s', successLog);
 
     const successLog = JSON.stringify({
       level: 'INFO',
@@ -44,7 +68,6 @@ exports.listShippingOptions = async (req, res) => {
       data: shippingOptions.orders,
     });
   } catch (err) {
-    console.error("Error fetching shipping options:", err);
     const isFinerworksError = err?.response?.config?.url?.includes('finerworks.com') || err?.config?.url?.includes('finerworks.com');
     const errorJson = JSON.stringify({
       level: 'ERROR',
@@ -80,7 +103,7 @@ exports.listShippingOptionsV2 = async (req, res) => {
         message: "Bad Request: Request body is missing",
       });
     }
-      // Correcting the map function to ensure 'order_po' and 'shipping_code' are set
+    // Correcting the map function to ensure 'order_po' and 'shipping_code' are set
     const orders = req.body.orders.map((item) => {
       return {
         ...item,
@@ -101,7 +124,6 @@ exports.listShippingOptionsV2 = async (req, res) => {
         message: "No shipping options found",
       });
     }
-
     const successLog = JSON.stringify({
       level: 'INFO',
       platform: 'finerworks',
@@ -156,7 +178,6 @@ exports.listShippingOptionsV3 = async (req, res) => {
         message: "No shipping options found",
       });
     }
-
     const successLog = JSON.stringify({
       level: 'INFO',
       platform: 'finerworks',
@@ -201,6 +222,6 @@ exports.listShippingOptionsV3 = async (req, res) => {
 };
 
 function generateRandomUniqueNumber() {
-    const randomNumber = Math.floor(10000 + Math.random() * 90000); // Generates a 5-digit number
-    return randomNumber;
+  const randomNumber = Math.floor(10000 + Math.random() * 90000); // Generates a 5-digit number
+  return randomNumber;
 }

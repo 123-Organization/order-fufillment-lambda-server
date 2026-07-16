@@ -582,8 +582,8 @@ function buildPricingPlanProductSku(entity) {
   if (fromEnv && String(fromEnv).trim()) return String(fromEnv).trim();
   const planId = entity?.planId
     ? String(entity.planId)
-        .replace(/[^A-Za-z0-9]/g, '')
-        .slice(0, 20)
+      .replace(/[^A-Za-z0-9]/g, '')
+      .slice(0, 20)
     : 'PLAN';
   return `AP-WIX-${planId}`;
 }
@@ -718,17 +718,17 @@ function transformWixOrderToFinerWorksPayload(order, { shippingOptions = null })
       product_sku: li?.physicalProperties?.sku ?? li?.sku ?? null,
       product_image: imageUrl
         ? {
-            pixel_width: li?.image?.width ?? 600,
-            pixel_height: li?.image?.height ?? 600,
-            product_url_file: imageUrl,
-            product_url_thumbnail: imageUrl,
-          }
+          pixel_width: li?.image?.width ?? 600,
+          pixel_height: li?.image?.height ?? 600,
+          product_url_file: imageUrl,
+          product_url_thumbnail: imageUrl,
+        }
         : {
-            pixel_width: 600,
-            pixel_height: 600,
-            product_url_file: 'https://via.placeholder.com/150',
-            product_url_thumbnail: 'https://via.placeholder.com/150',
-          },
+          pixel_width: 600,
+          pixel_height: 600,
+          product_url_file: 'https://via.placeholder.com/150',
+          product_url_thumbnail: 'https://via.placeholder.com/150',
+        },
       product_title:
         pickTranslatedString(li?.productName) ?? pickTranslatedString(li?.name) ?? null,
       template: null,

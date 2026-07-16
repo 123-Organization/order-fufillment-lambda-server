@@ -43,7 +43,6 @@ exports.handler = async (event, context) => {
             body: JSON.stringify({ ok: true, summary })
         };
     }
-
     return await serverlessApp(event, context);
 };
 // const port = 9001;

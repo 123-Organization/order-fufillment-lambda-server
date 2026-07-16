@@ -179,13 +179,13 @@ async function fetchAllOrdersBySearch({ wixAuth, buildFirstBodyFn }) {
       page === 0
         ? buildFirstBodyFn()
         : {
-            search: {
-              cursorPaging: {
-                limit: 100,
-                cursor,
-              },
+          search: {
+            cursorPaging: {
+              limit: 100,
+              cursor,
             },
-          };
+          },
+        };
 
     const r = await searchWixOrdersPage(wixAuth, searchPayload);
 
@@ -496,13 +496,13 @@ exports.getWixOrderByNumber = async (req, res) => {
 
     const orderNumRaw = coerceOrderNumberRaw(
       req.body?.order_number ??
-        req.body?.orderNumber ??
-        req.body?.orderName ??
-        req.body?.order_name ??
-        req.query?.order_number ??
-        req.query?.orderNumber ??
-        req.query?.orderName ??
-        null
+      req.body?.orderNumber ??
+      req.body?.orderName ??
+      req.body?.order_name ??
+      req.query?.order_number ??
+      req.query?.orderNumber ??
+      req.query?.orderName ??
+      null
     );
 
     if (!account_key || !String(account_key).trim()) {
@@ -515,9 +515,9 @@ exports.getWixOrderByNumber = async (req, res) => {
     const orderNumberList = isOrderNumArray ? normalizeOrderNumberArray(orderNumRaw) : null;
     const orderNumStrTrim =
       !isOrderNumArray &&
-      orderNumRaw !== undefined &&
-      orderNumRaw !== null &&
-      String(orderNumRaw).trim()
+        orderNumRaw !== undefined &&
+        orderNumRaw !== null &&
+        String(orderNumRaw).trim()
         ? String(orderNumRaw).trim()
         : null;
 
