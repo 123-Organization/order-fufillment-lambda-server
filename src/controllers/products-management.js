@@ -139,10 +139,6 @@ exports.getProductDetails = async (req, res) => {
       (sum, product) => sum + (product.total_price || 0),
       0
     );
-<<<<<<< HEAD
-
-=======
->>>>>>> master
     const successLog = JSON.stringify({
       level: 'INFO',
       platform: 'finerworks',
@@ -248,10 +244,6 @@ exports.increaseProductQuantity = async (req, res) => {
     const updateQueryExecute = await finerworksService.UPDATE_QUERY_FINERWORKS(
       updatePayload
     );
-<<<<<<< HEAD
-
-=======
->>>>>>> master
     const successLog = JSON.stringify({
       level: 'INFO',
       platform: 'finerworks',

@@ -12,6 +12,9 @@ const { getUserPaymentToken, getCompanyInfo } = require('./payment-token');
 const { updateUserInformation } = require('./userInformation');
 const { handleShopifyAuth, handleShopifyCallback, handleShopifyInstall, handleShopifyDisconnect, disconnectShopifyFromOfa } = require('./shopify-auth');
 const { handleSquarespaceAuth, handleSquarespaceCallback, refreshSquarespaceToken } = require('./squarespace-auth');
+const { handleSquareAuth, handleSquareCallback, refreshSquareToken, handleSquareDisconnect } = require('./square-auth');
+const { getSquareOrders, getSquareOrderById, fulfillSquareOrderWithTrackingInfo } = require('./square-orders');
+const { syncSquareProducts } = require('./square-products');
 const { connectWix, handleWixAuthStart, connectWixOAuth, handleWixOAuthInstallReturn, connectWixFromInstance } = require('./wix-auth');
 const { disconnectStoreBySlug } = require('./disconnect-store');
 const { syncWixProducts } = require('./wix-products');
@@ -139,5 +142,6 @@ app.post('/shippo/orders', asyncHandler(fetchShippoOrders));
 app.post('/webhooks/product-delete', asyncHandler(shopifyProductDeleteWebhook));
 app.post('/webhooks/orders-create', asyncHandler(shopifyOrdersCreateWebhook));
 app.post('/webhooks/squarespace/order-create', asyncHandler(squarespaceOrderCreateWebhook));
+app.post('/webhooks/square/order-create', asyncHandler(squareOrderCreateWebhook));
 
 module.exports = app;

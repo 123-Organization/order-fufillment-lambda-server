@@ -48,20 +48,6 @@ exports.listShippingOptions = async (req, res) => {
     });
     console.log(successLog);
     log('Success in listShippingOptions: %s', successLog);
-
-    const successLog = JSON.stringify({
-      level: 'INFO',
-      platform: 'finerworks',
-      method: req.method,
-      api: req.originalUrl || req.url,
-      function: 'listShippingOptions',
-      operation: 'Shipping options fetched successfully',
-      account_key: req.body?.account_key || req.query?.account_key || 'unknown',
-      result: { count: shippingOptions.orders?.length || 0 },
-      timestamp: new Date().toISOString()
-    });
-    console.log(successLog);
-    log('Success in listShippingOptions: %s', successLog);
     return res.status(200).json({
       statusCode: 200,
       status: true,

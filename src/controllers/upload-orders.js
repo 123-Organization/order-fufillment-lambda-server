@@ -851,10 +851,8 @@ function consolidateOrderItems(ordersData) {
   ordersData.forEach((order) => {
     const orderPO = order.order_po;
     if (order.recipient.country_code === 'US' || order.recipient.country_code === 'us') {
-      order.recipient.state_code = order.recipient.state_code;
       order.recipient.province = '';
     } else {
-      order.recipient.province = order.recipient.province;
       order.recipient.state_code = '';
     }
     if (!consolidatedOrders[orderPO]) {

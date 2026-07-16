@@ -1,8 +1,8 @@
 const server = require('./app');
 const serverless = require('serverless-http');
 const serverlessApp = serverless(server);
-const debug = require('debug');
-const log = debug('app:local');
+// const debug = require('debug');
+// const log = debug('app:local');
 const { runSquarespaceTokenRenewalJob } = require('./src/controllers/squarespace-auth');
 const { runSquareTokenRenewalJob } = require('./src/controllers/square-auth');
 

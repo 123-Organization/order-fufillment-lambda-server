@@ -62,10 +62,6 @@ exports.viewAllOrders = async (req, res) => {
       const numB = parseInt(b.order_po.replace(/\D/g, ""), 10);
       return numA - numB;
     });
-<<<<<<< HEAD
-=======
-
->>>>>>> master
 
 
     if (allOrders.length === 0) {
@@ -100,10 +96,6 @@ exports.viewAllOrders = async (req, res) => {
     });
     console.log(successLog);
     log('Success in viewAllOrders: %s', successLog);
-<<<<<<< HEAD
-=======
-
->>>>>>> master
     res.status(200).json({
       statusCode: 200,
       status: true,
@@ -133,10 +125,6 @@ exports.viewAllOrders = async (req, res) => {
     });
     console.error(errorJson);
     log('Formatted error in viewAllOrders: %s', errorJson);
-<<<<<<< HEAD
-=======
-
->>>>>>> master
     res.status(500).json({
       statusCode: 500,
       status: false,
@@ -1598,20 +1586,6 @@ exports.disconnectAndProcess = async (req, res) => {
     });
     console.log(successLog);
     log('Success in disconnectAndProcess: %s', successLog);
-    // Success
-    const successLog = JSON.stringify({
-      level: 'INFO',
-      platform: 'woocommerce',
-      method: req.method,
-      api: req.originalUrl || req.url,
-      function: 'disconnectAndProcess',
-      operation: 'Client deauthorized successfully',
-      account_key: req.body?.client_id || 'unknown',
-      result: { deauthorized: true },
-      timestamp: new Date().toISOString()
-    });
-    console.log(successLog);
-    log('Success in disconnectAndProcess: %s', successLog);
     return res.status(200).json({
       statusCode: 200,
       status: true,
@@ -1706,10 +1680,6 @@ exports.connectAndProcess = async (req, res) => {
         };
         console.log("Updated payloadForCompanyInformation (Connection Exists):", payloadForCompanyInformation);
         await finerworksService.UPDATE_INFO(payloadForCompanyInformation);
-<<<<<<< HEAD
-
-=======
->>>>>>> master
         const successLog = JSON.stringify({
           level: 'INFO',
           platform: 'woocommerce',
@@ -1745,10 +1715,6 @@ exports.connectAndProcess = async (req, res) => {
 
     // Update the connections with the payload
     await finerworksService.UPDATE_INFO(payloadForCompanyInformation);
-<<<<<<< HEAD
-
-=======
->>>>>>> master
     const successLog = JSON.stringify({
       level: 'INFO',
       platform: 'woocommerce',
@@ -1762,10 +1728,6 @@ exports.connectAndProcess = async (req, res) => {
     });
     console.log(successLog);
     log('Success in connectAndProcess: %s', successLog);
-<<<<<<< HEAD
-=======
-
->>>>>>> master
     return res.status(200).json({
       statusCode: 200,
       status: true,
@@ -1833,10 +1795,6 @@ exports.connectAndProcessOfa = async (req, res) => {
 
     const getInformation = await finerworksService.GET_INFO({ account_key: account_key });
     console.log("Fetched Information from Finerworks:", getInformation);
-<<<<<<< HEAD
-
-=======
->>>>>>> master
     // Use getInformation.user_account for internal API payload
     const internalApiPayload = {
       user_account: getInformation.user_account // Pass user_account from the fetched information
@@ -2085,8 +2043,8 @@ exports.updateOrderItemImage = async (req, res) => {
       fieldupdates: `FulfillmentData='${urlEncodedData}'`,
       where: `FulfillmentID=${reqBody.orderFullFillmentId}`,
     };
-    const updateQueryExecute =
-      await finerworksService.UPDATE_QUERY_FINERWORKS(updatePayload);
+
+    await finerworksService.UPDATE_QUERY_FINERWORKS(updatePayload);
 
     return res.status(200).json({
       statusCode: 200,
