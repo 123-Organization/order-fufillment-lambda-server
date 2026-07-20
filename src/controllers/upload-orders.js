@@ -881,7 +881,8 @@ const getFulfillmentData = (data) => {
 
     return {
       FulfillmentID: item.FulfillmentID,
-      order_po: fulfillmentDataJson.order_po
+      order_po: fulfillmentDataJson.order_po,
+      source: fulfillmentDataJson.source
     };
   });
 };

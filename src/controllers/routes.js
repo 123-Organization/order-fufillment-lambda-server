@@ -134,10 +134,6 @@ app.post('/shippo/connect', asyncHandler(connectShippo));
 app.post('/shippo/status', asyncHandler(getShippoStatus));
 app.post('/shippo/orders', asyncHandler(fetchShippoOrders));
 
-app.post('/shippo/connect', asyncHandler(connectShippo));
-app.post('/shippo/status', asyncHandler(getShippoStatus));
-app.post('/shippo/orders', asyncHandler(fetchShippoOrders));
-
 // Shopify webhooks (called by Shopify)
 app.post('/webhooks/product-delete', asyncHandler(shopifyProductDeleteWebhook));
 app.post('/webhooks/orders-create', asyncHandler(shopifyOrdersCreateWebhook));
