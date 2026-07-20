@@ -29,6 +29,19 @@ exports.getCompanyInformation = async (req, res) => {
         console.log(successLog);
         log('Success in getCompanyInformation: %s', successLog);
         if (getInformation) {
+            const successLog = JSON.stringify({
+                level: 'INFO',
+                platform: 'finerworks',
+                method: req.method,
+                api: req.originalUrl || req.url,
+                function: 'getCompanyInformation',
+                operation: 'Company information fetched successfully',
+                account_key: req.query?.account_key || 'unknown',
+                result: { hasData: !!getInformation?.user_account },
+                timestamp: new Date().toISOString()
+            });
+            console.log(successLog);
+            log('Success in getCompanyInformation: %s', successLog);
             res.status(200).json({
                 statusCode: 200,
                 status: true,

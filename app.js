@@ -27,10 +27,10 @@ function registerProcessErrorHooks() {
 
 registerProcessErrorHooks();
 app.use(cors({
-    origin: '*', // Allow requests from this origin
-    methods: ['*'], // Allow only specified methods
-    allowedHeaders: ['*'], // Allow only specified headers
-    credentials: true // Allow credentials (e.g., cookies)
+  origin: '*', // Allow requests from this origin
+  methods: ['*'], // Allow only specified methods
+  allowedHeaders: ['*'], // Allow only specified headers
+  credentials: true // Allow credentials (e.g., cookies)
 }));
 app.options('*', cors());
 
@@ -45,7 +45,7 @@ wixJwtBodyRouter.post('/webhooks/wix/order-create', wixJwtText, asyncHandler(han
 app.use('/api', wixJwtBodyRouter);
 
 app.use(express.json());
-app.use(express.urlencoded({extended: true}));
+app.use(express.urlencoded({ extended: true }));
 const apiRoutes = require('./src/controllers/routes');
 const server = http.createServer(app);
 app.use('/api', optionalAccountKeyValidator);
@@ -53,6 +53,6 @@ app.use('/api', apiRoutes);
 app.use(notFoundHandler);
 app.use(errorHandler);
 app.get('/', (req, res) => {
-    res.send('File Management App will run on this port');
-  })
+  res.send('File Management App will run on this port');
+})
 module.exports = server;

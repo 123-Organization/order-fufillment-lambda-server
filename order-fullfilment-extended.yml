@@ -241,7 +241,7 @@ Outputs:
     Value: !Sub "https://${MyApiGateway}.execute-api.${AWS::Region}.amazonaws.com/Prod"
     Export:
       Name: MyApiGatewayUrl
-
+  
   ApiGatewayId:
     Description: API Gateway ID
     Value: !Ref MyApiGateway

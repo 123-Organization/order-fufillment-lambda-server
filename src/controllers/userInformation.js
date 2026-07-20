@@ -68,4 +68,4 @@ exports.updateUserInformation = async (req, res) => {
       message: err?.response?.data,
     });
   }
-};  
+};

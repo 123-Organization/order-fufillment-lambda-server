@@ -323,6 +323,8 @@ const ordersSchema = Joi.object({
                         etsy_product_id: Joi.any().optional().allow(null),
                         shopify_product_id: Joi.any().optional().allow(null),
                         shopify_variant_id: Joi.any().optional().allow(null),
+                        square_product_id: Joi.any().optional().allow(null),
+                        square_variant_id: Joi.any().optional().allow(null),
                         squarespace_product_id: Joi.any().optional().allow(null),
                         squarespace_variant_id: Joi.any().optional().allow(null),
                         wix_inventory_id: Joi.any().optional().allow(null),
@@ -797,6 +799,19 @@ exports.uploadOrdersToLocalDatabaseShopify = async (req, res) => {
         log("Response after submitted to the local database", JSON.stringify(insertData));
         order.orderFullFillmentId = insertData.record_id;
       }
+      const successLog = JSON.stringify({
+        level: 'INFO',
+        platform: 'finerworks',
+        method: req.method,
+        api: req.originalUrl || req.url,
+        function: 'uploadOrdersToLocalDatabase',
+        operation: 'Orders uploaded to local database successfully',
+        account_key: reqBody?.account_key || 'unknown',
+        result: { count: orders?.length || 0 },
+        timestamp: new Date().toISOString()
+      });
+      console.log(successLog);
+      log('Success in uploadOrdersToLocalDatabase: %s', successLog);
       res.status(200).json({
         statusCode: 200,
         status: true,
@@ -806,6 +821,20 @@ exports.uploadOrdersToLocalDatabaseShopify = async (req, res) => {
     }
   } catch (err) {
     console.log('error is', JSON.stringify(err), err);
+    const isFinerworksError = err?.response?.config?.url?.includes('finerworks.com') || err?.config?.url?.includes('finerworks.com');
+    const errorJson = JSON.stringify({
+      level: 'ERROR',
+      platform: 'finerworks',
+      source: isFinerworksError ? 'finerworks_api' : 'lambda',
+      function: 'uploadOrdersToLocalDatabase',
+      account_key: req.body?.account_key || 'unknown',
+      httpStatus: err?.response?.status || null,
+      message: `Failed to upload orders to local database: ${err?.message || 'Unknown error'}`,
+      detail: err?.response?.data?.message || err?.response?.data?.error || null,
+      timestamp: new Date().toISOString()
+    });
+    console.error(errorJson);
+    log('Formatted error in uploadOrdersToLocalDatabase: %s', errorJson);
   }
 };
 
@@ -821,11 +850,9 @@ function consolidateOrderItems(ordersData) {
 
   ordersData.forEach((order) => {
     const orderPO = order.order_po;
-    if(order.recipient.country_code === 'US' || order.recipient.country_code === 'us') {
-      order.recipient.state_code = order.recipient.state_code;
+    if (order.recipient.country_code === 'US' || order.recipient.country_code === 'us') {
       order.recipient.province = '';
     } else {
-      order.recipient.province = order.recipient.province;
       order.recipient.state_code = '';
     }
     if (!consolidatedOrders[orderPO]) {
@@ -854,7 +881,8 @@ const getFulfillmentData = (data) => {
 
     return {
       FulfillmentID: item.FulfillmentID,
-      order_po: fulfillmentDataJson.order_po
+      order_po: fulfillmentDataJson.order_po,
+      source: fulfillmentDataJson.source
     };
   });
 };

@@ -48,7 +48,6 @@ exports.listShippingOptions = async (req, res) => {
     });
     console.log(successLog);
     log('Success in listShippingOptions: %s', successLog);
-
     return res.status(200).json({
       statusCode: 200,
       status: true,

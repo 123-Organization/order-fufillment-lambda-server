@@ -12,6 +12,9 @@ const { getUserPaymentToken, getCompanyInfo } = require('./payment-token');
 const { updateUserInformation } = require('./userInformation');
 const { handleShopifyAuth, handleShopifyCallback, handleShopifyInstall, handleShopifyDisconnect, disconnectShopifyFromOfa } = require('./shopify-auth');
 const { handleSquarespaceAuth, handleSquarespaceCallback, refreshSquarespaceToken } = require('./squarespace-auth');
+const { handleSquareAuth, handleSquareCallback, refreshSquareToken, handleSquareDisconnect } = require('./square-auth');
+const { getSquareOrders, getSquareOrderById, fulfillSquareOrderWithTrackingInfo } = require('./square-orders');
+const { syncSquareProducts } = require('./square-products');
 const { connectWix, handleWixAuthStart, connectWixOAuth, handleWixOAuthInstallReturn, connectWixFromInstance } = require('./wix-auth');
 const { disconnectStoreBySlug } = require('./disconnect-store');
 const { syncWixProducts } = require('./wix-products');
@@ -19,13 +22,12 @@ const { getWixOrders, getWixOrderByNumber, fulfillWixOrderWithTrackingInfo } = r
 const { getSquarespaceOrders, getSquarespaceOrderByNumber, validateSquarespaceAccessToken, fulfillSquareSpaceOrderWithTrackingInfo } = require('./squarespace-orders');
 const { getShopifyOrders, getShopifyOrderByName, fulfillShopifyOrder, updateOrderReferenceNumbers, updateOrderFulfillmentStatus, syncShopifyProducts, createShopifyCarrierService, listShopifyCarrierServices, deleteShopifyCarrierService, shopifyCarrierServiceCallback, registerShopifyWebhook, registerShopifyOrderCreateWebhook, listShopifyWebhooks, deleteShopifyWebhookById, shopifyProductDeleteWebhook, shopifyOrdersCreateWebhook, createUsCanadaShippingProfile } = require('./shopify-orders');
 const { syncSquarespaceProducts } = require('./squarespace-products');
-const { setPlatformOrderSync, squarespaceOrderCreateWebhook } = require('./platform-order-sync');
+const { setPlatformOrderSync, squarespaceOrderCreateWebhook, squareOrderCreateWebhook } = require('./platform-order-sync');
 const { connectShippo, getShippoStatus } = require('./shippo-auth');
 const { fetchShippoOrders } = require('./shippo-orders');
 const healthCheck = require('./health-check');
 const app = Router();
 
-// Simple health check endpoint
 // Health-check route wired to separate controller
 app.get('/health-check', healthCheck);
 app.put('/update-company-information', updateCompanyInformation);
@@ -86,6 +88,14 @@ app.get('/shopify/', asyncHandler(handleShopifyInstall));
 app.get('/squarespace/auth', asyncHandler(handleSquarespaceAuth));
 app.get('/squarespace/callback', asyncHandler(handleSquarespaceCallback));
 app.post('/squarespace/refresh-token', asyncHandler(refreshSquarespaceToken));
+app.get('/square/auth', asyncHandler(handleSquareAuth));
+app.get('/square/callback', asyncHandler(handleSquareCallback));
+app.post('/square/refresh-token', asyncHandler(refreshSquareToken));
+app.post('/square/disconnect', asyncHandler(handleSquareDisconnect));
+app.post('/square/sync-products', asyncHandler(syncSquareProducts));
+app.post('/square/orders', asyncHandler(getSquareOrders));
+app.post('/square/order-by-id', asyncHandler(getSquareOrderById));
+app.post('/square/fulfill-order', asyncHandler(fulfillSquareOrderWithTrackingInfo));
 app.post('/wix/connect', asyncHandler(connectWix));
 app.get('/wix/oauth/start', asyncHandler(handleWixAuthStart));
 app.get('/wix/oauth/install-return', asyncHandler(handleWixOAuthInstallReturn));
@@ -124,18 +134,10 @@ app.post('/shippo/connect', asyncHandler(connectShippo));
 app.post('/shippo/status', asyncHandler(getShippoStatus));
 app.post('/shippo/orders', asyncHandler(fetchShippoOrders));
 
-
-
-
-
-
-
-
-
-
 // Shopify webhooks (called by Shopify)
 app.post('/webhooks/product-delete', asyncHandler(shopifyProductDeleteWebhook));
 app.post('/webhooks/orders-create', asyncHandler(shopifyOrdersCreateWebhook));
 app.post('/webhooks/squarespace/order-create', asyncHandler(squarespaceOrderCreateWebhook));
+app.post('/webhooks/square/order-create', asyncHandler(squareOrderCreateWebhook));
 
 module.exports = app;

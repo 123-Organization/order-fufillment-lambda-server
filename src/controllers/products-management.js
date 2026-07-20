@@ -720,6 +720,353 @@ exports.productRestored = async (req, res) => {
 };
 
 
+exports.productTrashed = async (req, res) => {
+  try {
+    // Step 1: Extract the payload fields
+    const { clientId, account_key, name, product } = req.body;
+
+
+    // Step 2: Validate if clientId, account_key, product, and other necessary fields exist
+    if (!clientId || !account_key || !name || !product) {
+      return res.status(400).json({
+        statusCode: 400,
+        status: false,
+        message: "Missing required fields: clientId, account_key, id, name, or product",
+      });
+    }
+    const searchListVirtualInventoryParams = {};
+    if (product.sku !== "") {
+      searchListVirtualInventoryParams.sku_filter = [product.sku];
+    }
+    searchListVirtualInventoryParams.account_key = account_key
+    console.log("searchListVirtualInventoryParams==========+>>>>", searchListVirtualInventoryParams);
+    const getProductDetails = await finerworksService.LIST_VIRTUAL_INVENTORY(
+      searchListVirtualInventoryParams
+    );
+    console.log("getProductDetails===========", getProductDetails)
+    if (getProductDetails && getProductDetails.products && getProductDetails.products.length > 0) {
+      const productDetails = getProductDetails.products[0]; // Assuming you're using the first product returned
+
+      // Construct the payload
+      const finalPayload = {
+        virtual_inventory: [
+          {
+            sku: productDetails.sku,
+            asking_price: productDetails.asking_price || 0,
+            name: productDetails.name || "Untitled",
+            description: `<h4>${productDetails.name}</h4><ul>${productDetails.description_long || "No description available"}</ul>`,
+            quantity_in_stock: productDetails.quantity_in_stock || 0,
+            track_inventory: true,
+            third_party_integrations: {
+              etsy_product_id: 0,
+              shopify_product_id: 123456789, // Placeholder for the actual Shopify ID
+              shopify_variant_id: 24681012, // Placeholder for the actual Shopify Variant ID
+              squarespace_product_id: null,
+              squarespace_variant_id: null,
+              wix_inventory_id: null,
+              wix_product_id: null,
+              wix_variant_id: null,
+              woocommerce_product_id: 0,
+              woocommerce_variant_id: 0,
+            },
+          },
+        ],
+        account_key: account_key || null,
+      };
+      await finerworksService.UPDATE_VIRTUAL_INVENTORY(
+        finalPayload
+      );
+      console.log("finalPayload===========", finalPayload);
+      const successLog = JSON.stringify({
+        level: 'INFO',
+        platform: 'finerworks',
+        method: req.method,
+        api: req.originalUrl || req.url,
+        function: 'productTrashed',
+        operation: 'Product trashed and virtual inventory updated successfully',
+        account_key: account_key || 'unknown',
+        result: { sku: productDetails.sku },
+        timestamp: new Date().toISOString()
+      });
+      console.log(successLog);
+      log('Success in productTrashed: %s', successLog);
+      return res.status(200).json({
+        statusCode: 200,
+        status: true,
+        message: "Product successfully processed",
+        data: finalPayload,
+      })
+    } else {
+      return res.status(404).json({
+        statusCode: 404,
+        status: false,
+        message: "Product not found",
+      });
+    }
+
+  } catch (error) {
+    console.error("Error during product export:", error);
+    const isFinerworksError = error?.response?.config?.url?.includes('finerworks.com') || error?.config?.url?.includes('finerworks.com');
+    const errorJson = JSON.stringify({
+      level: 'ERROR',
+      platform: 'finerworks',
+      source: isFinerworksError ? 'finerworks_api' : 'lambda',
+      function: 'productTrashed',
+      account_key: req.body?.account_key || 'unknown',
+      httpStatus: error?.response?.status || null,
+      message: `Failed to process trashed product: ${error?.message || 'Unknown error'}`,
+      detail: error?.response?.data?.message || error?.response?.data?.error || null,
+      timestamp: new Date().toISOString()
+    });
+    console.error(errorJson);
+    log('Formatted error in productTrashed: %s', errorJson);
+    return res.status(500).json({
+      statusCode: 500,
+      status: false,
+      message: "Internal Server Error",
+      error: error?.message || "An unexpected error occurred",
+    });
+  }
+};
+
+
+exports.productSkuUpdated = async (req, res) => {
+  try {
+    // Step 1: Extract the payload fields
+    const { clientId, account_key, name, product } = req.body;
+
+    // Step 2: Validate if clientId, account_key, product, and other necessary fields exist
+    if (!clientId || !account_key || !name || !product) {
+      return res.status(400).json({
+        statusCode: 400,
+        status: false,
+        message: "Missing required fields: clientId, account_key, id, name, or product",
+      });
+    }
+    const searchListVirtualInventoryParams = {};
+    const searchListVirtualInventoryParamsNew = {};
+
+    if (product.old_sku !== "") {
+      searchListVirtualInventoryParams.sku_filter = [product.old_sku];
+    }
+    if (product.new_sku !== "") {
+      searchListVirtualInventoryParamsNew.sku_filter = [product.new_sku];
+    }
+    searchListVirtualInventoryParams.account_key = account_key
+    searchListVirtualInventoryParamsNew.account_key = account_key
+
+    const getProductDetails = await finerworksService.LIST_VIRTUAL_INVENTORY(
+      searchListVirtualInventoryParams
+    );
+
+    console.log("searchListVirtualInventoryParams=======>>>>>", searchListVirtualInventoryParams);
+    console.log("getProductDetails===========", getProductDetails)
+    const getProductDetailsNew = await finerworksService.LIST_VIRTUAL_INVENTORY(
+      searchListVirtualInventoryParamsNew
+    );
+    console.log("getProductDetails===========", getProductDetailsNew)
+    if (getProductDetailsNew.products.length > 0) {
+      return res.status(200).json({
+        statusCode: 200,
+        status: false,
+        message: "The product with the updated sku code is already present in the virtual inventory. Can't change the sku",
+      })
+    }
+    if (getProductDetails && getProductDetails.products && getProductDetails.products.length > 0) {
+      const productDetails = getProductDetails.products[0]; // Assuming you're using the first product returned
+
+      // Construct the payload
+      const finalPayload = {
+        virtual_inventory: [
+          {
+            sku: productDetails.sku,
+            asking_price: productDetails.asking_price || 0,
+            name: productDetails.name || "Untitled",
+            description: `<h4>${productDetails.name}</h4><ul>${productDetails.description_long || "No description available"}</ul>`,
+            quantity_in_stock: productDetails.quantity_in_stock || 0,
+            track_inventory: true,
+            third_party_integrations: {
+              etsy_product_id: 0,
+              shopify_product_id: 123456789, // Placeholder for the actual Shopify ID
+              shopify_variant_id: 24681012, // Placeholder for the actual Shopify Variant ID
+              squarespace_product_id: null,
+              squarespace_variant_id: null,
+              wix_inventory_id: null,
+              wix_product_id: null,
+              wix_variant_id: null,
+              woocommerce_product_id: 0,
+              woocommerce_variant_id: 0,
+            },
+          },
+        ],
+        account_key: account_key || null,
+      };
+      await finerworksService.UPDATE_VIRTUAL_INVENTORY(
+        finalPayload
+      );
+      console.log("finalPayload===========", finalPayload);
+      const successLog = JSON.stringify({
+        level: 'INFO',
+        platform: 'finerworks',
+        method: req.method,
+        api: req.originalUrl || req.url,
+        function: 'productSkuUpdated',
+        operation: 'Product SKU updated in virtual inventory successfully',
+        account_key: account_key || 'unknown',
+        result: { sku: productDetails.sku },
+        timestamp: new Date().toISOString()
+      });
+      console.log(successLog);
+      log('Success in productSkuUpdated: %s', successLog);
+      return res.status(200).json({
+        statusCode: 200,
+        status: true,
+        message: "Product successfully processed",
+        data: finalPayload,
+      })
+    } else {
+      return res.status(404).json({
+        statusCode: 404,
+        status: false,
+        message: "Product not found",
+      });
+    }
+
+  } catch (error) {
+    console.error("Error during product export:", error);
+    const isFinerworksError = error?.response?.config?.url?.includes('finerworks.com') || error?.config?.url?.includes('finerworks.com');
+    const errorJson = JSON.stringify({
+      level: 'ERROR',
+      platform: 'finerworks',
+      source: isFinerworksError ? 'finerworks_api' : 'lambda',
+      function: 'productSkuUpdated',
+      account_key: req.body?.account_key || 'unknown',
+      httpStatus: error?.response?.status || null,
+      message: `Failed to update product SKU: ${error?.message || 'Unknown error'}`,
+      detail: error?.response?.data?.message || error?.response?.data?.error || null,
+      timestamp: new Date().toISOString()
+    });
+    console.error(errorJson);
+    log('Formatted error in productSkuUpdated: %s', errorJson);
+    return res.status(500).json({
+      statusCode: 500,
+      status: false,
+      message: "Internal Server Error",
+      error: error?.message || "An unexpected error occurred",
+    });
+  }
+};
+
+
+exports.productRestored = async (req, res) => {
+  try {
+    // Step 1: Extract the payload fields
+    const { clientId, account_key, name, product } = req.body;
+
+    // Step 2: Validate if clientId, account_key, product, and other necessary fields exist
+    if (!clientId || !account_key || !name || !product) {
+      return res.status(400).json({
+        statusCode: 400,
+        status: false,
+        message: "Missing required fields: clientId, account_key, id, name, or product",
+      });
+    }
+    const searchListVirtualInventoryParams = {};
+    if (product.sku !== "") {
+      searchListVirtualInventoryParams.sku_filter = [product.sku];
+    }
+    searchListVirtualInventoryParams.account_key = account_key
+    const getProductDetails = await finerworksService.LIST_VIRTUAL_INVENTORY(
+      searchListVirtualInventoryParams
+    );
+    console.log("getProductDetails===========", getProductDetails)
+    if (getProductDetails && getProductDetails.products && getProductDetails.products.length > 0) {
+      const productDetails = getProductDetails.products[0]; // Assuming you're using the first product returned
+
+      // Construct the payload
+      const finalPayload = {
+        virtual_inventory: [
+          {
+            sku: productDetails.sku,
+            asking_price: productDetails.asking_price || 0,
+            name: productDetails.name || "Untitled",
+            description: `<h4>${productDetails.name}</h4><ul>${productDetails.description_long || "No description available"}</ul>`,
+            quantity_in_stock: productDetails.quantity_in_stock || 0,
+            track_inventory: true,
+            third_party_integrations: {
+              etsy_product_id: 0,
+              shopify_product_id: 123456789, // Placeholder for the actual Shopify ID
+              shopify_variant_id: 24681012, // Placeholder for the actual Shopify Variant ID
+              squarespace_product_id: null,
+              squarespace_variant_id: null,
+              wix_inventory_id: null,
+              wix_product_id: null,
+              wix_variant_id: null,
+              woocommerce_product_id: product.third_party_product_id,
+              woocommerce_variant_id: 0,
+            },
+          },
+        ],
+        account_key: account_key || null,
+      };
+      await finerworksService.UPDATE_VIRTUAL_INVENTORY(
+        finalPayload
+      );
+      console.log("finalPayload===========", finalPayload);
+      const successLog = JSON.stringify({
+        level: 'INFO',
+        platform: 'finerworks',
+        method: req.method,
+        api: req.originalUrl || req.url,
+        function: 'productRestored',
+        operation: 'Product restored and virtual inventory updated successfully',
+        account_key: account_key || 'unknown',
+        result: { sku: productDetails.sku },
+        timestamp: new Date().toISOString()
+      });
+      console.log(successLog);
+      log('Success in productRestored: %s', successLog);
+      return res.status(200).json({
+        statusCode: 200,
+        status: true,
+        message: "Product successfully processed",
+        data: finalPayload,
+      })
+    } else {
+      return res.status(404).json({
+        statusCode: 404,
+        status: false,
+        message: "Product not found",
+      });
+    }
+
+  } catch (error) {
+    console.error("Error during product export:", error);
+    const isFinerworksError = error?.response?.config?.url?.includes('finerworks.com') || error?.config?.url?.includes('finerworks.com');
+    const errorJson = JSON.stringify({
+      level: 'ERROR',
+      platform: 'finerworks',
+      source: isFinerworksError ? 'finerworks_api' : 'lambda',
+      function: 'productRestored',
+      account_key: req.body?.account_key || 'unknown',
+      httpStatus: error?.response?.status || null,
+      message: `Failed to restore product: ${error?.message || 'Unknown error'}`,
+      detail: error?.response?.data?.message || error?.response?.data?.error || null,
+      timestamp: new Date().toISOString()
+    });
+    console.error(errorJson);
+    log('Formatted error in productRestored: %s', errorJson);
+    return res.status(500).json({
+      statusCode: 500,
+      status: false,
+      message: "Internal Server Error",
+      error: error?.message || "An unexpected error occurred",
+    });
+  }
+};
+
+
+
 
 
 

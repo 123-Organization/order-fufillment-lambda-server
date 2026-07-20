@@ -2,7 +2,6 @@
 const finerworksService = require("../helpers/finerworks-service");
 const debug = require("debug");
 const log = debug("app:uploadOrders");
-const Joi = require("joi");
 const { validateOrderPayload } = require("./validate-order");
 const { randomUUID: uuidv4 } = require('crypto'); // Use Node's built-in crypto.randomUUID for UUID generation
 
@@ -97,7 +96,6 @@ exports.viewAllOrders = async (req, res) => {
     });
     console.log(successLog);
     log('Success in viewAllOrders: %s', successLog);
-
     res.status(200).json({
       statusCode: 200,
       status: true,
@@ -127,7 +125,6 @@ exports.viewAllOrders = async (req, res) => {
     });
     console.error(errorJson);
     log('Formatted error in viewAllOrders: %s', errorJson);
-
     res.status(500).json({
       statusCode: 500,
       status: false,
@@ -354,6 +351,7 @@ exports.updateOrderByProductSkuCode = async (req, res) => {
       };
 
       log("Product details from API", JSON.stringify(getProductDetails));
+      console.log("payload=====", payload);
       getProductDetails = await finerworksService.GET_PRODUCTS_DETAILS(payload);
       log("Get product details", JSON.stringify(getProductDetails));
       console.log("getProductDetails", getProductDetails);
@@ -390,6 +388,7 @@ exports.updateOrderByProductSkuCode = async (req, res) => {
           fieldupdates: `FulfillmentData='${urlEncodedData}'`,
           where: `FulfillmentID=${reqBody.orderFullFillmentId}`,
         };
+        console.log("updatePayload=====", updatePayload);
         const updateQueryExecute =
           await finerworksService.UPDATE_QUERY_FINERWORKS(updatePayload);
         if (updateQueryExecute) {
@@ -578,14 +577,6 @@ exports.updateOrderByValidProductSkuCode = async (req, res) => {
           pixel_width: reqBody.pixel_width ?? "",
           pixel_height: reqBody.pixel_height ?? "",
         }));
-
-        // if (previousOrder?.order_items) {
-        //   orderData.forEach((item, index) => {
-        //     previousOrder.order_items.push(item);
-        //   })
-        // }
-        // log("Previous order is", JSON.stringify(previousOrder));
-        // update order
 
         console.log("orderData====>>>>", orderData);
         console.log(previousOrder, "previousOrder");
@@ -1375,7 +1366,6 @@ const callApiWithMissingOrders = async (missingOrders, platformName, res, domain
     const allOrderDetails = [];
 
     if (platformName === 'woocommerce') {
-
       for (const order of missingOrders) {
         console.log("order======", order);
         try {
@@ -1596,7 +1586,6 @@ exports.disconnectAndProcess = async (req, res) => {
     });
     console.log(successLog);
     log('Success in disconnectAndProcess: %s', successLog);
-    // Success
     return res.status(200).json({
       statusCode: 200,
       status: true,
@@ -1739,7 +1728,6 @@ exports.connectAndProcess = async (req, res) => {
     });
     console.log(successLog);
     log('Success in connectAndProcess: %s', successLog);
-
     return res.status(200).json({
       statusCode: 200,
       status: true,
@@ -2055,8 +2043,8 @@ exports.updateOrderItemImage = async (req, res) => {
       fieldupdates: `FulfillmentData='${urlEncodedData}'`,
       where: `FulfillmentID=${reqBody.orderFullFillmentId}`,
     };
-    const updateQueryExecute =
-      await finerworksService.UPDATE_QUERY_FINERWORKS(updatePayload);
+
+    await finerworksService.UPDATE_QUERY_FINERWORKS(updatePayload);
 
     return res.status(200).json({
       statusCode: 200,
