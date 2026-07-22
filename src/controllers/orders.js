@@ -20,13 +20,13 @@ exports.viewAllOrders = async (req, res) => {
       });
     }
 
-    const { accountId, page, limit } = req.body;
+    const { account_key, page, limit } = req.body;
 
-    if (!accountId) {
+    if (!account_key) {
       return res.status(400).json({
         statusCode: 400,
         status: false,
-        message: "Account ID is missing or invalid.",
+        message: "Account key is missing or invalid.",
       });
     }
 
@@ -36,27 +36,19 @@ exports.viewAllOrders = async (req, res) => {
 
     log("Request to get order details for", JSON.stringify(req.body));
 
-    const selectPayload = {
-      query: `SELECT * FROM ${process.env.FINER_fwAPI_FULFILLMENTS_TABLE} WHERE FulfillmentAccountID=${accountId} AND FulfillmentDeleted=0 AND FulfillmentSubmitted=0 ORDER BY FulfillmentID DESC`,
-    };
+    const pendingOrdersData = await finerworksService.LIST_PENDING_ORDERS({ account_key });
 
-    const selectData = await finerworksService.SELECT_QUERY_FINERWORKS(selectPayload);
-
-    if (!selectData || !selectData.data || !Array.isArray(selectData.data)) {
-      log("No orders found for account ID:", accountId);
+    if (!pendingOrdersData?.status?.success || !Array.isArray(pendingOrdersData.orders)) {
+      log("No orders found for account key:", account_key);
       return res.status(200).json({
         statusCode: 200,
         status: false,
-        message: "No orders found for the provided account ID.",
+        message: pendingOrdersData?.status?.message || "No orders found for the provided account key.",
       });
     }
 
     // Process orders
-    const allOrders = selectData.data.map((order) => {
-      const orderData = urlDecodeJSON(order.FulfillmentData);
-      orderData.orderFullFillmentId = order.FulfillmentID;
-      return orderData;
-    });
+    const allOrders = [...pendingOrdersData.orders];
     allOrders.sort((a, b) => {
       const numA = parseInt(a.order_po.replace(/\D/g, ""), 10);
       const numB = parseInt(b.order_po.replace(/\D/g, ""), 10);
@@ -65,7 +57,7 @@ exports.viewAllOrders = async (req, res) => {
 
 
     if (allOrders.length === 0) {
-      log("No orders found after processing for account ID:", accountId);
+      log("No orders found after processing for account key:", account_key);
       return res.status(200).json({
         statusCode: 200,
         status: false,
