@@ -718,19 +718,15 @@ exports.createNewOrder = async (req, res) => {
     if (isValidOrder) {
       const ordersToBeSubmitted = newOrderToBeCreated;
       for (const order of ordersToBeSubmitted) {
-        const urlEncodedData = urlEncodeJSON(order);
-        const insertPayload = {
-          tablename: process.env.FINER_fwAPI_FULFILLMENTS_TABLE,
-          fields:
-            "FulfillmentAccountID, FulfillmentData, FulfillmentSubmitted, FulfillmentAppName ",
-          values: `'${accountId}', '${urlEncodedData}', 0, 'web'`,
+        const savePayload = {
+          orders: [order],
+          source: 'web',
+          account_key: reqBody.account_key ?? null,
         };
-        log("insertPayload", JSON.stringify(insertPayload));
-        const insertData = await finerworksService.INSERT_QUERY_FINERWORKS(
-          insertPayload
-        );
-        log("insertData", JSON.stringify(insertData));
-        order.orderFullFillmentId = insertData.record_id;
+        log("save_pending_orders payload", JSON.stringify(savePayload));
+        const saveData = await finerworksService.SAVE_PENDING_ORDERS(savePayload);
+        log("save_pending_orders response", JSON.stringify(saveData));
+        order.orderFullFillmentId = extractSavedPendingOrderId(saveData);
       }
       const successLog = JSON.stringify({
         level: 'INFO',
@@ -2230,6 +2226,30 @@ function urlDecodeJSON(data) {
   const decodedJsonObject = JSON.parse(decodedJsonString);
   return decodedJsonObject;
 }
+/**
+ * Pulls the saved pending order id out of a save_pending_orders response. The response shape is not
+ * yet locked down, so we look through the likely field names and fall back to null (downstream code
+ * uses this as `orderFullFillmentId`).
+ */
+function extractSavedPendingOrderId(saveData) {
+  if (!saveData || typeof saveData !== "object") return null;
+  // save_pending_orders returns { imports: [{ id, order_po }], status: {...} }.
+  const firstImport = Array.isArray(saveData.imports) ? saveData.imports[0] : null;
+  const firstOrder = Array.isArray(saveData.orders) ? saveData.orders[0] : null;
+  return (
+    firstImport?.id ??
+    firstImport?.record_id ??
+    firstOrder?.id ??
+    firstOrder?.order_id ??
+    firstOrder?.FulfillmentID ??
+    firstOrder?.record_id ??
+    (Array.isArray(saveData.ids) ? saveData.ids[0] : null) ??
+    saveData.record_id ??
+    saveData.id ??
+    null
+  );
+}
+
 function urlEncodeJSON(data) {
   const jsonString = JSON.stringify(data);
   // encodeURIComponent intentionally does NOT encode: ! ' ( ) *
