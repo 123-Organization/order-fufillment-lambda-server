@@ -72,6 +72,22 @@ exports.INSERT_QUERY_FINERWORKS = async (payload) => {
 };
 
 /**
+ * Saves pending orders into the FinerWorks fulfillment tables via the structured endpoint
+ * (replaces building a raw SQL insert with INSERT_QUERY_FINERWORKS).
+ * @param {Object} payload - { orders: [order_details], source, account_key }.
+ * @returns {Promise<Object>} - The response data from the API.
+ */
+exports.SAVE_PENDING_ORDERS = async (payload) => {
+  const postData = await axios({
+    method: 'POST',
+    url: process.env.FINER_WORKS_URL + 'save_pending_orders',
+    headers: getHeaders(),
+    data: payload
+  });
+  return postData.data;
+};
+
+/**
  * Updates a query in the finerworks database.
  * @param {Object} payload - The payload containing the query details.
  * @returns {Promise<Object>} - The response data from the API.
@@ -283,6 +299,22 @@ exports.LIST_PENDING_ORDERS = async (payload) => {
   const postData = await axios({
     method: 'POST',
     url: process.env.FINER_WORKS_URL + 'list_pending_orders',
+    headers: getHeaders(),
+    data: payload
+  });
+  return postData.data;
+};
+
+/**
+ * Lists existing (real/submitted) orders, filtered by `order_pos`. Used to skip re-saving orders
+ * that already exist in FinerWorks.
+ * @param {Object} payload - { account_key, order_pos: [string] }.
+ * @returns {Promise<Object>} - The response data from the API ({ orders, total_count, status }).
+ */
+exports.LIST_ORDERS = async (payload) => {
+  const postData = await axios({
+    method: 'POST',
+    url: process.env.FINER_WORKS_URL + 'list_orders',
     headers: getHeaders(),
     data: payload
   });

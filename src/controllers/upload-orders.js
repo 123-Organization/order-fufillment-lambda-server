@@ -564,6 +564,40 @@ exports.uploadOrdersToLocalDatabaseFromExcel = async (req, res) => {
         payment_token: reqBody.payment_token,
       };
       const { orders } = payloadToBeSubmitted;
+      // Skip orders that already exist in FinerWorks, checked against BOTH real/submitted orders
+      // (list_orders, filtered by the payload's order_pos) and staged/pending orders
+      // (list_pending_orders). The two lookups are independent, so run them in parallel. Matched by
+      // order_po. account_key comes from payment_token for this endpoint, account_key as fallback.
+      const orderPosToCheck = orders.map((o) => o.order_po).filter(Boolean);
+      const existingOrderPos = new Set();
+      if (orderPosToCheck.length) {
+        const accountKeyForLookup = reqBody.payment_token || reqBody.account_key || null;
+        const [listOrdersResult, listPendingResult] = await Promise.allSettled([
+          finerworksService.LIST_ORDERS({
+            account_key: accountKeyForLookup,
+            order_pos: orderPosToCheck,
+          }),
+          finerworksService.LIST_PENDING_ORDERS({
+            account_key: accountKeyForLookup,
+          }),
+        ]);
+
+        if (listOrdersResult.status === "fulfilled") {
+          for (const o of (Array.isArray(listOrdersResult.value?.orders) ? listOrdersResult.value.orders : [])) {
+            existingOrderPos.add(String(o.order_po));
+          }
+        } else {
+          log("list_orders lookup failed; proceeding without that check: %s", listOrdersResult.reason?.message);
+        }
+
+        if (listPendingResult.status === "fulfilled") {
+          for (const o of (Array.isArray(listPendingResult.value?.orders) ? listPendingResult.value.orders : [])) {
+            existingOrderPos.add(String(o.order_po));
+          }
+        } else {
+          log("list_pending_orders lookup failed; proceeding without that check: %s", listPendingResult.reason?.message);
+        }
+      }
       for (const order of orders) {
         console.log("order.order_items[0]?.image_url_1", order.order_items[0]?.product_url_thumbnail)
         if (
@@ -579,44 +613,21 @@ exports.uploadOrdersToLocalDatabaseFromExcel = async (req, res) => {
               item.product_guid = generateGUID();
             }
           }
-          const urlEncodedData = urlEncodeJSON(order);
-
-          const selectPayload = {
-            query: `SELECT * FROM ${process.env.FINER_fwAPI_FULFILLMENTS_TABLE} WHERE FulfillmentAccountID=${reqBody.accountId} AND FulfillmentSubmitted=0 AND FulfillmentDeleted=0 AND FulfillmentAppName='excel'`,
-          };
-
-          const selectData = await finerworksService.SELECT_QUERY_FINERWORKS(selectPayload);
-
-          const orderPos = getFulfillmentData(selectData.data);
-
-          const filteredObject = orderPos.find(item => item.order_po === order.order_po);
-
-          if (filteredObject) {
-            console.log("enter in this block");
-            const updatePayload = {
-              tablename: process.env.FINER_fwAPI_FULFILLMENTS_TABLE,
-              fieldupdates: `FulfillmentData='${urlEncodedData}'`,
-              where: `FulfillmentID=${filteredObject.FulfillmentID}`,
-            };
-            console.log("updatePayload=========>>>>", updatePayload);
-            await finerworksService.UPDATE_QUERY_FINERWORKS(updatePayload);
-          } else {
-            // console.log("yessssssssssssssssssssssssssss")
-            const insertPayload = {
-              tablename: process.env.FINER_fwAPI_FULFILLMENTS_TABLE,
-              fields:
-                "FulfillmentAccountID, FulfillmentData, FulfillmentSubmitted, FulfillmentAppName ",
-              values: `'${reqBody.accountId}', '${urlEncodedData}', 0, 'excel'`,
-
-            };
-            console.log("insertPayload============>>>>>", insertPayload);
-            log("insertPayload for the creation of the order in the local database", JSON.stringify(insertPayload));
-            const insertData = await finerworksService.INSERT_QUERY_FINERWORKS(
-              insertPayload
-            );
-            log("Response after submitted to the local database", JSON.stringify(insertData));
-            order.orderFullFillmentId = insertData.record_id;
+          if (existingOrderPos.has(String(order.order_po))) {
+            log("Skipping order_po %s — already exists in FinerWorks", order.order_po);
+            continue;
           }
+
+          ensureOrderItemsValidForSave(order);
+          const savePayload = {
+            orders: [order],
+            source: 'excel',
+            account_key: reqBody.payment_token || reqBody.account_key || null,
+          };
+          log("save_pending_orders payload for the creation of the order", JSON.stringify(savePayload));
+          const saveData = await finerworksService.SAVE_PENDING_ORDERS(savePayload);
+          log("Response after save_pending_orders", JSON.stringify(saveData));
+          order.orderFullFillmentId = extractSavedPendingOrderId(saveData);
         }
 
       }
@@ -683,19 +694,16 @@ exports.uploadOrdersToLocalDatabase = async (req, res) => {
         order.createdAt = new Date();
         order.submittedAt = null;
         order.source = "woocommerece"
-        const urlEncodedData = urlEncodeJSON(order);
-        const insertPayload = {
-          tablename: process.env.FINER_fwAPI_FULFILLMENTS_TABLE,
-          fields:
-            "FulfillmentAccountID, FulfillmentData, FulfillmentSubmitted, FulfillmentAppName ",
-          values: `'${reqBody.accountId}', '${urlEncodedData}', 0, '${uploadedFromAppName}'`,
+        ensureOrderItemsValidForSave(order);
+        const savePayload = {
+          orders: [order],
+          source: uploadedFromAppName,
+          account_key: reqBody.payment_token || reqBody.account_key || null,
         };
-        log("insertPayload for the creation of the order in the local database", JSON.stringify(insertPayload));
-        const insertData = await finerworksService.INSERT_QUERY_FINERWORKS(
-          insertPayload
-        );
-        log("Response after submitted to the local database", JSON.stringify(insertData));
-        order.orderFullFillmentId = insertData.record_id;
+        log("save_pending_orders payload for the creation of the order", JSON.stringify(savePayload));
+        const saveData = await finerworksService.SAVE_PENDING_ORDERS(savePayload);
+        log("Response after save_pending_orders", JSON.stringify(saveData));
+        order.orderFullFillmentId = extractSavedPendingOrderId(saveData);
       }
       const successLog = JSON.stringify({
         level: 'INFO',
@@ -756,23 +764,47 @@ exports.uploadOrdersToLocalDatabaseShopify = async (req, res) => {
       };
       const { orders } = payloadToBeSubmitted;
 
-      const selectPayload = {
-        query: `SELECT * FROM ${process.env.FINER_fwAPI_FULFILLMENTS_TABLE} WHERE FulfillmentAccountID=${reqBody.accountId} AND FulfillmentSubmitted=0 AND FulfillmentDeleted=0 AND FulfillmentAppName='${uploadedFromAppName}'`,
-      };
-      const selectData = await finerworksService.SELECT_QUERY_FINERWORKS(selectPayload);
-      const orderData = getFulfillmentData(selectData.data);
+      // Existing pending orders for this account, via list_pending_orders (replaces the raw SQL
+      // SELECT on fwAPI_FULFILLMENTS). Used only for de-duplication by `order_po|source`, so the
+      // row id is not needed. list_pending_orders returns pending (unsubmitted) orders only.
+      // Skip orders that already exist in FinerWorks, checked against BOTH real/submitted orders
+      // (list_orders, filtered by the payload's order_pos) and staged/pending orders
+      // (list_pending_orders). The two lookups are independent, so run them in parallel. Matched by
+      // order_po. account_key comes from payment_token for this endpoint, account_key as fallback.
+      const orderPosToCheck = orders.map((o) => o.order_po).filter(Boolean);
+      const existingOrderPos = new Set();
+      if (orderPosToCheck.length) {
+        const accountKeyForLookup = reqBody.payment_token || reqBody.account_key || null;
+        const [listOrdersResult, listPendingResult] = await Promise.allSettled([
+          finerworksService.LIST_ORDERS({
+            account_key: accountKeyForLookup,
+            order_pos: orderPosToCheck,
+          }),
+          finerworksService.LIST_PENDING_ORDERS({
+            account_key: accountKeyForLookup,
+          }),
+        ]);
 
-      const existingOrderKeys = new Set(
-        orderData.map(row => {
-          return `${row.order_po}|${row.source}`;
-        })
-      );
+        if (listOrdersResult.status === "fulfilled") {
+          for (const o of (Array.isArray(listOrdersResult.value?.orders) ? listOrdersResult.value.orders : [])) {
+            existingOrderPos.add(String(o.order_po));
+          }
+        } else {
+          log("list_orders lookup failed; proceeding without that check: %s", listOrdersResult.reason?.message);
+        }
+
+        if (listPendingResult.status === "fulfilled") {
+          for (const o of (Array.isArray(listPendingResult.value?.orders) ? listPendingResult.value.orders : [])) {
+            existingOrderPos.add(String(o.order_po));
+          }
+        } else {
+          log("list_pending_orders lookup failed; proceeding without that check: %s", listPendingResult.reason?.message);
+        }
+      }
 
       for (const order of orders) {
-        const orderKey = `${order.order_po}|${order.source}`;
-        if (existingOrderKeys.has(orderKey)) {
-
-          console.log(`Skipping duplicate order_po ${order.order_po} for source ${uploadedFromAppName}`);
+        if (existingOrderPos.has(String(order.order_po))) {
+          log("Skipping order_po %s — already exists in FinerWorks", order.order_po);
           continue;
         }
         if (Array.isArray(order.order_items)) {
@@ -785,19 +817,16 @@ exports.uploadOrdersToLocalDatabaseShopify = async (req, res) => {
         order.createdAt = new Date();
         order.submittedAt = null;
         // order.source = uploadedFromAppName;
-        const urlEncodedData = urlEncodeJSON(order);
-        const insertPayload = {
-          tablename: process.env.FINER_fwAPI_FULFILLMENTS_TABLE,
-          fields:
-            "FulfillmentAccountID, FulfillmentData, FulfillmentSubmitted, FulfillmentAppName ",
-          values: `'${reqBody.accountId}', '${urlEncodedData}', 0, '${uploadedFromAppName}'`,
+        ensureOrderItemsValidForSave(order);
+        const savePayload = {
+          orders: [order],
+          source: order.source || uploadedFromAppName,
+          account_key: reqBody.payment_token || reqBody.account_key || null,
         };
-        log("insertPayload for the creation of the order in the local database", JSON.stringify(insertPayload));
-        const insertData = await finerworksService.INSERT_QUERY_FINERWORKS(
-          insertPayload
-        );
-        log("Response after submitted to the local database", JSON.stringify(insertData));
-        order.orderFullFillmentId = insertData.record_id;
+        log("save_pending_orders payload for the creation of the order %s", JSON.stringify(savePayload));
+        const saveData = await finerworksService.SAVE_PENDING_ORDERS(savePayload);
+        log("Response after save_pending_orders %s", JSON.stringify(saveData));
+        order.orderFullFillmentId = extractSavedPendingOrderId(saveData);
       }
       const successLog = JSON.stringify({
         level: 'INFO',
@@ -843,6 +872,69 @@ function urlEncodeJSON(data) {
   const jsonString = JSON.stringify(data);
   const encodedString = encodeURIComponent(jsonString);
   return encodedString;
+}
+
+/**
+ * save_pending_orders validates each order_item (the old insert_query path did not). Populate the
+ * two fields it rejects when empty so the order can still be staged:
+ *  - product_sku: required and non-empty. Etsy items can arrive with an empty SKU; fall back to the
+ *    product_guid (then product_order_po). product_guid drives the real artwork, so the SKU here is
+ *    just a label/reference.
+ *  - product_image: required. Keep any valid image the caller sent; otherwise use a placeholder.
+ */
+function ensureOrderItemsValidForSave(order) {
+  if (!order || !Array.isArray(order.order_items)) return order;
+  for (const item of order.order_items) {
+    if (!String(item.product_sku || "").trim()) {
+      const fallbackSku = String(item.product_guid || item.product_order_po || "").trim();
+      if (fallbackSku) {
+        log(
+          "save_pending_orders: order_item missing product_sku; falling back to %s",
+          fallbackSku
+        );
+        item.product_sku = fallbackSku;
+      }
+    }
+    const img = item.product_image;
+    const hasUrls =
+      img &&
+      typeof img === "object" &&
+      String(img.product_url_file || "").trim() &&
+      String(img.product_url_thumbnail || "").trim();
+    if (!hasUrls) {
+      item.product_image = {
+        pixel_width: img?.pixel_width ?? 600,
+        pixel_height: img?.pixel_height ?? 600,
+        product_url_file: img?.product_url_file || "https://via.placeholder.com/600",
+        product_url_thumbnail: img?.product_url_thumbnail || "https://via.placeholder.com/150",
+      };
+    }
+  }
+  return order;
+}
+
+/**
+ * Pulls the saved pending order id out of a save_pending_orders response. The response shape is not
+ * yet locked down, so we look through the likely field names and fall back to null (downstream code
+ * uses this as `orderFullFillmentId`).
+ */
+function extractSavedPendingOrderId(saveData) {
+  if (!saveData || typeof saveData !== "object") return null;
+  // save_pending_orders returns { imports: [{ id, order_po }], status: {...} }.
+  const firstImport = Array.isArray(saveData.imports) ? saveData.imports[0] : null;
+  const firstOrder = Array.isArray(saveData.orders) ? saveData.orders[0] : null;
+  return (
+    firstImport?.id ??
+    firstImport?.record_id ??
+    firstOrder?.id ??
+    firstOrder?.order_id ??
+    firstOrder?.FulfillmentID ??
+    firstOrder?.record_id ??
+    (Array.isArray(saveData.ids) ? saveData.ids[0] : null) ??
+    saveData.record_id ??
+    saveData.id ??
+    null
+  );
 }
 
 function consolidateOrderItems(ordersData) {
