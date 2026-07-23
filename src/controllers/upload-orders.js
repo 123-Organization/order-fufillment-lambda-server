@@ -566,32 +566,36 @@ exports.uploadOrdersToLocalDatabaseFromExcel = async (req, res) => {
       const { orders } = payloadToBeSubmitted;
       // Skip orders that already exist in FinerWorks, checked against BOTH real/submitted orders
       // (list_orders, filtered by the payload's order_pos) and staged/pending orders
-      // (list_pending_orders). Matched by order_po. account_key comes from payment_token for this
-      // endpoint, with account_key as a fallback.
+      // (list_pending_orders). The two lookups are independent, so run them in parallel. Matched by
+      // order_po. account_key comes from payment_token for this endpoint, account_key as fallback.
       const orderPosToCheck = orders.map((o) => o.order_po).filter(Boolean);
       const existingOrderPos = new Set();
       if (orderPosToCheck.length) {
         const accountKeyForLookup = reqBody.payment_token || reqBody.account_key || null;
-        try {
-          const listOrdersResp = await finerworksService.LIST_ORDERS({
+        const [listOrdersResult, listPendingResult] = await Promise.allSettled([
+          finerworksService.LIST_ORDERS({
             account_key: accountKeyForLookup,
             order_pos: orderPosToCheck,
-          });
-          for (const o of (Array.isArray(listOrdersResp?.orders) ? listOrdersResp.orders : [])) {
-            existingOrderPos.add(String(o.order_po));
-          }
-        } catch (err) {
-          console.log("list_orders lookup failed; proceeding without that check:", err?.message);
-        }
-        try {
-          const listPendingResp = await finerworksService.LIST_PENDING_ORDERS({
+          }),
+          finerworksService.LIST_PENDING_ORDERS({
             account_key: accountKeyForLookup,
-          });
-          for (const o of (Array.isArray(listPendingResp?.orders) ? listPendingResp.orders : [])) {
+          }),
+        ]);
+
+        if (listOrdersResult.status === "fulfilled") {
+          for (const o of (Array.isArray(listOrdersResult.value?.orders) ? listOrdersResult.value.orders : [])) {
             existingOrderPos.add(String(o.order_po));
           }
-        } catch (err) {
-          console.log("list_pending_orders lookup failed; proceeding without that check:", err?.message);
+        } else {
+          log("list_orders lookup failed; proceeding without that check: %s", listOrdersResult.reason?.message);
+        }
+
+        if (listPendingResult.status === "fulfilled") {
+          for (const o of (Array.isArray(listPendingResult.value?.orders) ? listPendingResult.value.orders : [])) {
+            existingOrderPos.add(String(o.order_po));
+          }
+        } else {
+          log("list_pending_orders lookup failed; proceeding without that check: %s", listPendingResult.reason?.message);
         }
       }
       for (const order of orders) {
@@ -610,7 +614,7 @@ exports.uploadOrdersToLocalDatabaseFromExcel = async (req, res) => {
             }
           }
           if (existingOrderPos.has(String(order.order_po))) {
-            console.log(`Skipping order_po ${order.order_po} — already exists in FinerWorks`);
+            log("Skipping order_po %s — already exists in FinerWorks", order.order_po);
             continue;
           }
 
@@ -765,38 +769,42 @@ exports.uploadOrdersToLocalDatabaseShopify = async (req, res) => {
       // row id is not needed. list_pending_orders returns pending (unsubmitted) orders only.
       // Skip orders that already exist in FinerWorks, checked against BOTH real/submitted orders
       // (list_orders, filtered by the payload's order_pos) and staged/pending orders
-      // (list_pending_orders). Matched by order_po. account_key comes from payment_token for this
-      // endpoint, with account_key as a fallback.
+      // (list_pending_orders). The two lookups are independent, so run them in parallel. Matched by
+      // order_po. account_key comes from payment_token for this endpoint, account_key as fallback.
       const orderPosToCheck = orders.map((o) => o.order_po).filter(Boolean);
       const existingOrderPos = new Set();
       if (orderPosToCheck.length) {
         const accountKeyForLookup = reqBody.payment_token || reqBody.account_key || null;
-        try {
-          const listOrdersResp = await finerworksService.LIST_ORDERS({
+        const [listOrdersResult, listPendingResult] = await Promise.allSettled([
+          finerworksService.LIST_ORDERS({
             account_key: accountKeyForLookup,
             order_pos: orderPosToCheck,
-          });
-          for (const o of (Array.isArray(listOrdersResp?.orders) ? listOrdersResp.orders : [])) {
-            existingOrderPos.add(String(o.order_po));
-          }
-        } catch (err) {
-          console.log("list_orders lookup failed; proceeding without that check:", err?.message);
-        }
-        try {
-          const listPendingResp = await finerworksService.LIST_PENDING_ORDERS({
+          }),
+          finerworksService.LIST_PENDING_ORDERS({
             account_key: accountKeyForLookup,
-          });
-          for (const o of (Array.isArray(listPendingResp?.orders) ? listPendingResp.orders : [])) {
+          }),
+        ]);
+
+        if (listOrdersResult.status === "fulfilled") {
+          for (const o of (Array.isArray(listOrdersResult.value?.orders) ? listOrdersResult.value.orders : [])) {
             existingOrderPos.add(String(o.order_po));
           }
-        } catch (err) {
-          console.log("list_pending_orders lookup failed; proceeding without that check:", err?.message);
+        } else {
+          log("list_orders lookup failed; proceeding without that check: %s", listOrdersResult.reason?.message);
+        }
+
+        if (listPendingResult.status === "fulfilled") {
+          for (const o of (Array.isArray(listPendingResult.value?.orders) ? listPendingResult.value.orders : [])) {
+            existingOrderPos.add(String(o.order_po));
+          }
+        } else {
+          log("list_pending_orders lookup failed; proceeding without that check: %s", listPendingResult.reason?.message);
         }
       }
 
       for (const order of orders) {
         if (existingOrderPos.has(String(order.order_po))) {
-          console.log(`Skipping order_po ${order.order_po} — already exists in FinerWorks`);
+          log("Skipping order_po %s — already exists in FinerWorks", order.order_po);
           continue;
         }
         if (Array.isArray(order.order_items)) {
@@ -815,9 +823,9 @@ exports.uploadOrdersToLocalDatabaseShopify = async (req, res) => {
           source: order.source || uploadedFromAppName,
           account_key: reqBody.payment_token || reqBody.account_key || null,
         };
-        console.log("save_pending_orders payload for the creation of the order", JSON.stringify(savePayload));
+        log("save_pending_orders payload for the creation of the order %s", JSON.stringify(savePayload));
         const saveData = await finerworksService.SAVE_PENDING_ORDERS(savePayload);
-        console.log("Response after save_pending_orders", JSON.stringify(saveData));
+        log("Response after save_pending_orders %s", JSON.stringify(saveData));
         order.orderFullFillmentId = extractSavedPendingOrderId(saveData);
       }
       const successLog = JSON.stringify({
