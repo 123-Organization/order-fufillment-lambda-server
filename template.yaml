@@ -817,6 +817,12 @@ Resources:
             RestApiId: !Ref MyApiGateway
             Method: POST
             Path: "/api/webhooks/square/order-create"
+        UpdateSkusWithWoocommerceId:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Method: POST
+            Path: "/api/update-woocommerce-product-id"
         SquareTokenRenewalSchedule:
           Type: Schedule
           Properties:
