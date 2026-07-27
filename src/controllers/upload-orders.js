@@ -237,7 +237,7 @@ const ordersSchema = Joi.object({
               otherwise: Joi.optional().allow("")
             })
             .optional(),
-          zip_postal_code: Joi.number().required(),
+          zip_postal_code: Joi.string().required(),
           country_code: Joi.string().length(2).required(),
           phone: Joi.alternatives().try(Joi.string(), Joi.number()).optional().allow(""),
           email: Joi.string().email().optional(),
@@ -566,59 +566,67 @@ exports.uploadOrdersToLocalDatabaseFromExcel = async (req, res) => {
       const { orders } = payloadToBeSubmitted;
       for (const order of orders) {
         console.log("order.order_items[0]?.image_url_1", order.order_items[0]?.product_url_thumbnail)
-        if (
-          (order.order_items[0]?.product_image.product_url_file && order.order_items[0].product_image.product_url_file.trim() !== "") &&
-          (order.order_items[0]?.product_image.product_url_thumbnail && order.order_items[0].product_image.product_url_thumbnail.trim() !== "")
-        ) {
-          order.source = "excel"
-          console.log("order===========>>>>", order);
-          order.createdAt = new Date();
-          order.submittedAt = null;
-          if (Array.isArray(order.order_items)) {
-            for (const item of order.order_items) {
-              item.product_guid = generateGUID();
+        order.source = "excel"
+        console.log("order===========>>>>", order);
+        order.createdAt = new Date();
+        order.submittedAt = null;
+        if (Array.isArray(order.order_items)) {
+          for (const item of order.order_items) {
+            item.product_guid = generateGUID();
+            const sku = item.product_sku != null ? String(item.product_sku).trim() : '';
+            if (!sku.toUpperCase().startsWith('AP')) {
+              if (!item.product_image) {
+                item.product_image = {};
+              }
+              const fileUrl = item.product_image.product_url_file;
+              const thumbUrl = item.product_image.product_url_thumbnail;
+              if (fileUrl == null || String(fileUrl).trim() === '') {
+                item.product_image.product_url_file = 'https://via.placeholder.com/150';
+              }
+              if (thumbUrl == null || String(thumbUrl).trim() === '') {
+                item.product_image.product_url_thumbnail = 'https://via.placeholder.com/150';
+              }
             }
           }
-          const urlEncodedData = urlEncodeJSON(order);
-
-          const selectPayload = {
-            query: `SELECT * FROM ${process.env.FINER_fwAPI_FULFILLMENTS_TABLE} WHERE FulfillmentAccountID=${reqBody.accountId} AND FulfillmentSubmitted=0 AND FulfillmentDeleted=0 AND FulfillmentAppName='excel'`,
-          };
-
-          const selectData = await finerworksService.SELECT_QUERY_FINERWORKS(selectPayload);
-
-          const orderPos = getFulfillmentData(selectData.data);
-
-          const filteredObject = orderPos.find(item => item.order_po === order.order_po);
-
-          if (filteredObject) {
-            console.log("enter in this block");
-            const updatePayload = {
-              tablename: process.env.FINER_fwAPI_FULFILLMENTS_TABLE,
-              fieldupdates: `FulfillmentData='${urlEncodedData}'`,
-              where: `FulfillmentID=${filteredObject.FulfillmentID}`,
-            };
-            console.log("updatePayload=========>>>>", updatePayload);
-            await finerworksService.UPDATE_QUERY_FINERWORKS(updatePayload);
-          } else {
-            // console.log("yessssssssssssssssssssssssssss")
-            const insertPayload = {
-              tablename: process.env.FINER_fwAPI_FULFILLMENTS_TABLE,
-              fields:
-                "FulfillmentAccountID, FulfillmentData, FulfillmentSubmitted, FulfillmentAppName ",
-              values: `'${reqBody.accountId}', '${urlEncodedData}', 0, 'excel'`,
-
-            };
-            console.log("insertPayload============>>>>>", insertPayload);
-            log("insertPayload for the creation of the order in the local database", JSON.stringify(insertPayload));
-            const insertData = await finerworksService.INSERT_QUERY_FINERWORKS(
-              insertPayload
-            );
-            log("Response after submitted to the local database", JSON.stringify(insertData));
-            order.orderFullFillmentId = insertData.record_id;
-          }
         }
+        const urlEncodedData = urlEncodeJSON(order);
 
+        const selectPayload = {
+          query: `SELECT * FROM ${process.env.FINER_fwAPI_FULFILLMENTS_TABLE} WHERE FulfillmentAccountID=${reqBody.accountId} AND FulfillmentSubmitted=0 AND FulfillmentDeleted=0 AND FulfillmentAppName='excel'`,
+        };
+
+        const selectData = await finerworksService.SELECT_QUERY_FINERWORKS(selectPayload);
+
+        const orderPos = getFulfillmentData(selectData.data);
+
+        const filteredObject = orderPos.find(item => item.order_po === order.order_po);
+
+        if (filteredObject) {
+          console.log("enter in this block");
+          const updatePayload = {
+            tablename: process.env.FINER_fwAPI_FULFILLMENTS_TABLE,
+            fieldupdates: `FulfillmentData='${urlEncodedData}'`,
+            where: `FulfillmentID=${filteredObject.FulfillmentID}`,
+          };
+          console.log("updatePayload=========>>>>", updatePayload);
+          await finerworksService.UPDATE_QUERY_FINERWORKS(updatePayload);
+        } else {
+          // console.log("yessssssssssssssssssssssssssss")
+          const insertPayload = {
+            tablename: process.env.FINER_fwAPI_FULFILLMENTS_TABLE,
+            fields:
+              "FulfillmentAccountID, FulfillmentData, FulfillmentSubmitted, FulfillmentAppName ",
+            values: `'${reqBody.accountId}', '${urlEncodedData}', 0, 'excel'`,
+
+          };
+          console.log("insertPayload============>>>>>", insertPayload);
+          log("insertPayload for the creation of the order in the local database", JSON.stringify(insertPayload));
+          const insertData = await finerworksService.INSERT_QUERY_FINERWORKS(
+            insertPayload
+          );
+          log("Response after submitted to the local database", JSON.stringify(insertData));
+          order.orderFullFillmentId = insertData.record_id;
+        }
       }
       const successLog = JSON.stringify({
         level: 'INFO',
