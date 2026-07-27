@@ -191,7 +191,7 @@ const guidRegex =
 
 const ordersSchema = Joi.object({
   accountId: Joi.number().required(),
-  payment_token: Joi.string().required(),
+  payment_token: Joi.string().optional(),
   account_key: Joi.string().optional(),
   validate_only: Joi.boolean().required(),  // Added validate_only field
   orders: Joi.array()
@@ -237,7 +237,7 @@ const ordersSchema = Joi.object({
               otherwise: Joi.optional().allow("")
             })
             .optional(),
-          zip_postal_code: Joi.number().required(),
+          zip_postal_code: Joi.string().required(),
           country_code: Joi.string().length(2).required(),
           phone: Joi.alternatives().try(Joi.string(), Joi.number()).optional().allow(""),
           email: Joi.string().email().optional(),
@@ -257,25 +257,25 @@ const ordersSchema = Joi.object({
               product_image: Joi.object({
                 pixel_width: Joi.number().optional(),
                 pixel_height: Joi.number().optional(),
-                product_url_file: Joi.string().optional().required(),
-                product_url_thumbnail: Joi.string().optional().required(),
+                product_url_file: Joi.string().optional().allow(""),
+                product_url_thumbnail: Joi.string().optional().allow(""),
                 library_file: Joi.object({
                   id: Joi.number().optional(),
                   guid: Joi.string().regex(guidRegex).optional(),
                   title: Joi.string().optional().allow(""),
                   description: Joi.string().optional().allow(""),
-                  file_name: Joi.string().optional().required(),
-                  file_size: Joi.number().optional().required(),
-                  thumbnail_file_name: Joi.string().optional().required(),
-                  preview_file_name: Joi.string().optional().required(),
-                  hires_file_name: Joi.string().optional().required(),
-                  public_thumbnail_uri: Joi.string().uri().optional().required(),
-                  public_preview_uri: Joi.string().uri().optional().required(),
-                  private_hires_uri: Joi.string().uri().optional().required(),
+                  file_name: Joi.string().optional(),
+                  file_size: Joi.number().optional(),
+                  thumbnail_file_name: Joi.string().optional(),
+                  preview_file_name: Joi.string().optional(),
+                  hires_file_name: Joi.string().optional(),
+                  public_thumbnail_uri: Joi.string().uri().optional(),
+                  public_preview_uri: Joi.string().uri().optional(),
+                  private_hires_uri: Joi.string().uri().optional(),
                   personal_gallery_title: Joi.string().optional().allow(""),
                   members_gallery_category: Joi.string().optional().allow(""),
-                  pix_w: Joi.number().optional().required(),
-                  pix_h: Joi.number().optional().required(),
+                  pix_w: Joi.number().optional(),
+                  pix_h: Joi.number().optional(),
                   date_added: Joi.string().optional().allow(""),
                   date_expires: Joi.string().optional().allow(""),
                   active: Joi.boolean().optional(),
@@ -567,11 +567,11 @@ exports.uploadOrdersToLocalDatabaseFromExcel = async (req, res) => {
       // Skip orders that already exist in FinerWorks, checked against BOTH real/submitted orders
       // (list_orders, filtered by the payload's order_pos) and staged/pending orders
       // (list_pending_orders). The two lookups are independent, so run them in parallel. Matched by
-      // order_po. account_key comes from payment_token for this endpoint, account_key as fallback.
+      // order_po. Prefer account_key (same as view-all-orders / create-new-order); payment_token as fallback.
       const orderPosToCheck = orders.map((o) => o.order_po).filter(Boolean);
       const existingOrderPos = new Set();
       if (orderPosToCheck.length) {
-        const accountKeyForLookup = reqBody.payment_token || reqBody.account_key || null;
+        const accountKeyForLookup = reqBody.account_key || reqBody.payment_token || null;
         const [listOrdersResult, listPendingResult] = await Promise.allSettled([
           finerworksService.LIST_ORDERS({
             account_key: accountKeyForLookup,
@@ -600,36 +600,44 @@ exports.uploadOrdersToLocalDatabaseFromExcel = async (req, res) => {
       }
       for (const order of orders) {
         console.log("order.order_items[0]?.image_url_1", order.order_items[0]?.product_url_thumbnail)
-        if (
-          (order.order_items[0]?.product_image.product_url_file && order.order_items[0].product_image.product_url_file.trim() !== "") &&
-          (order.order_items[0]?.product_image.product_url_thumbnail && order.order_items[0].product_image.product_url_thumbnail.trim() !== "")
-        ) {
-          order.source = "excel"
-          console.log("order===========>>>>", order);
-          order.createdAt = new Date();
-          order.submittedAt = null;
-          if (Array.isArray(order.order_items)) {
-            for (const item of order.order_items) {
-              item.product_guid = generateGUID();
+        order.source = "excel"
+        console.log("order===========>>>>", order);
+        order.createdAt = new Date();
+        order.submittedAt = null;
+        if (Array.isArray(order.order_items)) {
+          for (const item of order.order_items) {
+            item.product_guid = generateGUID();
+            const sku = item.product_sku != null ? String(item.product_sku).trim() : '';
+            if (!sku.toUpperCase().startsWith('AP')) {
+              if (!item.product_image) {
+                item.product_image = {};
+              }
+              const fileUrl = item.product_image.product_url_file;
+              const thumbUrl = item.product_image.product_url_thumbnail;
+              if (fileUrl == null || String(fileUrl).trim() === '') {
+                item.product_image.product_url_file = 'https://via.placeholder.com/150';
+              }
+              if (thumbUrl == null || String(thumbUrl).trim() === '') {
+                item.product_image.product_url_thumbnail = 'https://via.placeholder.com/150';
+              }
             }
           }
-          if (existingOrderPos.has(String(order.order_po))) {
-            log("Skipping order_po %s — already exists in FinerWorks", order.order_po);
-            continue;
-          }
-
-          ensureOrderItemsValidForSave(order);
-          const savePayload = {
-            orders: [order],
-            source: 'excel',
-            account_key: reqBody.payment_token || reqBody.account_key || null,
-          };
-          log("save_pending_orders payload for the creation of the order", JSON.stringify(savePayload));
-          const saveData = await finerworksService.SAVE_PENDING_ORDERS(savePayload);
-          log("Response after save_pending_orders", JSON.stringify(saveData));
-          order.orderFullFillmentId = extractSavedPendingOrderId(saveData);
+        }
+        if (existingOrderPos.has(String(order.order_po))) {
+          log("Skipping order_po %s — already exists in FinerWorks", order.order_po);
+          continue;
         }
 
+        ensureOrderItemsValidForSave(order);
+        const savePayload = {
+          orders: [order],
+          source: 'excel',
+          account_key: reqBody.account_key || reqBody.payment_token || null,
+        };
+        log("save_pending_orders payload for the creation of the order", JSON.stringify(savePayload));
+        const saveData = await finerworksService.SAVE_PENDING_ORDERS(savePayload);
+        log("Response after save_pending_orders", JSON.stringify(saveData));
+        order.orderFullFillmentId = extractSavedPendingOrderId(saveData);
       }
       const successLog = JSON.stringify({
         level: 'INFO',
