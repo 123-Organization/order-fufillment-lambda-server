@@ -45,8 +45,8 @@ exports.handler = async (event, context) => {
     }
     return await serverlessApp(event, context);
 };
-const port = 9001;
-server.listen(port, () => {
-    // log(`start application on port ${port}`)
-    console.log(`OFA listening on port ${port}`);
-});
+// const port = 9001;
+// server.listen(port, () => {
+//     // log(`start application on port ${port}`)
+//     console.log(`OFA listening on port ${port}`);
+// });
