@@ -84,7 +84,7 @@ Resources:
         - ProdLambdaExecutionRole
         - Arn
       Runtime: nodejs18.x
-      CodeUri: s3://orderfullfilmentprodbucketlambda/58c3a951e7b0921584185c85dc119720
+      CodeUri: s3://orderfullfilmentprodbucketlambda/7b91f38ced5b733b74d44fccf8440e93
       MemorySize: 3008
       Timeout: 900
       Environment:
@@ -288,7 +288,7 @@ Resources:
         - ProdLambdaExecutionRole
         - Arn
       Runtime: nodejs18.x
-      CodeUri: s3://orderfullfilmentprodbucketlambda/58c3a951e7b0921584185c85dc119720
+      CodeUri: s3://orderfullfilmentprodbucketlambda/7b91f38ced5b733b74d44fccf8440e93
       MemorySize: 3008
       Timeout: 900
       Environment:
@@ -626,7 +626,7 @@ Resources:
         - ProdLambdaExecutionRole
         - Arn
       Runtime: nodejs18.x
-      CodeUri: s3://orderfullfilmentprodbucketlambda/58c3a951e7b0921584185c85dc119720
+      CodeUri: s3://orderfullfilmentprodbucketlambda/7b91f38ced5b733b74d44fccf8440e93
       MemorySize: 3008
       Timeout: 900
       Environment:
@@ -842,5 +842,12 @@ Resources:
               Ref: ProdApiGateway
             Method: POST
             Path: /api/squarespace/sync-products
+        UpdateSkusWithWoocommerceId:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: ProdApiGateway
+            Method: POST
+            Path: /api/update-woocommerce-product-id
     Metadata:
       SamResourceId: OrderFullFillmentServerLessProdServerAgainNew

@@ -134,6 +134,126 @@ exports.viewAllOrders = async (req, res) => {
   }
 };
 
+
+
+// exports.viewAllOrders = async (req, res) => {
+//   try {
+//     // Validate request body format
+//     if (!req.body || typeof req.body !== "object") {
+//       return res.status(400).json({
+//         statusCode: 400,
+//         status: false,
+//         message: "Invalid request format. Expected a JSON object.",
+//       });
+//     }
+
+//     const { account_key, page, limit } = req.body;
+
+//     if (!account_key) {
+//       return res.status(400).json({
+//         statusCode: 400,
+//         status: false,
+//         message: "Account key is missing or invalid.",
+//       });
+//     }
+
+//     // Convert page and limit to numbers and ensure positive integers
+//     const pageNum = parseInt(page, 10) > 0 ? parseInt(page, 10) : 1;
+//     const limitNum = parseInt(limit, 10) > 0 ? parseInt(limit, 10) : 10;
+
+//     log("Request to get order details for", JSON.stringify(req.body));
+
+//     const pendingOrdersData = await finerworksService.LIST_PENDING_ORDERS({ account_key });
+
+//     if (!pendingOrdersData?.status?.success || !Array.isArray(pendingOrdersData.orders)) {
+//       log("No orders found for account key:", account_key);
+//       return res.status(200).json({
+//         statusCode: 200,
+//         status: false,
+//         message: pendingOrdersData?.status?.message || "No orders found for the provided account key.",
+//       });
+//     }
+
+//     // Process orders
+//     const allOrders = [...pendingOrdersData.orders];
+//     allOrders.sort((a, b) => {
+//       const numA = parseInt(a.order_po.replace(/\D/g, ""), 10);
+//       const numB = parseInt(b.order_po.replace(/\D/g, ""), 10);
+//       return numA - numB;
+//     });
+
+
+//     if (allOrders.length === 0) {
+//       log("No orders found after processing for account key:", account_key);
+//       return res.status(200).json({
+//         statusCode: 200,
+//         status: false,
+//         message: "No orders available for this account.",
+//         data: [],
+//       });
+//     }
+
+//     // Pagination calculations
+//     const totalOrders = allOrders.length;
+//     const totalPages = Math.ceil(totalOrders / limitNum);
+//     const startIndex = (pageNum - 1) * limitNum;
+//     const endIndex = startIndex + limitNum;
+
+//     // Slice orders for current page
+//     const paginatedOrders = allOrders.slice(startIndex, endIndex);
+
+//     const successLog = JSON.stringify({
+//       level: 'INFO',
+//       platform: 'finerworks',
+//       method: req.method,
+//       api: req.originalUrl || req.url,
+//       function: 'viewAllOrders',
+//       operation: 'Orders fetched successfully',
+//       account_key: req.body?.account_key || req.query?.account_key || 'unknown',
+//       result: { totalOrders, currentPage: pageNum, pageSize: limitNum },
+//       timestamp: new Date().toISOString()
+//     });
+//     console.log(successLog);
+//     log('Success in viewAllOrders: %s', successLog);
+//     res.status(200).json({
+//       statusCode: 200,
+//       status: true,
+//       message: "Orders found successfully.",
+//       data: paginatedOrders,
+//       pagination: {
+//         totalOrders,
+//         totalPages,
+//         currentPage: pageNum,
+//         pageSize: limitNum,
+//       },
+//     });
+
+//   } catch (err) {
+//     log("Error while fetching orders:", err?.message || JSON.stringify(err));
+//     const isFinerworksError = err?.response?.config?.url?.includes('finerworks.com') || err?.config?.url?.includes('finerworks.com');
+//     const errorJson = JSON.stringify({
+//       level: 'ERROR',
+//       platform: 'finerworks',
+//       source: isFinerworksError ? 'finerworks_api' : 'lambda',
+//       function: 'viewAllOrders',
+//       account_key: req.body?.account_key || req.query?.account_key || 'unknown',
+//       httpStatus: err?.response?.status || null,
+//       message: `Failed to fetch orders: ${err?.message || 'Unknown error'}`,
+//       detail: err?.response?.data?.message || err?.response?.data?.error || null,
+//       timestamp: new Date().toISOString()
+//     });
+//     console.error(errorJson);
+//     log('Formatted error in viewAllOrders: %s', errorJson);
+//     res.status(500).json({
+//       statusCode: 500,
+//       status: false,
+//       message: "Internal server error. Please try again later.",
+//       error: err?.message || "Unknown error",
+//     });
+//   }
+// };
+
+
 exports.viewOrderDetails = async (req, res) => {
   try {
     const reqBody = JSON.parse(JSON.stringify(req.body));

@@ -773,3 +773,9 @@ Resources:
             RestApiId: !Ref ProdApiGateway
             Method: POST
             Path: "/api/squarespace/sync-products"
+        UpdateSkusWithWoocommerceId:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ProdApiGateway
+            Method: POST
+            Path: "/api/update-woocommerce-product-id"
