@@ -141,6 +141,32 @@ function buildVariantRow(src, currency, { includeAttributes = false } = {}) {
   return row;
 }
 
+/**
+ * Squarespace rejects/merges two variants that share the same option-attribute value. A colliding
+ * `Configuration` label would collapse two SKUs into one variant, so both SKUs then resolve to the
+ * SAME squarespace_variant_id (the duplicate-id symptom). Make each label unique within the product,
+ * disambiguating by SKU.
+ */
+function makeVariantLabelsUnique(rows) {
+  const used = new Set();
+  for (const row of rows) {
+    if (!row || !row.attributes || row.attributes.Configuration == null) continue;
+    const base = String(row.attributes.Configuration).trim() || 'Variant';
+    let candidate = base;
+    if (used.has(candidate)) {
+      candidate = row.sku ? `${base} (${row.sku})` : base;
+      let n = 2;
+      while (used.has(candidate)) {
+        candidate = `${base} #${n}`;
+        n += 1;
+      }
+    }
+    used.add(candidate);
+    row.attributes.Configuration = candidate;
+  }
+  return rows;
+}
+
 /** Each group becomes one Squarespace product. simpleProduct => single variant, no Configuration attribute. */
 function buildSyncGroups(rawProducts, groupByImageGuid) {
   if (!groupByImageGuid) {
@@ -380,12 +406,25 @@ async function createSquarespaceVariant(productId, variantRow, headers) {
 }
 
 function applyViResultToEntry(resultEntry, viResult) {
-  const { virtualInventoryUpdates = [], virtualInventoryUpdateErrors = [] } = viResult || {};
+  const {
+    virtualInventoryUpdates = [],
+    virtualInventoryUpdateErrors = [],
+    skusMissingVariantId = [],
+    duplicateVariantIdSkus = [],
+  } = viResult || {};
   if (virtualInventoryUpdates.length) {
     resultEntry.virtualInventoryUpdates = virtualInventoryUpdates;
   }
   if (virtualInventoryUpdateErrors.length) {
     resultEntry.virtualInventoryUpdateErrors = virtualInventoryUpdateErrors;
+  }
+  // Visibility: SKUs that got no variant id, and SKUs whose variant id was a duplicate (blocked so
+  // it isn't written twice). Surfaced as warnings, not hard failures.
+  if (skusMissingVariantId.length) {
+    resultEntry.skusMissingVariantId = skusMissingVariantId;
+  }
+  if (duplicateVariantIdSkus.length) {
+    resultEntry.duplicateVariantIdSkus = duplicateVariantIdSkus;
   }
   if (virtualInventoryUpdateErrors.length) {
     resultEntry.success = false;
@@ -491,8 +530,32 @@ async function processSyncGroup({
   headers,
   matchedByGuid,
   counters,
+  usedProductIds,
 }) {
-  const { key, image_guid: guid, items: srcVariants, simpleProduct } = group;
+  const { key, image_guid: guid, items: rawGroupItems, simpleProduct } = group;
+  // De-duplicate the group's rows by SKU. Two source rows with the same SKU would be created as (or
+  // mapped back to) a single Squarespace variant, so both would resolve to the SAME
+  // squarespace_variant_id — the duplicate-id symptom. Keep the first occurrence of each SKU.
+  const srcVariants = [];
+  const seenGroupSkus = new Set();
+  const duplicateGroupSkus = [];
+  for (const it of Array.isArray(rawGroupItems) ? rawGroupItems : []) {
+    const s = normalizeSku(it?.sku);
+    if (s && seenGroupSkus.has(s)) {
+      duplicateGroupSkus.push(s);
+      continue;
+    }
+    if (s) seenGroupSkus.add(s);
+    srcVariants.push(it);
+  }
+  if (duplicateGroupSkus.length) {
+    log(
+      'squarespace sync: dropped %d duplicate SKU row(s) in group %s: %s',
+      duplicateGroupSkus.length,
+      key,
+      duplicateGroupSkus.join(', ')
+    );
+  }
   const matched = matchedByGuid.get(guid) || null;
   const first = srcVariants[0];
   const productName =
@@ -509,6 +572,9 @@ async function processSyncGroup({
   const variantRows = srcVariants
     .map((src) => buildVariantRow(src, currency, { includeAttributes: useVariantAttributes }))
     .filter(Boolean);
+  // Ensure each variant's Configuration label is unique so Squarespace creates a distinct variant
+  // per SKU (a label collision would collapse variants and cause shared/duplicate variant ids).
+  if (useVariantAttributes) makeVariantLabelsUnique(variantRows);
 
   if (!variantRows.length) {
     return {
@@ -521,7 +587,18 @@ async function processSyncGroup({
   }
 
   const productMode = simpleProduct ? 'simple' : useVariantAttributes ? 'multi_variant' : 'simple';
-  const groupProductId = resolveGroupProductId(srcVariants);
+  let groupProductId = resolveGroupProductId(srcVariants);
+  // Guard: a squarespace_product_id must not be reused across different image_guid groups (that would
+  // give two different products the same id). If a prior group this run already claimed it, ignore the
+  // stale link and create a fresh product for this group instead.
+  if (groupProductId && usedProductIds && usedProductIds.has(String(groupProductId))) {
+    log(
+      'squarespace sync: product id %s already used by another group; creating a fresh product for group %s',
+      groupProductId,
+      key
+    );
+    groupProductId = null;
+  }
 
   // --- Simple product: VI-only when already linked on Squarespace ---
   if (simpleProduct) {
@@ -785,9 +862,17 @@ async function updateVirtualInventoryWithSquarespaceIds(
 ) {
   const virtualInventoryUpdates = [];
   const virtualInventoryUpdateErrors = [];
+  const skusMissingVariantId = [];
+  const duplicateVariantIdSkus = [];
+  const usedVariantIds = new Set();
 
   if (!productId || !accountKey || !String(accountKey).trim()) {
-    return { virtualInventoryUpdates, virtualInventoryUpdateErrors };
+    return {
+      virtualInventoryUpdates,
+      virtualInventoryUpdateErrors,
+      skusMissingVariantId,
+      duplicateVariantIdSkus,
+    };
   }
 
   const squarespaceProductId = String(productId);
@@ -796,7 +881,27 @@ async function updateVirtualInventoryWithSquarespaceIds(
     const srcSku = normalizeSku(src?.sku);
     if (!srcSku) continue;
 
-    const squarespaceVariantId = variantIdBySku.get(srcSku) || null;
+    let squarespaceVariantId = variantIdBySku.get(srcSku) || null;
+    // Guard: never write the same variant id to two different SKUs.
+    if (squarespaceVariantId && usedVariantIds.has(String(squarespaceVariantId))) {
+      duplicateVariantIdSkus.push(srcSku);
+      squarespaceVariantId = null;
+    }
+    if (squarespaceVariantId) usedVariantIds.add(String(squarespaceVariantId));
+    else skusMissingVariantId.push(srcSku);
+
+    const thirdPartyIntegrations = {
+      ...(src?.third_party_integrations || {}),
+      squarespace_product_id: squarespaceProductId,
+    };
+    // Set the resolved variant id, or drop any stale/duplicate value when it couldn't be resolved,
+    // so an old duplicate id is never carried forward.
+    if (squarespaceVariantId) {
+      thirdPartyIntegrations.squarespace_variant_id = String(squarespaceVariantId);
+    } else {
+      delete thirdPartyIntegrations.squarespace_variant_id;
+    }
+
     const viItem = {
       sku: srcSku,
       asking_price:
@@ -807,11 +912,7 @@ async function updateVirtualInventoryWithSquarespaceIds(
       description: src?.description_long ?? src?.description_short ?? '',
       quantity_in_stock: Math.max(0, Math.round(Number(getQuantity(src) || 0))),
       track_inventory: true,
-      third_party_integrations: {
-        ...(src?.third_party_integrations || {}),
-        squarespace_product_id: squarespaceProductId,
-        ...(squarespaceVariantId ? { squarespace_variant_id: String(squarespaceVariantId) } : {}),
-      },
+      third_party_integrations: thirdPartyIntegrations,
     };
 
     try {
@@ -828,7 +929,22 @@ async function updateVirtualInventoryWithSquarespaceIds(
     }
   }
 
-  return { virtualInventoryUpdates, virtualInventoryUpdateErrors };
+  if (skusMissingVariantId.length || duplicateVariantIdSkus.length) {
+    log(
+      'squarespace sync: product %s — %d sku(s) without a variant id, %d with a duplicate variant id (blocked): %s',
+      squarespaceProductId,
+      skusMissingVariantId.length,
+      duplicateVariantIdSkus.length,
+      [...skusMissingVariantId, ...duplicateVariantIdSkus].join(', ')
+    );
+  }
+
+  return {
+    virtualInventoryUpdates,
+    virtualInventoryUpdateErrors,
+    skusMissingVariantId,
+    duplicateVariantIdSkus,
+  };
 }
 
 const syncSquarespaceProducts = async (req, res) => {
@@ -942,6 +1058,9 @@ const syncSquarespaceProducts = async (req, res) => {
     };
     const unmatchedImageGuids = uniqueImageGuids.filter((g) => !matchedByGuid.has(g));
 
+    // Tracks every squarespace_product_id used so far this run so two different image_guid groups
+    // can never be assigned the same product id.
+    const usedProductIds = new Set();
     for (const group of syncGroups) {
       if (!group.items?.length) continue;
       try {
@@ -953,7 +1072,11 @@ const syncSquarespaceProducts = async (req, res) => {
           headers,
           matchedByGuid,
           counters,
+          usedProductIds,
         });
+        if (resultEntry?.squarespaceProductId) {
+          usedProductIds.add(String(resultEntry.squarespaceProductId));
+        }
         results.push(resultEntry);
       } catch (err) {
         counters.failed += 1;
