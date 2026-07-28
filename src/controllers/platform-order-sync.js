@@ -604,16 +604,20 @@ exports.squarespaceOrderCreateWebhook = async (req, res) => {
   try {
     log('Squarespace order create webhook received', req.body, req.query);
     const account_key = req.query?.account_key || req.query?.accountKey;
+    log('Resolved account_key=%s', account_key);
     const { valid, error } = validateAccountKey(account_key);
     if (!valid) {
+      log('Account key validation failed: %s', error?.message);
       return sendApiError(res, 400, error.message);
     }
 
     const trimmedKey = String(account_key).trim();
     const squarespaceOrderId =
       req.body?.data?.orderId || req.body?.orderId || req.body?.data?.order_id || null;
+    log('Resolved squarespaceOrderId=%s', squarespaceOrderId);
 
     if (!squarespaceOrderId || !String(squarespaceOrderId).trim()) {
+      log('Missing Squarespace order id in webhook payload, aborting');
       return sendApiError(
         res,
         400,
@@ -621,13 +625,17 @@ exports.squarespaceOrderCreateWebhook = async (req, res) => {
       );
     }
 
+    log('Fetching account information account_key=%s', trimmedKey);
     const getInformation = await finerworksService.GET_INFO({ account_key: trimmedKey });
     const connections = getInformation?.user_account?.connections || [];
+    log('Account has %d connection(s)', Array.isArray(connections) ? connections.length : 0);
     const conn = Array.isArray(connections)
       ? connections.find((c) => c && c.name === 'Squarespace')
       : null;
+    log('Squarespace connection found=%s orderSyncEnabled=%s', Boolean(conn), conn ? isOrderSyncEnabled(conn, 'Squarespace') : false);
 
     if (!conn || !isOrderSyncEnabled(conn, 'Squarespace')) {
+      log('Order sync disabled or connection missing for account_key=%s, ignoring webhook', trimmedKey);
       return res.status(200).json({
         success: true,
         ignored: true,
@@ -639,9 +647,12 @@ exports.squarespaceOrderCreateWebhook = async (req, res) => {
     let accessTokenUsed = null;
 
     try {
+      log('Resolving Squarespace access token account_key=%s', trimmedKey);
       await withSquarespaceAccessToken(trimmedKey, async (accessToken) => {
         accessTokenUsed = accessToken;
+        log('Fetching Squarespace order orderId=%s', squarespaceOrderId);
         squarespaceOrder = await fetchSquarespaceOrderById(accessToken, squarespaceOrderId);
+        log('Fetched Squarespace order id=%s orderNumber=%s', squarespaceOrder?.id, squarespaceOrder?.orderNumber);
       });
     } catch (fetchErr) {
       log(
@@ -657,17 +668,23 @@ exports.squarespaceOrderCreateWebhook = async (req, res) => {
 
     let shippingOptions = null;
     try {
+      log('Fetching FinerWorks shipping options list');
       shippingOptions = await finerworksService.SHIPPING_OPTIONS_LIST();
+      log('Fetched shipping options count=%d', Array.isArray(shippingOptions?.shipping_options) ? shippingOptions.shipping_options.length : 0);
     } catch (shipErr) {
       log('SHIPPING_OPTIONS_LIST failed: %s', shipErr?.message);
     }
 
     console.log('squarespaceOrder==============>>>>>>>', squarespaceOrder);
+    log('squarespaceOrder=%j', squarespaceOrder);
+    log('Transforming Squarespace order to FinerWorks payload orderId=%s', squarespaceOrder?.id);
     const transformedOrder = transformSquarespaceOrderToFinerWorksPayload(squarespaceOrder, {
       shippingOptions: shippingOptions?.shipping_options ?? shippingOptions,
     });
+    log('Transformed order order_po=%s order_items=%d', transformedOrder.order_po, transformedOrder.order_items?.length || 0);
 
     if (!transformedOrder.order_items?.length) {
+      log('No FinerWorks line items found for orderId=%s (SKU must start with AP), ignoring', squarespaceOrder.id);
       return res.status(200).json({
         success: true,
         ignored: true,
@@ -677,10 +694,12 @@ exports.squarespaceOrderCreateWebhook = async (req, res) => {
       });
     }
 
+    log('Enriching %d order item(s) with product guids account_key=%s', transformedOrder.order_items.length, trimmedKey);
     transformedOrder.order_items = await enrichOrderItemsWithProductGuids(
       transformedOrder.order_items,
       trimmedKey
     );
+    log('Enriched order items with product guids');
 
     const fulfillmentUrl = buildSquarespaceFulfillmentWebhookUrl({
       account_key: trimmedKey,
@@ -688,6 +707,7 @@ exports.squarespaceOrderCreateWebhook = async (req, res) => {
       orderNumber: transformedOrder.order_po,
       orderId: squarespaceOrder.id,
     });
+    log('Built fulfillment webhook url=%s', fulfillmentUrl);
     if (fulfillmentUrl) {
       transformedOrder.webhook_order_status_url = fulfillmentUrl;
     }
@@ -695,7 +715,7 @@ exports.squarespaceOrderCreateWebhook = async (req, res) => {
     const finalPayload = {
       orders: [transformedOrder],
       validate_only: false,
-      payment_token: process.env.SQUARESPACE_WEBHOOK_PAYMENT_TOKEN || 'xxxx',
+      // payment_token: process.env.SQUARESPACE_WEBHOOK_PAYMENT_TOKEN || 'xxxx',
       account_key: trimmedKey,
     };
 
@@ -703,9 +723,12 @@ exports.squarespaceOrderCreateWebhook = async (req, res) => {
     try {
       log('Submitting Squarespace order to FinerWorks order_po=%s', transformedOrder.order_po);
       console.log('order data', transformedOrder);
+      log('order data=%j', transformedOrder);
       console.log('finalPayload==============>>>>>>>', finalPayload);
+      log('finalPayload=%j', finalPayload);
       submitData = await finerworksService.SUBMIT_ORDERS(finalPayload);
       console.log('submitData==============>>>>>>>', submitData);
+      log('submitData=%j', submitData);
     } catch (submitErr) {
       log('SUBMIT_ORDERS failed: %s', submitErr?.message);
       const status = submitErr?.response?.status === 400 ? 400 : 502;

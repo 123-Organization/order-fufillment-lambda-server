@@ -21,7 +21,7 @@ const { syncWixProducts } = require('./wix-products');
 const { getWixOrders, getWixOrderByNumber, fulfillWixOrderWithTrackingInfo } = require('./wix-orders');
 const { getSquarespaceOrders, getSquarespaceOrderByNumber, validateSquarespaceAccessToken, fulfillSquareSpaceOrderWithTrackingInfo } = require('./squarespace-orders');
 const { getShopifyOrders, getShopifyOrderByName, fulfillShopifyOrder, updateOrderReferenceNumbers, updateOrderFulfillmentStatus, syncShopifyProducts, createShopifyCarrierService, listShopifyCarrierServices, deleteShopifyCarrierService, shopifyCarrierServiceCallback, registerShopifyWebhook, registerShopifyOrderCreateWebhook, listShopifyWebhooks, deleteShopifyWebhookById, shopifyProductDeleteWebhook, shopifyOrdersCreateWebhook, createUsCanadaShippingProfile } = require('./shopify-orders');
-const { syncSquarespaceProducts } = require('./squarespace-products');
+const { syncSquarespaceProducts, syncSquarespaceProductsV2 } = require('./squarespace-products');
 const { setPlatformOrderSync, squarespaceOrderCreateWebhook, squareOrderCreateWebhook } = require('./platform-order-sync');
 const { connectShippo, getShippoStatus } = require('./shippo-auth');
 const { fetchShippoOrders } = require('./shippo-orders');
@@ -121,6 +121,7 @@ app.post('/shopify/update-order-reference-numbers', asyncHandler(updateOrderRefe
 app.post('/shopify/update-fulfillment-status', asyncHandler(updateOrderFulfillmentStatus));
 app.post('/shopify/sync-products', asyncHandler(syncShopifyProducts));
 app.post('/squarespace/sync-products', asyncHandler(syncSquarespaceProducts));
+app.post('/squarespace/sync-products-v2', asyncHandler(syncSquarespaceProductsV2));
 app.post('/shopify/carrier-service', asyncHandler(createShopifyCarrierService));
 app.get('/shopify/carrier-services', asyncHandler(listShopifyCarrierServices));
 app.delete('/shopify/carrier-service', asyncHandler(deleteShopifyCarrierService));

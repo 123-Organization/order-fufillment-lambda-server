@@ -1,5 +1,8 @@
 const axios = require('axios');
+const debug = require('debug');
 const finerworksService = require('./finerworks-service');
+
+const log = debug('app:squarespaceOrderWebhook');
 
 const SQUARESPACE_ORDERS_URL = 'https://api.squarespace.com/1.0/commerce/orders';
 const FINERWORKS_EMPTY_PRODUCT_GUID = '00000000-0000-0000-0000-000000000000';
@@ -138,6 +141,7 @@ function pickFinerWorksProductGuid(product) {
 
 async function resolveFinerWorksProductGuidBySku(sku, account_key) {
   const skuStr = sku != null ? String(sku).trim() : '';
+  log('resolveFinerWorksProductGuidBySku sku=%s account_key=%s', skuStr, account_key);
   if (!skuStr || !account_key) return FINERWORKS_EMPTY_PRODUCT_GUID;
   try {
     const resp = await finerworksService.LIST_VIRTUAL_INVENTORY({
@@ -145,8 +149,10 @@ async function resolveFinerWorksProductGuidBySku(sku, account_key) {
       account_key,
     });
     const guid = pickFinerWorksProductGuid(resp?.products?.[0]);
+    log('resolveFinerWorksProductGuidBySku resolved guid=%s for sku=%s', guid, skuStr);
     return guid || FINERWORKS_EMPTY_PRODUCT_GUID;
-  } catch (_) {
+  } catch (fallbackErr) {
+    log('resolveFinerWorksProductGuidBySku failed for sku=%s: %s', skuStr, fallbackErr?.message);
     return FINERWORKS_EMPTY_PRODUCT_GUID;
   }
 }
@@ -161,11 +167,14 @@ function placeholderProductImage() {
 }
 
 async function enrichOrderItemsWithProductGuids(orderItems, account_key) {
+  log('enrichOrderItemsWithProductGuids called with %d item(s) account_key=%s', Array.isArray(orderItems) ? orderItems.length : 0, account_key);
   if (!Array.isArray(orderItems) || !orderItems.length) return orderItems;
   return Promise.all(
     orderItems.map(async (item) => {
       const skuStr = item?.product_sku != null ? String(item.product_sku).trim() : '';
+      log('Enriching order item sku=%s', skuStr);
       if (!skuStr || !account_key) {
+        log('Skipping product lookup for sku=%s (missing sku or account_key), using placeholder', skuStr);
         return {
           ...item,
           product_guid: FINERWORKS_EMPTY_PRODUCT_GUID,
@@ -180,6 +189,7 @@ async function enrichOrderItemsWithProductGuids(orderItems, account_key) {
         const product = resp?.products?.[0];
         const guid = pickFinerWorksProductGuid(product) || FINERWORKS_EMPTY_PRODUCT_GUID;
         const imageUrl = product?.image_url_1 || product?.image_url || null;
+        log('Resolved product for sku=%s guid=%s hasImage=%s', skuStr, guid, Boolean(imageUrl));
         return {
           ...item,
           product_guid: guid,
@@ -192,7 +202,8 @@ async function enrichOrderItemsWithProductGuids(orderItems, account_key) {
             }
             : placeholderProductImage(),
         };
-      } catch (_) {
+      } catch (lookupErr) {
+        log('LIST_VIRTUAL_INVENTORY failed for sku=%s: %s, falling back', skuStr, lookupErr?.message);
         const guid = await resolveFinerWorksProductGuidBySku(skuStr, account_key);
         return {
           ...item,
@@ -213,10 +224,13 @@ function buildSquarespaceOrderPo(order) {
 }
 
 function transformSquarespaceOrderToFinerWorksPayload(order, { shippingOptions = null } = {}) {
+  log('transformSquarespaceOrderToFinerWorksPayload called for orderId=%s', order?.id);
   const orderPoDisplay = buildSquarespaceOrderPo(order);
+  log('Built order_po=%s for orderId=%s', orderPoDisplay, order?.id);
   const recipient = buildRecipientFromSquarespaceOrder(order, orderPoDisplay);
 
   const lineItems = Array.isArray(order?.lineItems) ? order.lineItems : [];
+  log('Order has %d line item(s)', lineItems.length);
   const orderItems = lineItems.filter(squarespaceLineItemSkuStartsWithAP).map((li) => ({
     product_order_po: orderPoDisplay || null,
     product_qty: li.quantity ?? 0,
@@ -229,13 +243,17 @@ function transformSquarespaceOrderToFinerWorksPayload(order, { shippingOptions =
     custom_data_2: li?.variantId ? String(li.variantId) : null,
     custom_data_3: null,
   }));
+  log('Filtered to %d FinerWorks-eligible order item(s) (SKU starts with AP)', orderItems.length);
+
+  const shippingCode = resolveSquarespaceShippingCode(order, shippingOptions);
+  log('Resolved shipping_code=%s for orderId=%s', shippingCode, order?.id);
 
   return {
     order_po: orderPoDisplay || null,
     order_key: null,
     recipient,
     order_items: orderItems,
-    shipping_code: resolveSquarespaceShippingCode(order, shippingOptions),
+    shipping_code: shippingCode,
     ship_by_date: null,
     customs_tax_info: null,
     gift_message: null,
@@ -258,8 +276,12 @@ function resolveSquarespaceApiBaseUrl() {
 }
 
 function buildSquarespaceFulfillmentWebhookUrl({ account_key, accessToken, orderNumber, orderId }) {
+  log('buildSquarespaceFulfillmentWebhookUrl called account_key=%s orderNumber=%s orderId=%s', account_key, orderNumber, orderId);
   const apiBase = resolveSquarespaceApiBaseUrl();
-  if (!apiBase) return null;
+  if (!apiBase) {
+    log('No API base configured (OFA_PUBLIC_API_BASE_URL / SQUARESPACE_ORDER_CREATE_WEBHOOK_URL), skipping fulfillment url');
+    return null;
+  }
 
   const params = new URLSearchParams({
     account_key: String(account_key),
@@ -269,29 +291,37 @@ function buildSquarespaceFulfillmentWebhookUrl({ account_key, accessToken, order
   if (accessToken) {
     params.set('access_token', String(accessToken));
   }
-  return `${apiBase}/api/squarespace/fulfill-order?${params.toString()}`;
+  const url = `${apiBase}/api/squarespace/fulfill-order?${params.toString()}`;
+  log('Built fulfillment webhook url=%s', url);
+  return url;
 }
 
 async function fetchSquarespaceOrderById(accessToken, orderId) {
+  log('fetchSquarespaceOrderById called orderId=%s', orderId);
   const id = String(orderId || '').trim();
   if (!id) {
+    log('fetchSquarespaceOrderById missing order id');
     const err = new Error('Missing Squarespace order id');
     err.status = 400;
     throw err;
   }
 
   const endpoint = `${SQUARESPACE_ORDERS_URL}/${encodeURIComponent(id)}`;
+  log('GET %s', endpoint);
   const resp = await axios.get(endpoint, {
     headers: squarespaceHeaders(accessToken),
     timeout: 120000,
   });
+  log('Squarespace order fetch response status=%s', resp?.status);
 
   const order = resp?.data;
   if (!order || typeof order !== 'object' || !order.id) {
+    log('Invalid Squarespace order response for orderId=%s', orderId);
     const err = new Error('Invalid Squarespace order response');
     err.status = 502;
     throw err;
   }
+  log('fetchSquarespaceOrderById succeeded orderId=%s', order.id);
 
   return order;
 }
