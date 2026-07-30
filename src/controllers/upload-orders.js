@@ -619,6 +619,7 @@ exports.uploadOrdersToLocalDatabaseFromExcel = async (req, res) => {
           }
 
           ensureOrderItemsValidForSave(order);
+          ensureValidOrderKey(order);
           const savePayload = {
             orders: [order],
             source: 'excel',
@@ -667,6 +668,11 @@ exports.uploadOrdersToLocalDatabaseFromExcel = async (req, res) => {
     });
     console.error(errorJson);
     log('Formatted error in uploadOrdersToLocalDatabaseFromExcel: %s', errorJson);
+    res.status(err?.response?.status && err.response.status < 500 ? err.response.status : 400).json({
+      statusCode: 400,
+      status: false,
+      message: `Failed to upload orders from Excel: ${err?.response?.data?.Message || err?.message || 'Unknown error'}`,
+    });
   }
 };
 
@@ -695,6 +701,7 @@ exports.uploadOrdersToLocalDatabase = async (req, res) => {
         order.submittedAt = null;
         order.source = "woocommerece"
         ensureOrderItemsValidForSave(order);
+        ensureValidOrderKey(order);
         const savePayload = {
           orders: [order],
           source: uploadedFromAppName,
@@ -741,6 +748,11 @@ exports.uploadOrdersToLocalDatabase = async (req, res) => {
     });
     console.error(errorJson);
     log('Formatted error in uploadOrdersToLocalDatabase: %s', errorJson);
+    res.status(err?.response?.status && err.response.status < 500 ? err.response.status : 400).json({
+      statusCode: 400,
+      status: false,
+      message: `Failed to upload orders to local database: ${err?.response?.data?.Message || err?.message || 'Unknown error'}`,
+    });
   }
 };
 
@@ -818,6 +830,7 @@ exports.uploadOrdersToLocalDatabaseShopify = async (req, res) => {
         order.submittedAt = null;
         // order.source = uploadedFromAppName;
         ensureOrderItemsValidForSave(order);
+        ensureValidOrderKey(order);
         const savePayload = {
           orders: [order],
           source: order.source || uploadedFromAppName,
@@ -872,6 +885,19 @@ function urlEncodeJSON(data) {
   const jsonString = JSON.stringify(data);
   const encodedString = encodeURIComponent(jsonString);
   return encodedString;
+}
+
+/**
+ * save_pending_orders deserializes order_key as System.Nullable<Guid> and throws a 400 when it
+ * isn't a real GUID — e.g. the Mongo-style ObjectIds Squarespace/Shopify send. Replace anything
+ * that isn't already a valid GUID so the order can still be staged.
+ */
+function ensureValidOrderKey(order) {
+  if (!order) return order;
+  if (!order.order_key || !guidRegex.test(order.order_key)) {
+    order.order_key = generateGUID();
+  }
+  return order;
 }
 
 /**
