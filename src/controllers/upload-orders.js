@@ -776,11 +776,26 @@ exports.uploadOrdersToLocalDatabaseShopify = async (req, res) => {
         })
       );
 
+      const accountKey = reqBody.account_key || reqBody.payment_token;
+      console.log("accountKey",accountKey);
+      let existingRemoteOrderPos = new Set();
+      if (accountKey) {
+        const listOrdersResponse = await finerworksService.LIST_ORDERS({ account_key: accountKey });
+        console.log("listOrdersResponse================>>",listOrdersResponse)
+        existingRemoteOrderPos = new Set(
+          (listOrdersResponse?.orders || []).map(order => order.order_po)
+        );
+      }
+
       for (const order of orders) {
         const orderKey = `${order.order_po}|${order.source}`;
         if (existingOrderKeys.has(orderKey)) {
 
           console.log(`Skipping duplicate order_po ${order.order_po} for source ${uploadedFromAppName}`);
+          continue;
+        }
+        if (existingRemoteOrderPos.has(order.order_po)) {
+          console.log(`Skipping order_po ${order.order_po} as it already exists in FinerWorks`);
           continue;
         }
         if (Array.isArray(order.order_items)) {

@@ -313,6 +313,21 @@ exports.SHIPPING_OPTIONS_LIST = async (type) => {
 };
 
 /**
+ * Lists orders for the given account key.
+ * @param {Object} payload - The payload containing the account key.
+ * @returns {Promise<Object>} - The response data from the API.
+ */
+exports.LIST_ORDERS = async (payload) => {
+  const postData = await axios({
+    method: 'POST',
+    url: process.env.FINER_WORKS_URL + 'list_orders',
+    headers: getHeaders(),
+    data: payload
+  });
+  return postData.data;
+};
+
+/**
  * Lists account images (supports pagination payload keys when provided by callers).
  * @param {Object} payload - Optional filter/pagination payload.
  * @returns {Promise<Object>} - Response data from FinerWorks.
