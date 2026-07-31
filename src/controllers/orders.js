@@ -175,7 +175,12 @@ exports.viewAllOrders = async (req, res) => {
     }
 
     // Process orders
-    const allOrders = [...pendingOrdersData.orders];
+    // LIST_PENDING_ORDERS returns each order's staging id as `fulfillment_id`; rename it to
+    // `orderFullFillmentId` to match the field name used elsewhere in the API responses.
+    const allOrders = pendingOrdersData.orders.map((order) => {
+      const { fulfillment_id, ...rest } = order;
+      return { ...rest, orderFullFillmentId: fulfillment_id };
+    });
     allOrders.sort((a, b) => {
       const numA = parseInt(a.order_po.replace(/\D/g, ""), 10);
       const numB = parseInt(b.order_po.replace(/\D/g, ""), 10);
