@@ -567,11 +567,11 @@ exports.uploadOrdersToLocalDatabaseFromExcel = async (req, res) => {
       // Skip orders that already exist in FinerWorks, checked against BOTH real/submitted orders
       // (list_orders, filtered by the payload's order_pos) and staged/pending orders
       // (list_pending_orders). The two lookups are independent, so run them in parallel. Matched by
-      // order_po. Prefer account_key (same as view-all-orders / create-new-order); payment_token as fallback.
+      // order_po. account_key comes from payment_token for this endpoint, account_key as fallback.
       const orderPosToCheck = orders.map((o) => o.order_po).filter(Boolean);
       const existingOrderPos = new Set();
       if (orderPosToCheck.length) {
-        const accountKeyForLookup = reqBody.account_key || reqBody.payment_token || null;
+        const accountKeyForLookup = reqBody.account_key || null;
         const [listOrdersResult, listPendingResult] = await Promise.allSettled([
           finerworksService.LIST_ORDERS({
             account_key: accountKeyForLookup,
@@ -599,7 +599,7 @@ exports.uploadOrdersToLocalDatabaseFromExcel = async (req, res) => {
         }
       }
       for (const order of orders) {
-        console.log("order.order_items[0]?.image_url_1", order.order_items[0]?.product_url_thumbnail)
+        //console.log("order.order_items[0]?.image_url_1", order.order_items[0]?.product_url_thumbnail)
         order.source = "excel"
         console.log("order===========>>>>", order);
         order.createdAt = new Date();
@@ -629,10 +629,11 @@ exports.uploadOrdersToLocalDatabaseFromExcel = async (req, res) => {
         }
 
         ensureOrderItemsValidForSave(order);
+        ensureValidOrderKey(order);
         const savePayload = {
           orders: [order],
           source: 'excel',
-          account_key: reqBody.account_key || reqBody.payment_token || null,
+          account_key: reqBody.account_key || null,
         };
         log("save_pending_orders payload for the creation of the order", JSON.stringify(savePayload));
         const saveData = await finerworksService.SAVE_PENDING_ORDERS(savePayload);
@@ -675,6 +676,11 @@ exports.uploadOrdersToLocalDatabaseFromExcel = async (req, res) => {
     });
     console.error(errorJson);
     log('Formatted error in uploadOrdersToLocalDatabaseFromExcel: %s', errorJson);
+    res.status(err?.response?.status && err.response.status < 500 ? err.response.status : 400).json({
+      statusCode: 400,
+      status: false,
+      message: `Failed to upload orders from Excel: ${err?.response?.data?.Message || err?.message || 'Unknown error'}`,
+    });
   }
 };
 
@@ -703,6 +709,7 @@ exports.uploadOrdersToLocalDatabase = async (req, res) => {
         order.submittedAt = null;
         order.source = "woocommerece"
         ensureOrderItemsValidForSave(order);
+        ensureValidOrderKey(order);
         const savePayload = {
           orders: [order],
           source: uploadedFromAppName,
@@ -749,6 +756,11 @@ exports.uploadOrdersToLocalDatabase = async (req, res) => {
     });
     console.error(errorJson);
     log('Formatted error in uploadOrdersToLocalDatabase: %s', errorJson);
+    res.status(err?.response?.status && err.response.status < 500 ? err.response.status : 400).json({
+      statusCode: 400,
+      status: false,
+      message: `Failed to upload orders to local database: ${err?.response?.data?.Message || err?.message || 'Unknown error'}`,
+    });
   }
 };
 
@@ -826,6 +838,7 @@ exports.uploadOrdersToLocalDatabaseShopify = async (req, res) => {
         order.submittedAt = null;
         // order.source = uploadedFromAppName;
         ensureOrderItemsValidForSave(order);
+        ensureValidOrderKey(order);
         const savePayload = {
           orders: [order],
           source: order.source || uploadedFromAppName,
@@ -880,6 +893,19 @@ function urlEncodeJSON(data) {
   const jsonString = JSON.stringify(data);
   const encodedString = encodeURIComponent(jsonString);
   return encodedString;
+}
+
+/**
+ * save_pending_orders deserializes order_key as System.Nullable<Guid> and throws a 400 when it
+ * isn't a real GUID — e.g. the Mongo-style ObjectIds Squarespace/Shopify send. Replace anything
+ * that isn't already a valid GUID so the order can still be staged.
+ */
+function ensureValidOrderKey(order) {
+  if (!order) return order;
+  if (!order.order_key || !guidRegex.test(order.order_key)) {
+    order.order_key = generateGUID();
+  }
+  return order;
 }
 
 /**
