@@ -569,7 +569,8 @@ exports.uploadOrdersToLocalDatabaseFromExcel = async (req, res) => {
       // (list_pending_orders). The two lookups are independent, so run them in parallel. Matched by
       // order_po. account_key comes from payment_token for this endpoint, account_key as fallback.
       const orderPosToCheck = orders.map((o) => o.order_po).filter(Boolean);
-      const existingOrderPos = new Set();
+      const existingRealOrderPos = new Set();
+      const existingPendingOrderPos = new Set();
       if (orderPosToCheck.length) {
         const accountKeyForLookup =  reqBody.account_key || null;
         const [listOrdersResult, listPendingResult] = await Promise.allSettled([
@@ -586,7 +587,7 @@ exports.uploadOrdersToLocalDatabaseFromExcel = async (req, res) => {
 
         if (listOrdersResult.status === "fulfilled") {
           for (const o of (Array.isArray(listOrdersResult.value?.orders) ? listOrdersResult.value.orders : [])) {
-            existingOrderPos.add(String(o.order_po));
+            existingRealOrderPos.add(String(o.order_po));
           }
         } else {
           log("list_orders lookup failed; proceeding without that check: %s", listOrdersResult.reason?.message);
@@ -594,13 +595,16 @@ exports.uploadOrdersToLocalDatabaseFromExcel = async (req, res) => {
 
         if (listPendingResult.status === "fulfilled") {
           for (const o of (Array.isArray(listPendingResult.value?.orders) ? listPendingResult.value.orders : [])) {
-            existingOrderPos.add(String(o.order_po));
+            existingPendingOrderPos.add(String(o.order_po));
           }
         } else {
           log("list_pending_orders lookup failed; proceeding without that check: %s", listPendingResult.reason?.message);
         }
       }
-      console.log("existingOrderPos=====>>>",existingOrderPos);
+      console.log("existingRealOrderPos=====>>>", existingRealOrderPos, "existingPendingOrderPos=====>>>", existingPendingOrderPos);
+      const importedOrderPos = [];
+      const skippedAlreadySubmittedOrderPos = [];
+      const skippedAlreadyPendingOrderPos = [];
       for (const order of orders) {
         //console.log("order.order_items[0]?.image_url_1", order.order_items[0]?.product_url_thumbnail)
         order.source = "excel"
@@ -626,8 +630,15 @@ exports.uploadOrdersToLocalDatabaseFromExcel = async (req, res) => {
             }
           }
         }
-        if (existingOrderPos.has(String(order.order_po))) {
-          log("Skipping order_po %s — already exists in FinerWorks", order.order_po);
+        const orderPoKey = String(order.order_po);
+        if (existingRealOrderPos.has(orderPoKey)) {
+          log("Skipping order_po %s — already exists as a submitted order in FinerWorks", order.order_po);
+          skippedAlreadySubmittedOrderPos.push(order.order_po);
+          continue;
+        }
+        if (existingPendingOrderPos.has(orderPoKey)) {
+          log("Skipping order_po %s — already staged as a pending order in FinerWorks", order.order_po);
+          skippedAlreadyPendingOrderPos.push(order.order_po);
           continue;
         }
 
@@ -643,6 +654,7 @@ exports.uploadOrdersToLocalDatabaseFromExcel = async (req, res) => {
         const saveData = await finerworksService.SAVE_PENDING_ORDERS(savePayload);
         log("Response after save_pending_orders", JSON.stringify(saveData));
         order.orderFullFillmentId = extractSavedPendingOrderId(saveData);
+        importedOrderPos.push(order.order_po);
       }
       const successLog = JSON.stringify({
         level: 'INFO',
@@ -652,7 +664,12 @@ exports.uploadOrdersToLocalDatabaseFromExcel = async (req, res) => {
         function: 'uploadOrdersToLocalDatabaseFromExcel',
         operation: 'Excel orders uploaded to local database successfully',
         account_key: reqBody?.account_key || 'unknown',
-        result: { count: orders?.length || 0 },
+        result: {
+          count: orders?.length || 0,
+          imported: importedOrderPos.length,
+          skippedAlreadySubmitted: skippedAlreadySubmittedOrderPos.length,
+          skippedAlreadyPending: skippedAlreadyPendingOrderPos.length,
+        },
         timestamp: new Date().toISOString()
       });
       console.log(successLog);
@@ -660,8 +677,11 @@ exports.uploadOrdersToLocalDatabaseFromExcel = async (req, res) => {
       res.status(200).json({
         statusCode: 200,
         status: true,
-        message: "Orders have been submitted successfully",
+        message: `Orders processed: ${importedOrderPos.length} imported, ${skippedAlreadySubmittedOrderPos.length} skipped (already a submitted order), ${skippedAlreadyPendingOrderPos.length} skipped (already pending)`,
         data: orders,
+        imported_order_pos: importedOrderPos,
+        skipped_already_submitted_order_pos: skippedAlreadySubmittedOrderPos,
+        skipped_already_pending_order_pos: skippedAlreadyPendingOrderPos,
       });
     }
   } catch (err) {
