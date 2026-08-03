@@ -436,7 +436,7 @@ const fulfillSquareSpaceOrderWithTrackingInfo = async (req, res) => {
     const trackingUrl = orderStatusData?.orders[0]?.shipments[0]?.tracking_url;
     const carrierName = orderStatusData?.orders[0]?.shipments[0]?.carrier;
     const service = orderStatusData?.orders[0]?.shipments[0]?.service;
-    const shipDate = orderStatusData?.orders[0]?.shipments[0]?.shipment_date;
+    const shipDate = toIsoOrNull(orderStatusData?.orders[0]?.shipments[0]?.shipment_date);
 
     const url = `${SQUARESPACE_ORDERS_URL}/${orderId}/fulfillments`;
     const payload = {

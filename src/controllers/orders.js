@@ -164,6 +164,7 @@ exports.viewAllOrders = async (req, res) => {
     log("Request to get order details for", JSON.stringify(req.body));
 
     const pendingOrdersData = await finerworksService.LIST_PENDING_ORDERS({ account_key });
+    console.log("pendingOrdersData=========>>>",pendingOrdersData.orders.length);
 
     if (!pendingOrdersData?.status?.success || !Array.isArray(pendingOrdersData.orders)) {
       log("No orders found for account key:", account_key);
