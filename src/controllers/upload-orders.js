@@ -572,7 +572,7 @@ exports.uploadOrdersToLocalDatabaseFromExcel = async (req, res) => {
       const existingRealOrderPos = new Set();
       const existingPendingOrderPos = new Set();
       if (orderPosToCheck.length) {
-        const accountKeyForLookup =  reqBody.account_key || null;
+        const accountKeyForLookup = reqBody.account_key || null;
         const [listOrdersResult, listPendingResult] = await Promise.allSettled([
           finerworksService.LIST_ORDERS({
             account_key: accountKeyForLookup,
@@ -582,8 +582,8 @@ exports.uploadOrdersToLocalDatabaseFromExcel = async (req, res) => {
             account_key: accountKeyForLookup,
           }),
         ]);
-        console.log("listOrdersResult=============>>>>>",listOrdersResult);
-        console.log("listPendingResult=============>>>>",listPendingResult);
+        console.log("listOrdersResult=============>>>>>", listOrdersResult);
+        console.log("listPendingResult=============>>>>", listPendingResult);
 
         if (listOrdersResult.status === "fulfilled") {
           for (const o of (Array.isArray(listOrdersResult.value?.orders) ? listOrdersResult.value.orders : [])) {
@@ -645,11 +645,11 @@ exports.uploadOrdersToLocalDatabaseFromExcel = async (req, res) => {
         ensureOrderItemsValidForSave(order);
         ensureValidOrderKey(order);
         const savePayload = {
-          orders: [order],
+          orders: [sanitizeOrderStringsForFinerWorks(order)],
           source: 'excel',
           account_key: reqBody.account_key || null,
         };
-        console.log("savePayload=======>>>>",savePayload)
+        console.log("savePayload=======>>>>", savePayload)
         log("save_pending_orders payload for the creation of the order", JSON.stringify(savePayload));
         const saveData = await finerworksService.SAVE_PENDING_ORDERS(savePayload);
         log("Response after save_pending_orders", JSON.stringify(saveData));
@@ -735,11 +735,12 @@ exports.uploadOrdersToLocalDatabase = async (req, res) => {
         ensureOrderItemsValidForSave(order);
         ensureValidOrderKey(order);
         const savePayload = {
-          orders: [order],
+          orders: [sanitizeOrderStringsForFinerWorks(order)],
           source: uploadedFromAppName,
           account_key: reqBody.payment_token || reqBody.account_key || null,
         };
         log("save_pending_orders payload for the creation of the order", JSON.stringify(savePayload));
+        console.log("savePayload=======>>>>", savePayload);
         const saveData = await finerworksService.SAVE_PENDING_ORDERS(savePayload);
         log("Response after save_pending_orders", JSON.stringify(saveData));
         order.orderFullFillmentId = extractSavedPendingOrderId(saveData);
@@ -875,7 +876,7 @@ exports.uploadOrdersToLocalDatabaseShopify = async (req, res) => {
         ensureOrderItemsValidForSave(order);
         ensureValidOrderKey(order);
         const savePayload = {
-          orders: [order],
+          orders: [sanitizeOrderStringsForFinerWorks(order)],
           source: order.source || uploadedFromAppName,
           account_key: reqBody.payment_token || reqBody.account_key || null,
         };
@@ -942,6 +943,31 @@ function urlEncodeJSON(data) {
   const jsonString = JSON.stringify(data);
   const encodedString = encodeURIComponent(jsonString);
   return encodedString;
+}
+
+/**
+ * save_pending_orders builds its SQL insert server-side via raw string concatenation — an
+ * unescaped apostrophe in any text field (e.g. product_title "Summer's End") breaks their query
+ * with a 500 (confirmed: "Incorrect syntax near 's'. Unclosed quotation mark..."). Escaping to the
+ * standard SQL-literal form ('') avoids the crash and round-trips correctly (verified stored/
+ * returned as the original unescaped text). Returns a sanitized deep copy — never mutates the
+ * input, since the original order is also used in the response sent back to our caller.
+ */
+function sanitizeOrderStringsForFinerWorks(value) {
+  if (typeof value === "string") {
+    return value.replace(/'/g, "''");
+  }
+  if (Array.isArray(value)) {
+    return value.map(sanitizeOrderStringsForFinerWorks);
+  }
+  if (value && typeof value === "object") {
+    const result = {};
+    for (const [key, val] of Object.entries(value)) {
+      result[key] = sanitizeOrderStringsForFinerWorks(val);
+    }
+    return result;
+  }
+  return value;
 }
 
 /**
