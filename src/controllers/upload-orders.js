@@ -571,7 +571,7 @@ exports.uploadOrdersToLocalDatabaseFromExcel = async (req, res) => {
       const orderPosToCheck = orders.map((o) => o.order_po).filter(Boolean);
       const existingOrderPos = new Set();
       if (orderPosToCheck.length) {
-        const accountKeyForLookup = reqBody.payment_token || reqBody.account_key || null;
+        const accountKeyForLookup =  reqBody.account_key || null;
         const [listOrdersResult, listPendingResult] = await Promise.allSettled([
           finerworksService.LIST_ORDERS({
             account_key: accountKeyForLookup,
@@ -581,6 +581,8 @@ exports.uploadOrdersToLocalDatabaseFromExcel = async (req, res) => {
             account_key: accountKeyForLookup,
           }),
         ]);
+        console.log("listOrdersResult=============>>>>>",listOrdersResult);
+        console.log("listPendingResult=============>>>>",listPendingResult);
 
         if (listOrdersResult.status === "fulfilled") {
           for (const o of (Array.isArray(listOrdersResult.value?.orders) ? listOrdersResult.value.orders : [])) {
@@ -598,38 +600,49 @@ exports.uploadOrdersToLocalDatabaseFromExcel = async (req, res) => {
           log("list_pending_orders lookup failed; proceeding without that check: %s", listPendingResult.reason?.message);
         }
       }
+      console.log("existingOrderPos=====>>>",existingOrderPos);
       for (const order of orders) {
-        console.log("order.order_items[0]?.image_url_1", order.order_items[0]?.product_url_thumbnail)
-        if (
-          (order.order_items[0]?.product_image.product_url_file && order.order_items[0].product_image.product_url_file.trim() !== "") &&
-          (order.order_items[0]?.product_image.product_url_thumbnail && order.order_items[0].product_image.product_url_thumbnail.trim() !== "")
-        ) {
-          order.source = "excel"
-          console.log("order===========>>>>", order);
-          order.createdAt = new Date();
-          order.submittedAt = null;
-          if (Array.isArray(order.order_items)) {
-            for (const item of order.order_items) {
-              item.product_guid = generateGUID();
+        //console.log("order.order_items[0]?.image_url_1", order.order_items[0]?.product_url_thumbnail)
+        order.source = "excel"
+        console.log("order===========>>>>", order);
+        order.createdAt = new Date();
+        order.submittedAt = null;
+        if (Array.isArray(order.order_items)) {
+          for (const item of order.order_items) {
+            item.product_guid = generateGUID();
+            const sku = item.product_sku != null ? String(item.product_sku).trim() : '';
+            if (!sku.toUpperCase().startsWith('AP')) {
+              if (!item.product_image) {
+                item.product_image = {};
+              }
+              const fileUrl = item.product_image.product_url_file;
+              const thumbUrl = item.product_image.product_url_thumbnail;
+              if (fileUrl == null || String(fileUrl).trim() === '') {
+                item.product_image.product_url_file = 'https://via.placeholder.com/150';
+              }
+              if (thumbUrl == null || String(thumbUrl).trim() === '') {
+                item.product_image.product_url_thumbnail = 'https://via.placeholder.com/150';
+              }
             }
           }
-          if (existingOrderPos.has(String(order.order_po))) {
-            log("Skipping order_po %s — already exists in FinerWorks", order.order_po);
-            continue;
-          }
-
-          ensureOrderItemsValidForSave(order);
-          const savePayload = {
-            orders: [order],
-            source: 'excel',
-            account_key: reqBody.payment_token || reqBody.account_key || null,
-          };
-          log("save_pending_orders payload for the creation of the order", JSON.stringify(savePayload));
-          const saveData = await finerworksService.SAVE_PENDING_ORDERS(savePayload);
-          log("Response after save_pending_orders", JSON.stringify(saveData));
-          order.orderFullFillmentId = extractSavedPendingOrderId(saveData);
+        }
+        if (existingOrderPos.has(String(order.order_po))) {
+          log("Skipping order_po %s — already exists in FinerWorks", order.order_po);
+          continue;
         }
 
+        ensureOrderItemsValidForSave(order);
+        ensureValidOrderKey(order);
+        const savePayload = {
+          orders: [order],
+          source: 'excel',
+          account_key: reqBody.account_key || null,
+        };
+        console.log("savePayload=======>>>>",savePayload)
+        log("save_pending_orders payload for the creation of the order", JSON.stringify(savePayload));
+        const saveData = await finerworksService.SAVE_PENDING_ORDERS(savePayload);
+        log("Response after save_pending_orders", JSON.stringify(saveData));
+        order.orderFullFillmentId = extractSavedPendingOrderId(saveData);
       }
       const successLog = JSON.stringify({
         level: 'INFO',
@@ -667,6 +680,11 @@ exports.uploadOrdersToLocalDatabaseFromExcel = async (req, res) => {
     });
     console.error(errorJson);
     log('Formatted error in uploadOrdersToLocalDatabaseFromExcel: %s', errorJson);
+    res.status(err?.response?.status && err.response.status < 500 ? err.response.status : 400).json({
+      statusCode: 400,
+      status: false,
+      message: `Failed to upload orders from Excel: ${err?.response?.data?.Message || err?.message || 'Unknown error'}`,
+    });
   }
 };
 
@@ -695,6 +713,7 @@ exports.uploadOrdersToLocalDatabase = async (req, res) => {
         order.submittedAt = null;
         order.source = "woocommerece"
         ensureOrderItemsValidForSave(order);
+        ensureValidOrderKey(order);
         const savePayload = {
           orders: [order],
           source: uploadedFromAppName,
@@ -741,6 +760,11 @@ exports.uploadOrdersToLocalDatabase = async (req, res) => {
     });
     console.error(errorJson);
     log('Formatted error in uploadOrdersToLocalDatabase: %s', errorJson);
+    res.status(err?.response?.status && err.response.status < 500 ? err.response.status : 400).json({
+      statusCode: 400,
+      status: false,
+      message: `Failed to upload orders to local database: ${err?.response?.data?.Message || err?.message || 'Unknown error'}`,
+    });
   }
 };
 
@@ -818,6 +842,7 @@ exports.uploadOrdersToLocalDatabaseShopify = async (req, res) => {
         order.submittedAt = null;
         // order.source = uploadedFromAppName;
         ensureOrderItemsValidForSave(order);
+        ensureValidOrderKey(order);
         const savePayload = {
           orders: [order],
           source: order.source || uploadedFromAppName,
@@ -872,6 +897,19 @@ function urlEncodeJSON(data) {
   const jsonString = JSON.stringify(data);
   const encodedString = encodeURIComponent(jsonString);
   return encodedString;
+}
+
+/**
+ * save_pending_orders deserializes order_key as System.Nullable<Guid> and throws a 400 when it
+ * isn't a real GUID — e.g. the Mongo-style ObjectIds Squarespace/Shopify send. Replace anything
+ * that isn't already a valid GUID so the order can still be staged.
+ */
+function ensureValidOrderKey(order) {
+  if (!order) return order;
+  if (!order.order_key || !guidRegex.test(order.order_key)) {
+    order.order_key = generateGUID();
+  }
+  return order;
 }
 
 /**
