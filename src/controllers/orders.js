@@ -171,6 +171,7 @@ exports.viewAllOrders = async (req, res) => {
         statusCode: 200,
         status: false,
         message: pendingOrdersData?.status?.message || "No orders found for the provided account key.",
+        data: [],
       });
     }
 
