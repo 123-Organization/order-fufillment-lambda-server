@@ -83,6 +83,13 @@ Resources:
       CodeUri: .
       MemorySize: 3008
       Timeout: 900
+      # Direct HTTPS endpoint that bypasses API Gateway's 29s integration timeout limit, for the
+      # slow batch-upload routes this function serves (/api/upload-orders). Honors the full 900s
+      # Lambda timeout above. AuthType NONE matches the current open access via API Gateway; CORS
+      # is intentionally left unconfigured here so requests (incl. the OPTIONS preflight) pass
+      # through to the existing Express cors() middleware in app.js, same as today.
+      FunctionUrlConfig:
+        AuthType: NONE
       Environment:
         Variables:
           DEBUG: app*
@@ -276,6 +283,14 @@ Resources:
       CodeUri: .
       MemorySize: 3008
       Timeout: 900
+      # Direct HTTPS endpoint that bypasses API Gateway's 29s integration timeout limit, for the
+      # slow batch-upload routes this function serves (/api/upload-orders-from-excel,
+      # /api/upload-orders-shopify, /api/submit-orders-v2). Honors the full 900s Lambda timeout
+      # above. AuthType NONE matches the current open access via API Gateway; CORS is intentionally
+      # left unconfigured here so requests (incl. the OPTIONS preflight) pass through to the
+      # existing Express cors() middleware in app.js, same as today.
+      FunctionUrlConfig:
+        AuthType: NONE
       Environment:
         Variables:
           DEBUG: app*
@@ -791,3 +806,15 @@ Resources:
             RestApiId: !Ref ProdApiGateway
             Method: POST
             Path: "/api/order-submit-status-bulk"
+
+Outputs:
+  # Direct Lambda Function URLs for the slow batch-upload routes, bypassing API Gateway's 29s
+  # integration timeout limit. Use these (same paths, e.g. <url>/api/upload-orders-shopify)
+  # instead of the API Gateway URL for /api/upload-orders, /api/upload-orders-from-excel,
+  # /api/upload-orders-shopify, and /api/submit-orders-v2.
+  OrderFullFillmentServerLessProdServerUrl:
+    Description: Function URL for OrderFullFillmentServerLessProdServer (/api/upload-orders)
+    Value: !GetAtt OrderFullFillmentServerLessProdServerUrl.FunctionUrl
+  OrderFullFillmentServerLessProdServerV2Url:
+    Description: Function URL for OrderFullFillmentServerLessProdServerV2 (/api/upload-orders-from-excel, /api/upload-orders-shopify, /api/submit-orders-v2)
+    Value: !GetAtt OrderFullFillmentServerLessProdServerV2Url.FunctionUrl
