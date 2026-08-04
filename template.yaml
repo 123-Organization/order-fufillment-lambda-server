@@ -785,3 +785,9 @@ Resources:
             RestApiId: !Ref ProdApiGateway
             Method: POST
             Path: "/api/update-woocommerce-product-id"
+        OrderStatus:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ProdApiGateway
+            Method: POST
+            Path: "/api/order-submit-status-bulk"
