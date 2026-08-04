@@ -104,6 +104,13 @@ Resources:
       CodeUri: .
       MemorySize: 3008
       Timeout: 900
+      # Direct HTTPS endpoint that bypasses API Gateway's 29s integration timeout limit, for the
+      # slow batch-upload routes this function serves (/api/upload-orders). Honors the full 900s
+      # Lambda timeout above. AuthType NONE matches the current open access via API Gateway; CORS
+      # is intentionally left unconfigured here so requests (incl. the OPTIONS preflight) pass
+      # through to the existing Express cors() middleware in app.js, same as today.
+      FunctionUrlConfig:
+        AuthType: NONE
       Environment:
         Variables:
           DEBUG: app*
@@ -405,6 +412,14 @@ Resources:
       CodeUri: .
       MemorySize: 3008
       Timeout: 900
+      # Direct HTTPS endpoint that bypasses API Gateway's 29s integration timeout limit, for the
+      # slow batch-upload routes this function serves (/api/upload-orders-from-excel,
+      # /api/upload-orders-shopify, /api/submit-orders-v2). Honors the full 900s Lambda timeout
+      # above. AuthType NONE matches the current open access via API Gateway; CORS is intentionally
+      # left unconfigured here so requests (incl. the OPTIONS preflight) pass through to the
+      # existing Express cors() middleware in app.js, same as today.
+      FunctionUrlConfig:
+        AuthType: NONE
       Environment:
         Variables:
           DEBUG: app*
@@ -828,3 +843,15 @@ Resources:
           Properties:
             Schedule: rate(6 hours)
             Input: '{"squareTokenRenewal": true}'
+
+Outputs:
+  # Direct Lambda Function URLs for the slow batch-upload routes, bypassing API Gateway's 29s
+  # integration timeout limit. Use these (same paths, e.g. <url>/api/upload-orders-shopify)
+  # instead of the API Gateway URL for /api/upload-orders, /api/upload-orders-from-excel,
+  # /api/upload-orders-shopify, and /api/submit-orders-v2.
+  OrderFullFillmentServerLessDevServerAgainUrl:
+    Description: Function URL for OrderFullFillmentServerLessDevServerAgain (/api/upload-orders)
+    Value: !GetAtt OrderFullFillmentServerLessDevServerAgainUrl.FunctionUrl
+  OrderFullFillmentServerLessDevServerV2AgainUrl:
+    Description: Function URL for OrderFullFillmentServerLessDevServerV2Again (/api/upload-orders-from-excel, /api/upload-orders-shopify, /api/submit-orders-v2)
+    Value: !GetAtt OrderFullFillmentServerLessDevServerV2AgainUrl.FunctionUrl
