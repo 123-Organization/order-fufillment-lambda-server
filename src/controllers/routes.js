@@ -6,7 +6,7 @@ const { getClientToken, addPaymentCard, createCustomer, getFullCustomerDetails, 
 const { validateOrders, validateSubmitOrders, uploadOrdersToLocalDatabase, uploadOrdersToLocalDatabaseShopify, updateOrder, uploadOrdersToLocalDatabaseFromExcel } = require('./upload-orders');
 const { listVirtualInventory, listVirtualInventoryV2, validateListVirtualInventory, validateUpdateVirtualInventory, updateVirtualInventory, validateSkus, deleteVirtualInventory, getProductBySku, validateUpdateWoocommerceProductId, updateWoocommerceProductId } = require('./virtual-inventory');
 const { validateAddProduct, addProduct, getProductDetails, increaseProductQuantity, exportToWoocomercev1, productTrashed, productRestored, productSkuUpdated } = require('./products-management');
-const { viewOrderDetails, viewAllOrders, updateOrderByProductSkuCode, createNewOrder, deleteOrder, orderSubmitStatus, getOrderPrice, submitOrders, submitOrdersV2, getOrderDetailsById, softDeleteOrders, disconnectAndProcess, connectAndProcess, connectAndProcessOfa, disconnectProductsFromInventory, updateOrderByValidProductSkuCode, testAccountKey, checkDomain, sendOrderDetails } = require('./orders');
+const { viewOrderDetails, viewAllOrders, updateOrderByProductSkuCode, createNewOrder, deleteOrder, orderSubmitStatus, orderSubmitStatusBulk, getOrderPrice, submitOrders, submitOrdersV2, getOrderDetailsById, softDeleteOrders, disconnectAndProcess, connectAndProcess, connectAndProcessOfa, disconnectProductsFromInventory, updateOrderByValidProductSkuCode, testAccountKey, checkDomain, sendOrderDetails } = require('./orders');
 const { listShippingOptions, listShippingOptionsV2, listShippingOptionsV3 } = require('./shipping-options');
 const { getUserPaymentToken, getCompanyInfo } = require('./payment-token');
 const { updateUserInformation } = require('./userInformation');
@@ -58,6 +58,7 @@ app.post('/create-new-order', createNewOrder);
 app.delete('/delete-order', deleteOrder);
 app.delete('/submit-order', validateSubmitOrders, submitOrders);
 app.post('/order-submit-status', orderSubmitStatus);
+app.post('/order-submit-status-bulk', orderSubmitStatusBulk);
 app.get('/get-user-payment-tokens', getUserPaymentToken);
 app.post('/process-vaulted-payment', processVaultedPaymentToken);
 app.post('/add-token-to-user', updateUserInformation);

@@ -1337,6 +1337,72 @@ exports.orderSubmitStatus = async (req, res) => {
   }
 };
 
+exports.orderSubmitStatusBulk = async (req, res) => {
+  try {
+    const reqBody = JSON.parse(JSON.stringify(req.body));
+    const { account_key, orderIds } = reqBody;
+
+    if (!account_key || !Array.isArray(orderIds) || orderIds.length === 0) {
+      return res.status(400).json({
+        statusCode: 400,
+        status: false,
+        message: "Account key and order IDs are required, and order IDs must be a non-empty array.",
+      });
+    }
+
+    log("Request comes to get bulk order submit status for", JSON.stringify(reqBody));
+
+    const selectOrderIds = {
+      "ids": orderIds,
+      "account_key": account_key
+    };
+    console.log("selectOrderIds=================>>>>>>>>>>>", selectOrderIds);
+    const orderStatusData = await finerworksService.LIST_PENDING_ORDERS(
+      selectOrderIds
+    );
+    console.log("orderStatusData===============", orderStatusData);
+
+    const successLog = JSON.stringify({
+      level: 'INFO',
+      platform: 'finerworks',
+      method: req.method,
+      api: req.originalUrl || req.url,
+      function: 'orderSubmitStatusBulk',
+      operation: 'Order submit status fetched successfully',
+      account_key: req.body?.account_key || 'unknown',
+      result: { orderIds },
+      timestamp: new Date().toISOString()
+    });
+    console.log(successLog);
+    log('Success in orderSubmitStatusBulk: %s', successLog);
+    res.status(200).json({
+      statusCode: 200,
+      status: true,
+      data: orderStatusData
+    });
+  } catch (err) {
+    const isFinerworksError = err?.response?.config?.url?.includes('finerworks.com') || err?.config?.url?.includes('finerworks.com');
+    const errorJson = JSON.stringify({
+      level: 'ERROR',
+      platform: 'finerworks',
+      source: isFinerworksError ? 'finerworks_api' : 'lambda',
+      function: 'orderSubmitStatusBulk',
+      account_key: req.body?.account_key || 'unknown',
+      httpStatus: err?.response?.status || null,
+      message: `Failed to fetch bulk order submit status: ${err?.message || 'Unknown error'}`,
+      detail: err?.response?.data?.message || err?.response?.data?.error || null,
+      timestamp: new Date().toISOString()
+    });
+    console.error(errorJson);
+    log('Formatted error in orderSubmitStatusBulk: %s', errorJson);
+    res.status(400).json({
+      statusCode: 400,
+      status: false,
+      message: err?.message || "Unknown error",
+    });
+  }
+};
+
 exports.getOrderPrice = async (req, res) => {
   try {
     const reqBody = JSON.parse(JSON.stringify(req.body));
