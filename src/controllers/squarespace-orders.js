@@ -1,10 +1,19 @@
 const axios = require('axios');
 const finerworksService = require('../helpers/finerworks-service');
 const { sendApiError } = require('../helpers/api-error');
+const { buildSquarespaceOrderPo } = require('../helpers/squarespace-order-webhook');
 const debug = require('debug');
 const log = debug('app:squarespaceOrders');
 
 const SQUARESPACE_ORDERS_URL = 'https://api.squarespace.com/1.0/commerce/orders';
+
+// How many not-yet-imported orders to return from getSquarespaceOrders. Configurable via env
+// since this cap is expected to change; falls back to 50 if unset/invalid.
+const DEFAULT_SQUARESPACE_ORDERS_RESPONSE_LIMIT = 50;
+function getSquarespaceOrdersResponseLimit() {
+  const parsed = parseInt(process.env.SQUARESPACE_ORDERS_RESPONSE_LIMIT, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_SQUARESPACE_ORDERS_RESPONSE_LIMIT;
+}
 
 function toIsoOrNull(v) {
   if (!v) return null;
@@ -71,6 +80,7 @@ const getSquarespaceOrders = async (req, res) => {
     const fulfillmentStatus =
       req.body?.fulfillmentStatus || req.body?.fulfillment_status || req.query?.fulfillmentStatus;
     const customerId = req.body?.customerId || req.body?.customer_id || req.query?.customerId;
+    const account_key = req.body?.account_key || req.query?.account_key;
 
     // validate the required parameters
     if (!startDate && !endDate) {
@@ -85,13 +95,63 @@ const getSquarespaceOrders = async (req, res) => {
       return sendApiError(res, 400, 'Missing required parameter: access_token');
     }
 
-    const orders = await fetchAllSquarespaceOrders({
+    if (!account_key) {
+      return sendApiError(res, 400, 'Missing required parameter: account_key');
+    }
+
+    const fetchedOrders = await fetchAllSquarespaceOrders({
       accessToken,
       startDate,
       endDate,
       fulfillmentStatus,
       customerId,
     });
+
+    // Skip orders already in FinerWorks, checked against BOTH real/submitted orders (list_orders)
+    // and staged/pending orders (list_pending_orders) — same de-dup approach used by
+    // uploadOrdersToLocalDatabaseShopify. Matched by order_po, derived from the Squarespace
+    // order the same way transformSquarespaceOrderToFinerWorksPayload does.
+    const ordersWithPo = fetchedOrders.map((order) => ({
+      order,
+      order_po: buildSquarespaceOrderPo(order),
+    }));
+    const orderPosToCheck = ordersWithPo.map((o) => o.order_po).filter(Boolean);
+    const existingOrderPos = new Set();
+    if (orderPosToCheck.length) {
+      const [listOrdersResult, listPendingResult] = await Promise.allSettled([
+        finerworksService.LIST_ORDERS({
+          account_key,
+          order_pos: orderPosToCheck,
+        }),
+        finerworksService.LIST_PENDING_ORDERS({
+          account_key,
+        }),
+      ]);
+
+      if (listOrdersResult.status === 'fulfilled') {
+        for (const o of (Array.isArray(listOrdersResult.value?.orders) ? listOrdersResult.value.orders : [])) {
+          existingOrderPos.add(String(o.order_po));
+        }
+      } else {
+        log('list_orders lookup failed; proceeding without that check: %s', listOrdersResult.reason?.message);
+      }
+
+      if (listPendingResult.status === 'fulfilled') {
+        for (const o of (Array.isArray(listPendingResult.value?.orders) ? listPendingResult.value.orders : [])) {
+          existingOrderPos.add(String(o.order_po));
+        }
+      } else {
+        log('list_pending_orders lookup failed; proceeding without that check: %s', listPendingResult.reason?.message);
+      }
+    }
+
+    const newOrders = ordersWithPo
+      .filter((o) => !o.order_po || !existingOrderPos.has(String(o.order_po)))
+      .map((o) => o.order);
+
+    const responseLimit = getSquarespaceOrdersResponseLimit();
+    const totalNewOrders = newOrders.length;
+    const orders = newOrders.slice(0, responseLimit);
 
     const successLog = JSON.stringify({
       level: 'INFO',
@@ -100,9 +160,12 @@ const getSquarespaceOrders = async (req, res) => {
       api: req.originalUrl || req.url,
       function: 'getSquarespaceOrders',
       operation: 'Squarespace orders list fetched successfully',
-      result: orders.length <= 20
-        ? { count: orders.length, orderIds: orders.map(o => o?.id) }
-        : { count: orders.length, firstOrderIds: orders.slice(0, 5).map(o => o?.id) },
+      result: {
+        fetchedCount: fetchedOrders.length,
+        totalNewOrders,
+        returnedCount: orders.length,
+        responseLimit,
+      },
       timestamp: new Date().toISOString()
     });
     console.log('Success in getSquarespaceOrders: %s', successLog);
@@ -110,6 +173,8 @@ const getSquarespaceOrders = async (req, res) => {
     return res.status(200).json({
       success: true,
       count: orders.length,
+      total_new_orders: totalNewOrders,
+      response_limit: responseLimit,
       orders,
     });
   } catch (err) {

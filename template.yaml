@@ -593,6 +593,7 @@ Resources:
         Variables:
           DEBUG: app*
           SHIPPO_MODE: live
+          SQUARESPACE_ORDERS_RESPONSE_LIMIT: "50"
       Events:
         ConnectShippo:
           Type: Api
