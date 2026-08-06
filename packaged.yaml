@@ -84,13 +84,14 @@ Resources:
         - ProdLambdaExecutionRole
         - Arn
       Runtime: nodejs18.x
-      CodeUri: s3://orderfullfilmentprodbucketlambda/f1b1a91e1cbbf9ca52f37c658034cd25
+      CodeUri: s3://orderfullfilmentprodbucketlambda/fca5f4b18cec162d2cd4c07f3394b17c
       MemorySize: 3008
       Timeout: 900
       Environment:
         Variables:
           DEBUG: app*
           SQUARESPACE_ACCOUNTS_TABLE_NAME: squarespace-accounts
+          SQUARESPACE_ORDERS_LIMIT: '50'
           SQUARE_ACCOUNTS_TABLE_NAME: square-accounts
           SQUARE_ACCOUNTS_ACCOUNT_KEY_GSI: account-key
       Events:
@@ -288,13 +289,14 @@ Resources:
         - ProdLambdaExecutionRole
         - Arn
       Runtime: nodejs18.x
-      CodeUri: s3://orderfullfilmentprodbucketlambda/f1b1a91e1cbbf9ca52f37c658034cd25
+      CodeUri: s3://orderfullfilmentprodbucketlambda/fca5f4b18cec162d2cd4c07f3394b17c
       MemorySize: 3008
       Timeout: 900
       Environment:
         Variables:
           DEBUG: app*
           SQUARESPACE_ACCOUNTS_TABLE_NAME: squarespace-accounts
+          SQUARESPACE_ORDERS_LIMIT: '50'
           SQUARE_ACCOUNTS_TABLE_NAME: square-accounts
           SQUARE_ACCOUNTS_ACCOUNT_KEY_GSI: account-key
       Events:
@@ -626,13 +628,14 @@ Resources:
         - ProdLambdaExecutionRole
         - Arn
       Runtime: nodejs18.x
-      CodeUri: s3://orderfullfilmentprodbucketlambda/f1b1a91e1cbbf9ca52f37c658034cd25
+      CodeUri: s3://orderfullfilmentprodbucketlambda/fca5f4b18cec162d2cd4c07f3394b17c
       MemorySize: 3008
       Timeout: 900
       Environment:
         Variables:
           DEBUG: app*
           SHIPPO_MODE: live
+          SQUARESPACE_ORDERS_LIMIT: '50'
       Events:
         ConnectShippo:
           Type: Api
@@ -856,5 +859,12 @@ Resources:
               Ref: ProdApiGateway
             Method: POST
             Path: /api/update-woocommerce-product-id
+        OrderStatus:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: ProdApiGateway
+            Method: POST
+            Path: /api/order-submit-status-bulk
     Metadata:
       SamResourceId: OrderFullFillmentServerLessProdServerAgainNew
