@@ -18,14 +18,14 @@ const recipientSchema = Joi.object({
   state: Joi.string().min(1).max(100).optional().label("State"),
   state_code: Joi.string().length(2)
     .when('country_code', {
-      is: 'US',
+      is: Joi.string().valid('US').insensitive(),
       then: Joi.required(),
       otherwise: Joi.optional().allow("")
     })
     .required(),
   province: Joi.string()
     .when('country_code', {
-      is: Joi.not('US'),
+      is: Joi.string().valid(Joi.not('US')).insensitive(),
       then: Joi.required(),
       otherwise: Joi.optional().allow("")
     })

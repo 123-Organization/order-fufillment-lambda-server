@@ -1,6 +1,7 @@
 const axios = require('axios');
 const finerworksService = require('../helpers/finerworks-service');
 const { sendApiError } = require('../helpers/api-error');
+const { buildSquarespaceOrderPo } = require('../helpers/squarespace-order-webhook');
 const debug = require('debug');
 const log = debug('app:squarespaceOrders');
 
@@ -10,6 +11,22 @@ function toIsoOrNull(v) {
   if (!v) return null;
   const d = new Date(v);
   return Number.isNaN(d.getTime()) ? null : d.toISOString();
+}
+
+/** Keys used to match a Squarespace order against FinerWorks order_po values. */
+function squarespaceOrderMatchKeys(order) {
+  const keys = new Set();
+  const orderPo = buildSquarespaceOrderPo(order);
+  if (orderPo) keys.add(String(orderPo));
+
+  const rawNumber = order?.orderNumber != null ? String(order.orderNumber).trim() : '';
+  if (rawNumber) {
+    keys.add(rawNumber);
+    keys.add(rawNumber.replace(/^#/, ''));
+    const alphanumeric = rawNumber.replace(/[^A-Za-z0-9]/g, '');
+    if (alphanumeric) keys.add(alphanumeric);
+  }
+  return keys;
 }
 
 async function fetchAllSquarespaceOrders({
@@ -64,6 +81,11 @@ const getSquarespaceOrders = async (req, res) => {
       accessToken = authHeader.slice(7).trim();
     }
 
+    const accountKey =
+      req.body?.account_key ||
+      req.body?.accountKey ||
+      req.query?.account_key ||
+      req.query?.accountKey;
     const startDate =
       req.body?.startDate || req.body?.start_date || req.query?.startDate || req.query?.start_date;
     const endDate =
@@ -85,13 +107,114 @@ const getSquarespaceOrders = async (req, res) => {
       return sendApiError(res, 400, 'Missing required parameter: access_token');
     }
 
-    const orders = await fetchAllSquarespaceOrders({
+    if (!accountKey || !String(accountKey).trim()) {
+      return sendApiError(res, 400, 'Missing required parameter: account_key');
+    }
+
+    const trimmedAccountKey = String(accountKey).trim();
+
+    let orders = await fetchAllSquarespaceOrders({
       accessToken,
       startDate,
       endDate,
       fulfillmentStatus,
       customerId,
     });
+
+    // Exclude orders already present in FinerWorks (submitted or pending), matched by order_po.
+    const orderPosToCheck = [
+      ...new Set(
+        orders
+          .map((o) => buildSquarespaceOrderPo(o))
+          .filter(Boolean)
+          .map((v) => String(v))
+      ),
+    ];
+    console.log("orderPosToCheck====",orderPosToCheck);
+    
+    const existingSubmittedOrderPos = new Set();
+    const existingPendingOrderPos = new Set();
+    if (orderPosToCheck.length) {
+      const LIST_ORDERS_BATCH_SIZE = 10;
+      const orderPosBatches = [];
+      for (let i = 0; i < orderPosToCheck.length; i += LIST_ORDERS_BATCH_SIZE) {
+        orderPosBatches.push(orderPosToCheck.slice(i, i + LIST_ORDERS_BATCH_SIZE));
+      }
+
+      const [listPendingResult, ...listOrdersResults] = await Promise.allSettled([
+        finerworksService.LIST_PENDING_ORDERS({
+          account_key: trimmedAccountKey,
+        }),
+        ...orderPosBatches.map((orderPosBatch) =>
+          finerworksService.LIST_ORDERS({
+            account_key: trimmedAccountKey,
+            order_pos: orderPosBatch,
+          })
+        ),
+      ]);
+      console.log("listOrdersResults====>>>", listOrdersResults);
+
+      for (const listOrdersResult of listOrdersResults) {
+        if (listOrdersResult.status === 'fulfilled') {
+          for (const o of Array.isArray(listOrdersResult.value?.orders)
+            ? listOrdersResult.value.orders
+            : []) {
+            if (o?.order_po != null) existingSubmittedOrderPos.add(String(o.order_po));
+          }
+        } else {
+          log(
+            'list_orders lookup failed; proceeding without that check: %s',
+            listOrdersResult.reason?.message
+          );
+        }
+      }
+
+      if (listPendingResult.status === 'fulfilled') {
+        for (const o of Array.isArray(listPendingResult.value?.orders)
+          ? listPendingResult.value.orders
+          : []) {
+          if (o?.order_po != null) existingPendingOrderPos.add(String(o.order_po));
+        }
+      } else {
+        log(
+          'list_pending_orders lookup failed; proceeding without that check: %s',
+          listPendingResult.reason?.message
+        );
+      }
+    }
+    console.log("existingPendingOrderPos",existingPendingOrderPos);
+        console.log("existingPendingOrderPos",existingSubmittedOrderPos);
+
+    let submittedCount = 0;
+    let pendingCount = 0;
+    if (existingSubmittedOrderPos.size || existingPendingOrderPos.size) {
+      const filteredOrders = [];
+      for (const order of orders) {
+        const keys = squarespaceOrderMatchKeys(order);
+        let matchedSubmitted = false;
+        let matchedPending = false;
+        for (const key of keys) {
+          if (existingSubmittedOrderPos.has(key)) matchedSubmitted = true;
+          if (existingPendingOrderPos.has(key)) matchedPending = true;
+        }
+        if (matchedSubmitted) {
+          submittedCount += 1;
+          continue;
+        }
+        if (matchedPending) {
+          pendingCount += 1;
+          continue;
+        }
+        filteredOrders.push(order);
+      }
+      orders = filteredOrders;
+    }
+
+    const totalAvailableCount = orders.length;
+    const ordersLimitRaw = Number(process.env.SQUARESPACE_ORDERS_LIMIT);
+    const ordersLimit =
+      Number.isFinite(ordersLimitRaw) && ordersLimitRaw > 0 ? Math.floor(ordersLimitRaw) : 50;
+    orders = orders.slice(0, ordersLimit);
 
     const successLog = JSON.stringify({
       level: 'INFO',
@@ -100,9 +223,22 @@ const getSquarespaceOrders = async (req, res) => {
       api: req.originalUrl || req.url,
       function: 'getSquarespaceOrders',
       operation: 'Squarespace orders list fetched successfully',
+      account_key: trimmedAccountKey,
       result: orders.length <= 20
-        ? { count: orders.length, orderIds: orders.map(o => o?.id) }
-        : { count: orders.length, firstOrderIds: orders.slice(0, 5).map(o => o?.id) },
+        ? {
+            count: orders.length,
+            totalAvailableCount,
+            submittedCount,
+            pendingCount,
+            orderIds: orders.map((o) => o?.id),
+          }
+        : {
+            count: orders.length,
+            totalAvailableCount,
+            submittedCount,
+            pendingCount,
+            firstOrderIds: orders.slice(0, 5).map((o) => o?.id),
+          },
       timestamp: new Date().toISOString()
     });
     console.log('Success in getSquarespaceOrders: %s', successLog);
@@ -110,14 +246,21 @@ const getSquarespaceOrders = async (req, res) => {
     return res.status(200).json({
       success: true,
       count: orders.length,
+      totalAvailableCount,
+      submittedCount,
+      pendingCount,
       orders,
     });
   } catch (err) {
+    const isFinerworksError =
+      err?.response?.config?.url?.includes('finerworks.com') ||
+      err?.config?.url?.includes('finerworks.com');
     const errorJson = JSON.stringify({
       level: 'ERROR',
       platform: 'squarespace',
-      source: 'squarespace_api',
+      source: isFinerworksError ? 'finerworks_api' : 'squarespace_api',
       function: 'getSquarespaceOrders',
+      account_key: req.body?.account_key || req.query?.account_key || 'unknown',
       httpStatus: err?.response?.status || null,
       message: `Failed to fetch Squarespace orders: ${err?.message || 'Unknown error'}`,
       detail: err?.response?.data?.message || err?.response?.data?.type || null,
