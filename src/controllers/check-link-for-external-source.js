@@ -2,6 +2,17 @@ const axios = require('axios');
 const { sendApiError, ApiError } = require('../helpers/api-error');
 const debug = require('debug');
 const log = debug('app:checkLinkForExternalSource');
+const finerworksService = require('../helpers/finerworks-service');
+
+// third_party_integrations fields owned by each source, scoped so a check against one platform
+// never touches another platform's link. Etsy has no variant id in the schema (see
+// virtual-inventory.js's UpdateVirtualInventorySchema).
+const SOURCE_ID_FIELDS = {
+  squarespace: ['squarespace_product_id', 'squarespace_variant_id'],
+  square: ['square_product_id', 'square_variant_id'],
+  wix: ['wix_product_id', 'wix_variant_id'],
+  etsy: ['etsy_product_id'],
+};
 
 const {
   resolveSquareAuth,
@@ -233,6 +244,58 @@ async function checkEtsySku({ access_token, shop_id, sku }) {
 }
 
 /**
+ * When a SKU no longer exists on `source`, the virtual inventory record for that SKU may still
+ * carry a stale link (product/variant id) to that platform from a previous connection. Clears
+ * only the fields owned by `source` (SOURCE_ID_FIELDS) — other platforms' links are left as-is.
+ * Returns { cleared: false } when there's nothing to do (SKU not found in virtual inventory, or
+ * none of that source's id fields are currently set).
+ */
+async function clearStaleVirtualInventoryLink({ source, sku, account_key }) {
+  const idFields = SOURCE_ID_FIELDS[source];
+  if (!idFields) return { cleared: false };
+
+  const listResult = await finerworksService.LIST_VIRTUAL_INVENTORY({ sku_filter: [sku], account_key });
+  if (!listResult?.status?.success) {
+    throw new ApiError(502, 'Failed to look up virtual inventory for stale link cleanup', { platform: 'finerworks' });
+  }
+
+  const skuNormalized = sku.trim().toLowerCase();
+  const product = (Array.isArray(listResult?.products) ? listResult.products : []).find(
+    (p) => String(p?.sku || '').trim().toLowerCase() === skuNormalized
+  );
+  if (!product) return { cleared: false };
+
+  const integrations = product.third_party_integrations || {};
+  const fieldsToClear = idFields.filter((field) => integrations[field] != null && integrations[field] !== '');
+  if (!fieldsToClear.length) return { cleared: false };
+
+  const clearedIntegrations = { ...integrations };
+  for (const field of fieldsToClear) {
+    clearedIntegrations[field] = null;
+  }
+
+  const updateResult = await finerworksService.UPDATE_VIRTUAL_INVENTORY({
+    virtual_inventory: [
+      {
+        sku: product.sku,
+        asking_price: product.asking_price ?? 0,
+        name: product.name ?? 'Untitled',
+        description: product.description ?? '',
+        quantity_in_stock: product.quantity_in_stock ?? 0,
+        track_inventory: product.track_inventory ?? true,
+        third_party_integrations: clearedIntegrations,
+      },
+    ],
+    account_key,
+  });
+  if (!updateResult?.status?.success) {
+    throw new ApiError(502, 'Failed to clear stale virtual inventory link', { platform: 'finerworks' });
+  }
+
+  return { cleared: true, fields: fieldsToClear };
+}
+
+/**
  * Common cross-platform "does this SKU exist on the connected store" check.
  * POST body: { source: 'squarespace'|'square'|'wix'|'etsy', sku, account_key?, access_token?,
  * shop_id? (etsy only) }.
@@ -267,6 +330,24 @@ exports.checkLinkForExternalSource = async (req, res) => {
       result = await checkEtsySku({ access_token, shop_id, sku });
     }
 
+    let cleanup = { cleared: false };
+    if (!result.isExist) {
+      try {
+        cleanup = await clearStaleVirtualInventoryLink({ source, sku, account_key });
+      } catch (cleanupErr) {
+        // Cleanup is best-effort — the isExist check itself already succeeded and must still
+        // be returned to the caller even if clearing the stale link fails.
+        console.error(JSON.stringify({
+          level: 'ERROR',
+          platform: source,
+          function: 'clearStaleVirtualInventoryLink',
+          message: `Failed to clear stale virtual inventory link: ${cleanupErr?.message || 'Unknown error'}`,
+          timestamp: new Date().toISOString(),
+        }));
+        log('Failed to clear stale virtual inventory link: %s', cleanupErr?.message);
+      }
+    }
+
     const successLog = JSON.stringify({
       level: 'INFO',
       platform: source,
@@ -274,7 +355,7 @@ exports.checkLinkForExternalSource = async (req, res) => {
       api: req.originalUrl || req.url,
       function: 'checkLinkForExternalSource',
       operation: 'External source SKU check completed',
-      result: { sku, isExist: result.isExist },
+      result: { sku, isExist: result.isExist, clearedStaleLink: cleanup.cleared },
       timestamp: new Date().toISOString(),
     });
     console.log('Success in checkLinkForExternalSource: %s', successLog);
@@ -285,6 +366,7 @@ exports.checkLinkForExternalSource = async (req, res) => {
       source,
       sku,
       isExist: result.isExist,
+      ...(cleanup.cleared ? { clearedStaleLinkFields: cleanup.fields } : {}),
     });
   } catch (err) {
     const errorJson = JSON.stringify({
