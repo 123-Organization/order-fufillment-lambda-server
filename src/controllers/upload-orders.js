@@ -1051,11 +1051,18 @@ function sanitizeOrderStringsForFinerWorks(value) {
 /**
  * save_pending_orders deserializes order_key as System.Nullable<Guid> and throws a 400 when it
  * isn't a real GUID — e.g. the Mongo-style ObjectIds Squarespace/Shopify send. Replace anything
- * that isn't already a valid GUID so the order can still be staged.
+ * that isn't already a valid GUID so the order can still be staged. The original (non-GUID) value
+ * would otherwise be lost, so it's preserved in custom_data_1 — the same field other platform
+ * order builders (squarespace-order-webhook.js, square-order-webhook.js) already use to carry an
+ * external reference id. Only stashed when custom_data_1 isn't already set by the caller.
  */
 function ensureValidOrderKey(order) {
   if (!order) return order;
   if (!order.order_key || !guidRegex.test(order.order_key)) {
+    const originalOrderKey = order.order_key;
+    if (originalOrderKey && !order.custom_data_1) {
+      order.custom_data_1 = String(originalOrderKey);
+    }
     order.order_key = generateGUID();
   }
   return order;
