@@ -84,7 +84,7 @@ Resources:
         - ProdLambdaExecutionRole
         - Arn
       Runtime: nodejs18.x
-      CodeUri: s3://orderfullfilmentprodbucketlambda/fca5f4b18cec162d2cd4c07f3394b17c
+      CodeUri: s3://orderfullfilmentprodbucketlambda/8ae289616493610c464a16ec0df698ed
       MemorySize: 3008
       Timeout: 900
       Environment:
@@ -289,7 +289,7 @@ Resources:
         - ProdLambdaExecutionRole
         - Arn
       Runtime: nodejs18.x
-      CodeUri: s3://orderfullfilmentprodbucketlambda/fca5f4b18cec162d2cd4c07f3394b17c
+      CodeUri: s3://orderfullfilmentprodbucketlambda/8ae289616493610c464a16ec0df698ed
       MemorySize: 3008
       Timeout: 900
       Environment:
@@ -628,7 +628,7 @@ Resources:
         - ProdLambdaExecutionRole
         - Arn
       Runtime: nodejs18.x
-      CodeUri: s3://orderfullfilmentprodbucketlambda/fca5f4b18cec162d2cd4c07f3394b17c
+      CodeUri: s3://orderfullfilmentprodbucketlambda/8ae289616493610c464a16ec0df698ed
       MemorySize: 3008
       Timeout: 900
       Environment:
@@ -866,5 +866,12 @@ Resources:
               Ref: ProdApiGateway
             Method: POST
             Path: /api/order-submit-status-bulk
+        SquareSpaceFulfillOrder:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: ProdApiGateway
+            Method: POST
+            Path: /api/squarespace/fulfill-order
     Metadata:
       SamResourceId: OrderFullFillmentServerLessProdServerAgainNew

@@ -594,6 +594,7 @@ const fulfillSquareSpaceOrderWithTrackingInfo = async (req, res) => {
       ],
       shouldSendNotification: true,
     };
+    console.log("payload====",payload);
     if (!carrierName || !service || !shipDate || !trackingNumber) {
       return sendApiError(
         res,
