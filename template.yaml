@@ -794,3 +794,9 @@ Resources:
             RestApiId: !Ref ProdApiGateway
             Method: POST
             Path: "/api/order-submit-status-bulk"
+        SquareSpaceFulfillOrder:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ProdApiGateway
+            Method: POST
+            Path: "/api/squarespace/fulfill-order"
