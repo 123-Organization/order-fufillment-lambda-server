@@ -107,6 +107,170 @@ async function fetchAllShippoOrders({ status, startDate, endDate, shopApp, liveK
   return all;
 }
 
+const MAX_SHIPPO_ORDER_BY_ID_BATCH = 50;
+
+function normalizeOrderIdArray(raw) {
+  if (!Array.isArray(raw)) return [];
+  const out = [];
+  for (const item of raw) {
+    if (item === undefined || item === null) continue;
+    const s = String(item).trim();
+    if (s) out.push(s);
+  }
+  return out;
+}
+
+/** Accepts a real array, a JSON-array string, or a CSV string — some clients/gateways flatten arrays. */
+function coerceOrderIdRaw(raw) {
+  if (raw === undefined || raw === null) return raw;
+  if (Array.isArray(raw)) return raw;
+  if (typeof raw === 'string') {
+    const t = raw.trim();
+    if (!t) return raw;
+    if (t.startsWith('[')) {
+      try {
+        const parsed = JSON.parse(t);
+        if (Array.isArray(parsed)) return parsed;
+      } catch (_) {
+        /* single scalar string or malformed; fall through */
+      }
+    }
+    if (t.includes(',')) {
+      return t.split(',').map((s) => s.trim()).filter(Boolean);
+    }
+  }
+  return raw;
+}
+
+/**
+ * Shippo has no batch-retrieve endpoint (confirmed against their docs: the Orders list endpoint
+ * only filters by shop_app/date/status, and retrieving by id is GET /orders/{ObjectId}/, one order
+ * at a time — https://docs.goshippo.com/docs/Orders/Orders). So a multi-id request here fans out to
+ * one GET per id in parallel, rather than forwarding a single batched call like Square's
+ * /v2/orders/batch-retrieve (see square-orders.js's fetchSquareOrdersByIdList).
+ */
+exports.fetchShippoOrdersByIds = async (req, res) => {
+  try {
+    const account_key = req.body?.account_key || req.body?.accountKey;
+    if (!account_key) {
+      return res.status(400).json({
+        statusCode: 400,
+        status: false,
+        message: 'account_key is required.',
+      });
+    }
+
+    const orderIdRaw = coerceOrderIdRaw(
+      req.body?.order_ids ?? req.body?.orderIds ?? req.body?.order_id ?? req.body?.orderId ?? null
+    );
+    const orderIdList = normalizeOrderIdArray(Array.isArray(orderIdRaw) ? orderIdRaw : [orderIdRaw]);
+    const uniqueIds = [...new Set(orderIdList)];
+
+    if (!uniqueIds.length) {
+      return res.status(400).json({
+        statusCode: 400,
+        status: false,
+        message: 'order_ids is required and must contain at least one order id.',
+      });
+    }
+    if (uniqueIds.length > MAX_SHIPPO_ORDER_BY_ID_BATCH) {
+      return res.status(400).json({
+        statusCode: 400,
+        status: false,
+        message: `order_ids must have at most ${MAX_SHIPPO_ORDER_BY_ID_BATCH} entries.`,
+      });
+    }
+
+    const getInfo = await finerworksService.GET_INFO({ account_key });
+    const accountId = getInfo?.user_account?.account_id;
+    if (!accountId) {
+      return res.status(400).json({
+        statusCode: 400,
+        status: false,
+        message: 'Could not resolve account ID from account_key.',
+      });
+    }
+
+    const connections = getInfo?.user_account?.connections || [];
+    const shippoConn = connections.find((c) => c.name === SHIPPO_CONNECTION_NAME);
+    if (!shippoConn) {
+      return res.status(400).json({
+        statusCode: 400,
+        status: false,
+        message: 'Shippo is not connected to this account. Call POST /shippo/connect first.',
+      });
+    }
+    const { live_key, test_key } = JSON.parse(shippoConn.data || '{}');
+
+    log('Fetching %s Shippo order(s) by id: %s', uniqueIds.length, uniqueIds.join(', '));
+
+    const settled = await Promise.allSettled(
+      uniqueIds.map((id) => shippoService.GET_ORDER(id, live_key, test_key))
+    );
+
+    const orders = [];
+    const notFound = [];
+    const errors = [];
+    settled.forEach((result, i) => {
+      const orderId = uniqueIds[i];
+      if (result.status === 'fulfilled') {
+        orders.push(result.value);
+      } else if (result.reason?.response?.status === 404) {
+        notFound.push(orderId);
+      } else {
+        errors.push({
+          order_id: orderId,
+          message:
+            result.reason?.response?.data?.detail ||
+            result.reason?.response?.data?.message ||
+            result.reason?.message ||
+            'Unknown error',
+        });
+      }
+    });
+
+    const successLog = JSON.stringify({
+      level: 'INFO',
+      platform: 'shippo',
+      method: req.method,
+      api: req.originalUrl || req.url,
+      function: 'fetchShippoOrdersByIds',
+      operation: 'Shippo orders fetched by id',
+      account_key,
+      result: { requested: uniqueIds.length, found: orders.length, notFound: notFound.length, errors: errors.length },
+      timestamp: new Date().toISOString()
+    });
+    console.log('Success in fetchShippoOrdersByIds: %s', successLog);
+    log('Success in fetchShippoOrdersByIds: %s', successLog);
+
+    return res.status(200).json({
+      statusCode: 200,
+      status: true,
+      message: `Shippo orders fetched: ${orders.length} of ${uniqueIds.length} requested.`,
+      data: orders,
+      not_found: notFound,
+      errors,
+    });
+  } catch (err) {
+    const isShippoError = err?.response?.config?.url?.includes('shippo') || err?.config?.url?.includes('shippo');
+    const isFinerworksError = err?.response?.config?.url?.includes('finerworks.com') || err?.config?.url?.includes('finerworks.com');
+    const errorJson = JSON.stringify({
+      level: 'ERROR',
+      platform: 'shippo',
+      source: isShippoError ? 'shippo_api' : (isFinerworksError ? 'finerworks_api' : 'lambda'),
+      function: 'fetchShippoOrdersByIds',
+      account_key: req.body?.account_key || 'unknown',
+      httpStatus: err?.response?.status || null,
+      message: `Failed to fetch Shippo orders by id: ${err?.message || 'Unknown error'}`,
+      detail: err?.response?.data?.detail || err?.response?.data?.message || null,
+      timestamp: new Date().toISOString()
+    });
+    console.error('Shippo API Error in fetchShippoOrdersByIds: %s', errorJson);
+    log('Formatted error in fetchShippoOrdersByIds: %s', errorJson);
+    return sendApiError(res, err);
+  }
+};
+
 exports.fetchShippoOrders = async (req, res) => {
   try {
     const { account_key, status, page, results } = req.body;
