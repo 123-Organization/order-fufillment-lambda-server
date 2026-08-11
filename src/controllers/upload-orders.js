@@ -20,19 +20,19 @@ const recipientSchema = Joi.object({
     .when('country_code', {
       is: Joi.string().valid('US').insensitive(),
       then: Joi.required(),
-      otherwise: Joi.optional().allow("")
+      otherwise: Joi.optional().allow("", null)
     })
     .required(),
   province: Joi.string()
     .when('country_code', {
       is: Joi.string().valid(Joi.not('US')).insensitive(),
       then: Joi.required(),
-      otherwise: Joi.optional().allow("")
+      otherwise: Joi.optional().allow("", null)
     })
     .optional(),
-  zip_postal_code: Joi.number().required().allow("").label("ZIP/Postal Code"),
-  phone: Joi.string().allow("").label("Phone Number"),
-  email: Joi.string().allow("").optional().label("email"),
+  zip_postal_code: Joi.string().required().allow("").label("ZIP/Postal Code"),
+  phone: Joi.string().allow("", null).label("Phone Number"),
+  email: Joi.string().allow("", null).optional().label("email"),
   address_order_po: Joi.string().allow("").optional().label("Address order po"),
 
 

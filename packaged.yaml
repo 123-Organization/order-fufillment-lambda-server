@@ -873,5 +873,12 @@ Resources:
               Ref: ProdApiGateway
             Method: POST
             Path: /api/squarespace/fulfill-order
+        FetchShippoOrdersbyNumber:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: ProdApiGateway
+            Method: POST
+            Path: /api/shippo/order-by-id
     Metadata:
       SamResourceId: OrderFullFillmentServerLessProdServerAgainNew
