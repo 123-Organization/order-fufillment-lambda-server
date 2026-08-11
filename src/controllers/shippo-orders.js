@@ -83,26 +83,104 @@ function dedupeOrders(orders) {
 }
 
 /**
- * Page through Shippo orders (bounded), forwarding the server-side filters on every page. Shippo
- * returns `{ count, next, previous, results }`; we stop when there is no `next` page or a short
- * page comes back.
+ * Same order_po convention as buildSquarespaceOrderPo (squarespace-order-webhook.js): the
+ * merchant-facing order number, alphanumeric-sanitized, falling back to Shippo's own object_id.
+ */
+function buildShippoOrderPo(order) {
+  const orderNumber = order?.order_number != null ? String(order.order_number) : '';
+  return (
+    orderNumber.replace(/[^A-Za-z0-9]/g, '') ||
+    (order?.object_id ? String(order.object_id).replace(/[^A-Za-z0-9]/g, '') : null)
+  );
+}
+
+/**
+ * Drops Shippo orders already brought into FinerWorks — as a submitted order (LIST_ORDERS) or a
+ * staged pending order (LIST_PENDING_ORDERS) — matched by order_po. Same dedup lookup
+ * upload-orders.js's uploadOrdersToLocalDatabaseShopify runs before saving new orders (list_orders
+ * + list_pending_orders in parallel, matched by order_po); this is read-only, so orders already in
+ * FinerWorks are excluded from the response instead of being skipped before a save.
+ */
+async function excludeOrdersAlreadyInFinerworks(orders, account_key) {
+  const orderPos = [...new Set(orders.map((o) => buildShippoOrderPo(o)).filter(Boolean))];
+  if (!orderPos.length) return orders;
+
+  const [listOrdersResult, listPendingResult] = await Promise.allSettled([
+    finerworksService.LIST_ORDERS({ account_key, order_pos: orderPos }),
+    finerworksService.LIST_PENDING_ORDERS({ account_key }),
+  ]);
+
+  const existingOrderPos = new Set();
+  if (listOrdersResult.status === 'fulfilled') {
+    for (const o of (Array.isArray(listOrdersResult.value?.orders) ? listOrdersResult.value.orders : [])) {
+      existingOrderPos.add(String(o.order_po));
+    }
+  } else {
+    log('list_orders lookup failed; proceeding without that check: %s', listOrdersResult.reason?.message);
+  }
+  if (listPendingResult.status === 'fulfilled') {
+    for (const o of (Array.isArray(listPendingResult.value?.orders) ? listPendingResult.value.orders : [])) {
+      existingOrderPos.add(String(o.order_po));
+    }
+  } else {
+    log('list_pending_orders lookup failed; proceeding without that check: %s', listPendingResult.reason?.message);
+  }
+
+  return orders.filter((o) => {
+    const po = buildShippoOrderPo(o);
+    return !po || !existingOrderPos.has(po);
+  });
+}
+
+// Shippo pages by number (not an opaque cursor like Squarespace's), so unlike
+// fetchAllSquarespaceOrders — which must fetch one page at a time because it doesn't know the next
+// cursor until the current page responds — pages here can be requested speculatively in parallel.
+const SHIPPO_PAGE_CONCURRENCY = 100;
+
+/**
+ * Page through Shippo orders (bounded), forwarding the server-side filters on every page. Fetches
+ * up to SHIPPO_PAGE_CONCURRENCY pages at once via Promise.allSettled (same concurrent-batch pattern
+ * getSquarespaceOrders uses for its LIST_ORDERS lookups), instead of one page per round trip —
+ * cuts wall-clock time roughly by that factor when a scan runs long. Requesting a page past the end
+ * is harmless (Shippo just returns an empty/short page), so over-fetching by up to one batch at the
+ * tail is an acceptable tradeoff for not needing to know the page count up front.
  */
 async function fetchAllShippoOrders({ status, startDate, endDate, shopApp, liveKey, testKey }) {
   const all = [];
-  for (let page = 1; page <= SHIPPO_MAX_PAGES; page++) {
-    const resp = await shippoService.GET_ORDERS({
-      status,
-      page,
-      results: SHIPPO_PAGE_SIZE,
-      start_date: startDate,
-      end_date: endDate,
-      shop_app: shopApp,
-      liveKey,
-      testKey,
-    });
-    const batch = Array.isArray(resp?.results) ? resp.results : [];
-    all.push(...batch);
-    if (!resp?.next || batch.length < SHIPPO_PAGE_SIZE) break;
+  for (let page = 1; page <= SHIPPO_MAX_PAGES; page += SHIPPO_PAGE_CONCURRENCY) {
+    const batchPages = [];
+    for (let i = 0; i < SHIPPO_PAGE_CONCURRENCY && page + i <= SHIPPO_MAX_PAGES; i++) {
+      batchPages.push(page + i);
+    }
+
+    const settled = await Promise.allSettled(
+      batchPages.map((p) =>
+        shippoService.GET_ORDERS({
+          status,
+          page: p,
+          results: SHIPPO_PAGE_SIZE,
+          start_date: startDate,
+          end_date: endDate,
+          shop_app: shopApp,
+          liveKey,
+          testKey,
+        })
+      )
+    );
+
+    // Surface the first failure exactly as the old sequential version did (a rejected await
+    // propagates to the caller's try/catch), rather than silently dropping a failed page.
+    const firstRejected = settled.find((r) => r.status === 'rejected');
+    if (firstRejected) throw firstRejected.reason;
+
+    let reachedEnd = false;
+    for (const result of settled) {
+      const batch = Array.isArray(result.value?.results) ? result.value.results : [];
+      all.push(...batch);
+      if (!result.value?.next || batch.length < SHIPPO_PAGE_SIZE) reachedEnd = true;
+    }
+
+    if (reachedEnd) break;
   }
   return all;
 }
@@ -245,7 +323,7 @@ exports.fetchShippoOrdersByOrderNumber = async (req, res) => {
       uniqueOrderNumbers.map((n) => [n.toLowerCase(), n])
     );
     const matchedNormalizedNumbers = new Set();
-    const orders = [];
+    let orders = [];
     for (const order of shippoOrders) {
       const orderNumber = order?.order_number != null ? String(order.order_number).trim() : '';
       if (!orderNumber) continue;
@@ -260,6 +338,10 @@ exports.fetchShippoOrdersByOrderNumber = async (req, res) => {
       (n) => !matchedNormalizedNumbers.has(n.toLowerCase())
     );
 
+    const beforeFinerworksExclusion = orders.length;
+    orders = await excludeOrdersAlreadyInFinerworks(orders, account_key);
+    const excludedAlreadyInFinerworks = beforeFinerworksExclusion - orders.length;
+
     const successLog = JSON.stringify({
       level: 'INFO',
       platform: 'shippo',
@@ -273,6 +355,7 @@ exports.fetchShippoOrdersByOrderNumber = async (req, res) => {
         found: orders.length,
         notFound: notFound.length,
         scanned: shippoOrders.length,
+        excludedAlreadyInFinerworks,
       },
       timestamp: new Date().toISOString()
     });
@@ -417,6 +500,10 @@ exports.fetchShippoOrders = async (req, res) => {
     etsyOrders = dedupeOrders(etsyOrders);
     const duplicatesRemoved = beforeDedupe - etsyOrders.length;
 
+    const beforeFinerworksExclusion = etsyOrders.length;
+    etsyOrders = await excludeOrdersAlreadyInFinerworks(etsyOrders, account_key);
+    const excludedAlreadyInFinerworks = beforeFinerworksExclusion - etsyOrders.length;
+
     const appliedFilters = {
       startDate: startIso,
       endDate: endIso,
@@ -434,7 +521,7 @@ exports.fetchShippoOrders = async (req, res) => {
         function: 'fetchShippoOrders',
         operation: 'Shippo Etsy orders fetched — no orders found for given filters',
         account_key: req.body?.account_key || 'unknown',
-        result: { count: 0, ...appliedFilters, etsyFromShippo },
+        result: { count: 0, ...appliedFilters, etsyFromShippo, excludedAlreadyInFinerworks },
         timestamp: new Date().toISOString()
       });
       console.log('Success (empty) in fetchShippoOrders: %s', emptyLog);
@@ -464,6 +551,7 @@ exports.fetchShippoOrders = async (req, res) => {
         ...appliedFilters,
         etsyFromShippo,
         duplicatesRemoved,
+        excludedAlreadyInFinerworks,
       },
       timestamp: new Date().toISOString()
     });
