@@ -34,6 +34,7 @@ const SUPPORTED_SOURCES = ['squarespace', 'square', 'wix', 'etsy'];
  * against the returned variants — `query` is full-text, not an exact filter.
  */
 async function checkSquarespaceSku({ req, sku }) {
+  console.log('Checking Squarespace SKU: %s', sku);
   let accessToken = req.body?.access_token || req.headers['x-squarespace-access-token'];
   const authHeader = req.headers?.authorization || req.headers?.Authorization;
   if (!accessToken && typeof authHeader === 'string' && authHeader.startsWith('Bearer ')) {
@@ -52,7 +53,7 @@ async function checkSquarespaceSku({ req, sku }) {
     timeout: 30000,
     validateStatus: () => true,
   });
-
+  console.log('Squarespace product search response: %s', JSON.stringify({ status: r.status, data: r.data }));
   if (r.status < 200 || r.status >= 300) {
     throw new ApiError(r.status >= 400 && r.status < 600 ? r.status : 502, 'Squarespace product search failed', {
       platform: 'squarespace',
@@ -380,6 +381,70 @@ exports.checkLinkForExternalSource = async (req, res) => {
     });
     console.error(errorJson);
     log('Formatted error in checkLinkForExternalSource: %s', errorJson);
+    return sendApiError(res, err);
+  }
+};
+exports.checkSkuExists = async (req, res) => {
+  const source = String(req.body?.source || req.query?.source || '').trim().toLowerCase();
+  const skuRaw = req.body?.sku ?? req.query?.sku;
+  const sku = skuRaw != null ? String(skuRaw).trim() : '';
+  const account_key = req.body?.account_key || req.query?.account_key;
+  const access_token = req.body?.access_token || req.query?.access_token;
+  const shop_id = req.body?.shop_id || req.query?.shop_id;
+
+  try {
+    if (!source) {
+      return sendApiError(res, 400, 'Missing required parameter: source');
+    }
+    if (!SUPPORTED_SOURCES.includes(source)) {
+      return sendApiError(res, 400, `Unsupported source: ${source}. Expected one of: ${SUPPORTED_SOURCES.join(', ')}`);
+    }
+    if (!sku) {
+      return sendApiError(res, 400, 'Missing required parameter: sku');
+    }
+
+    let result;
+    if (source === 'squarespace') {
+      result = await checkSquarespaceSku({ req, sku });
+    } else if (source === 'square') {
+      result = await checkSquareSku({ account_key, access_token, sku });
+    } else if (source === 'wix') {
+      result = await checkWixSku({ account_key, access_token, sku });
+    } else {
+      result = await checkEtsySku({ access_token, shop_id, sku });
+    }
+
+    const successLog = JSON.stringify({
+      level: 'INFO',
+      platform: source,
+      method: req.method,
+      api: req.originalUrl || req.url,
+      function: 'checkSkuExists',
+      operation: 'External source SKU check completed',
+      result: { sku, isExist: result.isExist },
+      timestamp: new Date().toISOString(),
+    });
+    console.log('Success in checkSkuExists: %s', successLog);
+    log('Success in checkSkuExists: %s', successLog);
+
+    return res.status(200).json({
+      success: true,
+      source,
+      sku,
+      isExist: result.isExist,
+    });
+  } catch (err) {
+    const errorJson = JSON.stringify({
+      level: 'ERROR',
+      platform: source || 'unknown',
+      source: 'external_platform_api',
+      function: 'checkSkuExists',
+      httpStatus: err?.response?.status || err?.statusCode || null,
+      message: `Failed to check SKU for external source: ${err?.message || 'Unknown error'}`,
+      timestamp: new Date().toISOString(),
+    });
+    console.error(errorJson);
+    log('Formatted error in checkSkuExists: %s', errorJson);
     return sendApiError(res, err);
   }
 };
