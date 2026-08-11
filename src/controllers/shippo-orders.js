@@ -107,9 +107,9 @@ async function fetchAllShippoOrders({ status, startDate, endDate, shopApp, liveK
   return all;
 }
 
-const MAX_SHIPPO_ORDER_BY_ID_BATCH = 50;
+const MAX_SHIPPO_ORDER_NUMBER_BATCH = 50;
 
-function normalizeOrderIdArray(raw) {
+function normalizeStringList(raw) {
   if (!Array.isArray(raw)) return [];
   const out = [];
   for (const item of raw) {
@@ -121,7 +121,7 @@ function normalizeOrderIdArray(raw) {
 }
 
 /** Accepts a real array, a JSON-array string, or a CSV string — some clients/gateways flatten arrays. */
-function coerceOrderIdRaw(raw) {
+function coerceListInput(raw) {
   if (raw === undefined || raw === null) return raw;
   if (Array.isArray(raw)) return raw;
   if (typeof raw === 'string') {
@@ -143,13 +143,18 @@ function coerceOrderIdRaw(raw) {
 }
 
 /**
- * Shippo has no batch-retrieve endpoint (confirmed against their docs: the Orders list endpoint
- * only filters by shop_app/date/status, and retrieving by id is GET /orders/{ObjectId}/, one order
- * at a time — https://docs.goshippo.com/docs/Orders/Orders). So a multi-id request here fans out to
- * one GET per id in parallel, rather than forwarding a single batched call like Square's
- * /v2/orders/batch-retrieve (see square-orders.js's fetchSquareOrdersByIdList).
+ * Shippo has no server-side lookup by `order_number` — confirmed against their docs: the Orders
+ * list endpoint (GET /orders/) only filters by shop_app/start_date/end_date/order_status, and the
+ * only id-based retrieval is GET /orders/{ObjectId}/ (Shippo's own object_id, not the merchant-
+ * facing order_number) — https://docs.goshippo.com/docs/Orders/Orders. So this pages through
+ * Shippo's orders (same fetchAllShippoOrders used by fetchShippoOrders below, scoped to Etsy and to
+ * an optional date range) and matches client-side on order_number. Their docs don't state
+ * order_number is guaranteed unique, so every match is returned rather than just the first.
+ *
+ * Without a date range this scans up to SHIPPO_MAX_PAGES pages (10,000 orders) looking for matches
+ * — pass startDate/endDate when you know roughly when the orders were placed to keep this fast.
  */
-exports.fetchShippoOrdersByIds = async (req, res) => {
+exports.fetchShippoOrdersByOrderNumber = async (req, res) => {
   try {
     const account_key = req.body?.account_key || req.body?.accountKey;
     if (!account_key) {
@@ -160,24 +165,48 @@ exports.fetchShippoOrdersByIds = async (req, res) => {
       });
     }
 
-    const orderIdRaw = coerceOrderIdRaw(
-      req.body?.order_ids ?? req.body?.orderIds ?? req.body?.order_id ?? req.body?.orderId ?? null
+    const orderNumberRaw = coerceListInput(
+      req.body?.order_numbers ??
+      req.body?.orderNumbers ??
+      req.body?.order_number ??
+      req.body?.orderNumber ??
+      null
     );
-    const orderIdList = normalizeOrderIdArray(Array.isArray(orderIdRaw) ? orderIdRaw : [orderIdRaw]);
-    const uniqueIds = [...new Set(orderIdList)];
+    const orderNumberList = normalizeStringList(
+      Array.isArray(orderNumberRaw) ? orderNumberRaw : [orderNumberRaw]
+    );
+    const uniqueOrderNumbers = [...new Set(orderNumberList)];
 
-    if (!uniqueIds.length) {
+    if (!uniqueOrderNumbers.length) {
       return res.status(400).json({
         statusCode: 400,
         status: false,
-        message: 'order_ids is required and must contain at least one order id.',
+        message: 'order_numbers is required and must contain at least one order number.',
       });
     }
-    if (uniqueIds.length > MAX_SHIPPO_ORDER_BY_ID_BATCH) {
+    if (uniqueOrderNumbers.length > MAX_SHIPPO_ORDER_NUMBER_BATCH) {
       return res.status(400).json({
         statusCode: 400,
         status: false,
-        message: `order_ids must have at most ${MAX_SHIPPO_ORDER_BY_ID_BATCH} entries.`,
+        message: `order_numbers must have at most ${MAX_SHIPPO_ORDER_NUMBER_BATCH} entries.`,
+      });
+    }
+
+    const startDate = req.body?.startDate || req.body?.start_date;
+    const endDate = req.body?.endDate || req.body?.end_date;
+    const { startIso, endIso } = parseDateRangeInputs(startDate, endDate);
+    if (String(startDate || '').trim() && !startIso) {
+      return res.status(400).json({
+        statusCode: 400,
+        status: false,
+        message: 'Invalid startDate. Use YYYY-MM-DD or a valid date/time string.',
+      });
+    }
+    if (String(endDate || '').trim() && !endIso) {
+      return res.status(400).json({
+        statusCode: 400,
+        status: false,
+        message: 'Invalid endDate. Use YYYY-MM-DD or a valid date/time string.',
       });
     }
 
@@ -202,54 +231,60 @@ exports.fetchShippoOrdersByIds = async (req, res) => {
     }
     const { live_key, test_key } = JSON.parse(shippoConn.data || '{}');
 
-    log('Fetching %s Shippo order(s) by id: %s', uniqueIds.length, uniqueIds.join(', '));
+    log('Fetching %s Shippo order(s) by order_number: %s', uniqueOrderNumbers.length, uniqueOrderNumbers.join(', '));
 
-    const settled = await Promise.allSettled(
-      uniqueIds.map((id) => shippoService.GET_ORDER(id, live_key, test_key))
-    );
-
-    const orders = [];
-    const notFound = [];
-    const errors = [];
-    settled.forEach((result, i) => {
-      const orderId = uniqueIds[i];
-      if (result.status === 'fulfilled') {
-        orders.push(result.value);
-      } else if (result.reason?.response?.status === 404) {
-        notFound.push(orderId);
-      } else {
-        errors.push({
-          order_id: orderId,
-          message:
-            result.reason?.response?.data?.detail ||
-            result.reason?.response?.data?.message ||
-            result.reason?.message ||
-            'Unknown error',
-        });
-      }
+    const shippoOrders = await fetchAllShippoOrders({
+      startDate: toShippoDateParam(startIso),
+      endDate: toShippoDateParam(endIso),
+      shopApp: ETSY_SHOP_APP,
+      liveKey: live_key,
+      testKey: test_key,
     });
+
+    const wantedByNormalizedNumber = new Map(
+      uniqueOrderNumbers.map((n) => [n.toLowerCase(), n])
+    );
+    const matchedNormalizedNumbers = new Set();
+    const orders = [];
+    for (const order of shippoOrders) {
+      const orderNumber = order?.order_number != null ? String(order.order_number).trim() : '';
+      if (!orderNumber) continue;
+      const normalized = orderNumber.toLowerCase();
+      if (wantedByNormalizedNumber.has(normalized)) {
+        orders.push(order);
+        matchedNormalizedNumbers.add(normalized);
+      }
+    }
+
+    const notFound = uniqueOrderNumbers.filter(
+      (n) => !matchedNormalizedNumbers.has(n.toLowerCase())
+    );
 
     const successLog = JSON.stringify({
       level: 'INFO',
       platform: 'shippo',
       method: req.method,
       api: req.originalUrl || req.url,
-      function: 'fetchShippoOrdersByIds',
-      operation: 'Shippo orders fetched by id',
+      function: 'fetchShippoOrdersByOrderNumber',
+      operation: 'Shippo orders fetched by order_number',
       account_key,
-      result: { requested: uniqueIds.length, found: orders.length, notFound: notFound.length, errors: errors.length },
+      result: {
+        requested: uniqueOrderNumbers.length,
+        found: orders.length,
+        notFound: notFound.length,
+        scanned: shippoOrders.length,
+      },
       timestamp: new Date().toISOString()
     });
-    console.log('Success in fetchShippoOrdersByIds: %s', successLog);
-    log('Success in fetchShippoOrdersByIds: %s', successLog);
+    console.log('Success in fetchShippoOrdersByOrderNumber: %s', successLog);
+    log('Success in fetchShippoOrdersByOrderNumber: %s', successLog);
 
     return res.status(200).json({
       statusCode: 200,
       status: true,
-      message: `Shippo orders fetched: ${orders.length} of ${uniqueIds.length} requested.`,
+      message: `Shippo orders fetched: ${orders.length} match(es) for ${uniqueOrderNumbers.length} requested order number(s).`,
       data: orders,
       not_found: notFound,
-      errors,
     });
   } catch (err) {
     const isShippoError = err?.response?.config?.url?.includes('shippo') || err?.config?.url?.includes('shippo');
@@ -258,15 +293,15 @@ exports.fetchShippoOrdersByIds = async (req, res) => {
       level: 'ERROR',
       platform: 'shippo',
       source: isShippoError ? 'shippo_api' : (isFinerworksError ? 'finerworks_api' : 'lambda'),
-      function: 'fetchShippoOrdersByIds',
+      function: 'fetchShippoOrdersByOrderNumber',
       account_key: req.body?.account_key || 'unknown',
       httpStatus: err?.response?.status || null,
-      message: `Failed to fetch Shippo orders by id: ${err?.message || 'Unknown error'}`,
+      message: `Failed to fetch Shippo orders by order_number: ${err?.message || 'Unknown error'}`,
       detail: err?.response?.data?.detail || err?.response?.data?.message || null,
       timestamp: new Date().toISOString()
     });
-    console.error('Shippo API Error in fetchShippoOrdersByIds: %s', errorJson);
-    log('Formatted error in fetchShippoOrdersByIds: %s', errorJson);
+    console.error('Shippo API Error in fetchShippoOrdersByOrderNumber: %s', errorJson);
+    log('Formatted error in fetchShippoOrdersByOrderNumber: %s', errorJson);
     return sendApiError(res, err);
   }
 };
