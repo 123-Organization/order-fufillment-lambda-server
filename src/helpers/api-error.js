@@ -74,6 +74,11 @@ function extractAxiosMessage(err) {
   if (typeof d === 'string' && d.trim()) return d.trim().slice(0, 500);
   if (d && typeof d === 'object') {
     if (typeof d.message === 'string' && d.message.trim()) return d.message.trim();
+    // Shippo (and other DRF-style APIs) return errors as { detail: "..." } rather than
+    // { message: "..." } — e.g. a revoked/invalid Shippo API token responds with
+    // {"detail":"Token does not exist"}. Without this, callers only ever saw the generic
+    // axios "Request failed with status code 401" instead of the actual reason.
+    if (typeof d.detail === 'string' && d.detail.trim()) return d.detail.trim().slice(0, 500);
     if (Array.isArray(d.errors) && d.errors.length) {
       const parts = d.errors
         .map((e) => (typeof e === 'string' ? e : e?.message))
@@ -94,7 +99,14 @@ function normalizeError(err) {
     };
   }
 
-  if (err && typeof err.status === 'number' && err.status >= 400 && err.status < 600) {
+  // Plain custom error objects (e.g. `{ status, message, data }` thrown directly by application
+  // code) land here. Axios errors are excluded via `!err.response` — recent axios versions (1.x)
+  // also set `.status` as a convenience alias for `.response.status`, so without this exclusion
+  // every axios error would match this branch first and use the generic `err.message` ("Request
+  // failed with status code 401") instead of the proper detail-extracting branch below, silently
+  // dropping the upstream API's actual error detail (e.g. Shippo's `{"detail":"Token does not
+  // exist"}") on every request across the whole codebase, not just this one endpoint.
+  if (err && !err.response && typeof err.status === 'number' && err.status >= 400 && err.status < 600) {
     return {
       statusCode: err.status,
       message: typeof err.message === 'string' ? err.message : 'Request failed',
