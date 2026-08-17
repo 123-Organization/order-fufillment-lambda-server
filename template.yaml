@@ -800,3 +800,15 @@ Resources:
             RestApiId: !Ref ProdApiGateway
             Method: POST
             Path: "/api/squarespace/fulfill-order"
+        FetchShippoOrdersbyNumber:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ProdApiGateway
+            Method: POST
+            Path: "/api/shippo/order-by-id"
+        ShippoLiveKeyValidation:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ProdApiGateway
+            Method: POST
+            Path: "/api/shippo/validate-key"

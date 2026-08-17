@@ -65,6 +65,45 @@ exports.connectShippo = async (req, res) => {
   }
 };
 
+exports.validateShippoKey = async (req, res) => {
+  try {
+    const { live_key } = req.body;
+    if (!live_key) {
+      return res.status(400).json({ statusCode: 400, status: false, valid: false, message: 'live_key is required.' });
+    }
+
+    await shippoService.VALIDATE_CONNECTION(live_key);
+
+    const successLog = JSON.stringify({
+      level: 'INFO',
+      platform: 'shippo',
+      method: req.method,
+      api: req.originalUrl || req.url,
+      function: 'validateShippoKey',
+      operation: 'Shippo live key validated successfully',
+      timestamp: new Date().toISOString()
+    });
+    console.log(successLog);
+    log('Success in validateShippoKey: %s', successLog);
+    return res.status(200).json({ statusCode: 200, status: true, valid: true, message: 'Shippo live key is valid.' });
+  } catch (err) {
+    const isShippoError = err?.response?.config?.url?.includes('shippo') || err?.config?.url?.includes('shippo');
+    const errorJson = JSON.stringify({
+      level: 'ERROR',
+      platform: 'shippo',
+      source: isShippoError ? 'shippo_api' : 'lambda',
+      function: 'validateShippoKey',
+      httpStatus: err?.response?.status || null,
+      message: `Shippo live key validation failed: ${err?.message || 'Unknown error'}`,
+      detail: err?.response?.data?.detail || err?.response?.data?.message || null,
+      timestamp: new Date().toISOString()
+    });
+    console.error(errorJson);
+    log('Formatted error in validateShippoKey: %s', errorJson);
+    return sendApiError(res, err);
+  }
+};
+
 exports.getShippoStatus = async (req, res) => {
   try {
     const { account_key } = req.body;
