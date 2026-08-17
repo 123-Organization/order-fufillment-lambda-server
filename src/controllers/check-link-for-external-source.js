@@ -3,16 +3,11 @@ const { sendApiError, ApiError } = require('../helpers/api-error');
 const debug = require('debug');
 const log = debug('app:checkLinkForExternalSource');
 const finerworksService = require('../helpers/finerworks-service');
-
 // third_party_integrations fields owned by each source, scoped so a check against one platform
 // never touches another platform's link. Etsy has no variant id in the schema (see
-// virtual-inventory.js's UpdateVirtualInventorySchema).
-const SOURCE_ID_FIELDS = {
-  squarespace: ['squarespace_product_id', 'squarespace_variant_id'],
-  square: ['square_product_id', 'square_variant_id'],
-  wix: ['wix_product_id', 'wix_variant_id'],
-  etsy: ['etsy_product_id'],
-};
+// virtual-inventory.js's UpdateVirtualInventorySchema). Shared with the delete-webhook link
+// clearing in virtual-inventory-links.js so both paths clear the same fields.
+const { SOURCE_ID_FIELDS } = require('../helpers/virtual-inventory-links');
 
 const {
   resolveSquareAuth,

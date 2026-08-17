@@ -350,6 +350,24 @@ async function persistWixClientCredentialsConnection(
     id: access_token,
     data: extraData && typeof extraData === 'object' ? { ...baseData, ...extraData } : baseData,
   });
+
+  // Populate the site_id -> account_key reverse index (wix-accounts-dynamo.js) so the Product
+  // Deleted webhook — which only carries siteId, not account_key — can route back to this
+  // tenant. Best-effort: a missing WIX_ACCOUNTS_TABLE_NAME must not break the connect flow.
+  if (site_id) {
+    try {
+      const { putWixAccount } = require('../helpers/wix-accounts-dynamo');
+      await putWixAccount({
+        id: String(account_key).trim(),
+        account_key: String(account_key).trim(),
+        site_id: String(site_id).trim(),
+        instance_id: String(instance_id).trim(),
+      });
+    } catch (indexErr) {
+      log('putWixAccount (site_id reverse index) failed: %s', indexErr?.message);
+    }
+  }
+
   return {
     access_token,
     expires_at,
