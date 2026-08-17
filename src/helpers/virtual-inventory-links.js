@@ -83,7 +83,90 @@ async function clearVirtualInventoryLinkByConnectionId({ source, connectionId, a
   return { cleared, count: cleared.length };
 }
 
+/**
+ * Sets this platform's id fields on a Virtual Inventory item that's already been fetched (e.g.
+ * from a bulk LIST_VIRTUAL_INVENTORY call the caller made once for the whole account) — used
+ * when a create/update webhook confirms a platform product's current SKU matches an existing VI
+ * item, to link (or move the link to) them. Pass only the fields this source owns (SOURCE_ID_FIELDS);
+ * anything else in `ids` is ignored.
+ */
+async function writeVirtualInventoryLink({ source, product, ids, accountKey }) {
+  const idFields = SOURCE_ID_FIELDS[source];
+  if (!idFields) {
+    throw new ApiError(400, `Unsupported source for link writing: ${source}`, { platform: source });
+  }
+
+  const integrations = { ...(product?.third_party_integrations || {}) };
+  const fieldsWritten = [];
+  for (const [field, value] of Object.entries(ids || {})) {
+    if (!idFields.includes(field)) continue;
+    integrations[field] = value != null ? String(value) : null;
+    fieldsWritten.push(field);
+  }
+  if (!fieldsWritten.length) return { linked: false };
+
+  const updateResp = await finerworksService.UPDATE_VIRTUAL_INVENTORY({
+    virtual_inventory: [
+      {
+        sku: product.sku,
+        asking_price: product.asking_price ?? 0,
+        name: product.name ?? 'Untitled',
+        description: product.description ?? '',
+        quantity_in_stock: product.quantity_in_stock ?? 0,
+        track_inventory: product.track_inventory ?? true,
+        third_party_integrations: integrations,
+      },
+    ],
+    account_key: accountKey,
+  });
+  if (!updateResp?.status?.success) {
+    throw new ApiError(502, 'Failed to write virtual inventory link', { platform: source });
+  }
+  return { linked: true, sku: product.sku, fields: fieldsWritten };
+}
+
+/**
+ * Clears this platform's id fields on an already-fetched VI item — the counterpart to
+ * writeVirtualInventoryLink for callers that already hold the product from a bulk list call
+ * (avoids the extra LIST_VIRTUAL_INVENTORY round trip clearVirtualInventoryLinkByConnectionId
+ * makes when the caller doesn't already have the item in hand).
+ */
+async function clearVirtualInventoryLinkForProduct({ source, product, accountKey }) {
+  const idFields = SOURCE_ID_FIELDS[source];
+  if (!idFields) {
+    throw new ApiError(400, `Unsupported source for link clearing: ${source}`, { platform: source });
+  }
+
+  const integrations = product?.third_party_integrations || {};
+  const fieldsToClear = idFields.filter((f) => integrations[f] != null && integrations[f] !== '');
+  if (!fieldsToClear.length) return { cleared: false };
+
+  const clearedIntegrations = { ...integrations };
+  for (const f of fieldsToClear) clearedIntegrations[f] = null;
+
+  const updateResp = await finerworksService.UPDATE_VIRTUAL_INVENTORY({
+    virtual_inventory: [
+      {
+        sku: product.sku,
+        asking_price: product.asking_price ?? 0,
+        name: product.name ?? 'Untitled',
+        description: product.description ?? '',
+        quantity_in_stock: product.quantity_in_stock ?? 0,
+        track_inventory: product.track_inventory ?? true,
+        third_party_integrations: clearedIntegrations,
+      },
+    ],
+    account_key: accountKey,
+  });
+  if (!updateResp?.status?.success) {
+    throw new ApiError(502, 'Failed to clear virtual inventory link', { platform: source });
+  }
+  return { cleared: true, sku: product.sku, fields: fieldsToClear };
+}
+
 module.exports = {
   SOURCE_ID_FIELDS,
   clearVirtualInventoryLinkByConnectionId,
+  writeVirtualInventoryLink,
+  clearVirtualInventoryLinkForProduct,
 };

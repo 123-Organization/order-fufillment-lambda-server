@@ -41,7 +41,10 @@ const {
   subscriptionHasEventTypes,
   verifySquareWebhookSignature,
 } = require('../helpers/square-webhook-api');
-const { clearVirtualInventoryLinkByConnectionId } = require('../helpers/virtual-inventory-links');
+const {
+  writeVirtualInventoryLink,
+  clearVirtualInventoryLinkForProduct,
+} = require('../helpers/virtual-inventory-links');
 const {
   buildSquareCatalogSkuMap,
   transformSquareOrderToFinerWorksPayload,
@@ -1185,14 +1188,23 @@ exports.squareOrderCreateWebhook = async (req, res) => {
 };
 
 /**
- * Square catalog.version.updated webhook receiver — delete detection.
+ * Square catalog.version.updated webhook receiver — create/update/delete sync in one pass.
  *
- * Square gives no per-object delete event (see SQUARE_CATALOG_SYNC_EVENT_TYPES in
- * square-webhook-api.js): this event only means "something in the catalog changed." So instead
- * of clearing one product id like the Shopify/Wix receivers do, this re-checks every Virtual
- * Inventory item this account currently has linked to Square (via Catalog Search, the same exact
- * SKU match used in check-link-for-external-source.js) and clears the link for any that no
- * longer resolve. Scoped to one account's linked SKUs, not a full-catalog scan.
+ * Square gives no per-object payload on this event (see SQUARE_CATALOG_SYNC_EVENT_TYPES in
+ * square-webhook-api.js): it only means "something in the catalog changed." Per Square's own
+ * recommended pattern for this event (developer.squareup.com/docs/catalog-api/sync-with-external-system),
+ * this calls SearchCatalogObjects with begin_time set to the *previous* event's catalog version
+ * timestamp (cached per account as catalog_sync_cursor) plus include_deleted_objects — that
+ * returns only what changed since last time, deletes included (is_deleted). The first-ever event
+ * for an account has no prior cursor to diff against, so it just records one and stops, rather
+ * than treating "no cursor yet" as "everything changed."
+ *
+ * For each changed ITEM_VARIATION:
+ *  - is_deleted -> clear whichever VI item is currently linked to it (same outcome as before).
+ *  - its current sku matches a VI item that isn't yet correctly linked to it -> write/move the
+ *    link (covers both a brand-new product using a Virtual Inventory SKU, and a variant whose
+ *    SKU was changed to now match a different item).
+ *  - a VI item is linked to this variant but its own sku no longer matches -> clear it (stale).
  */
 exports.squareCatalogWebhook = async (req, res) => {
   const eventType = req.body?.type != null ? String(req.body.type).trim() : '';
@@ -1229,7 +1241,8 @@ exports.squareCatalogWebhook = async (req, res) => {
 
     const getInformation = await finerworksService.GET_INFO({ account_key });
     const connections = getInformation?.user_account?.connections || [];
-    const conn = Array.isArray(connections) ? connections.find((c) => c && c.name === 'Square') : null;
+    const connIdx = Array.isArray(connections) ? connections.findIndex((c) => c && c.name === 'Square') : -1;
+    const conn = connIdx !== -1 ? connections[connIdx] : null;
 
     if (!conn || !isOrderSyncEnabled(conn, 'Square')) {
       return res.status(200).json({
@@ -1255,9 +1268,25 @@ exports.squareCatalogWebhook = async (req, res) => {
       return sendApiError(res, 401, 'Webhook signature verification failed');
     }
 
-    const listResp = await finerworksService.LIST_VIRTUAL_INVENTORY({ account_key });
-    const products = Array.isArray(listResp?.products) ? listResp.products : [];
-    const linkedProducts = products.filter((p) => p?.third_party_integrations?.square_product_id);
+    const eventUpdatedAt = req.body?.data?.object?.catalog_version?.updated_at || null;
+    const cursor = connData.catalog_sync_cursor || null;
+
+    const persistCursor = async (nextCursor) => {
+      if (!nextCursor) return;
+      connections[connIdx] = {
+        ...conn,
+        name: conn.name,
+        id: conn.id,
+        data: JSON.stringify({ ...connData, catalog_sync_cursor: nextCursor }),
+      };
+      await finerworksService.UPDATE_INFO({ account_key, connections });
+    };
+
+    if (!cursor) {
+      await persistCursor(eventUpdatedAt);
+      log('Square catalog sync bootstrapped account_key=%s cursor=%s (nothing to diff yet)', account_key, eventUpdatedAt);
+      return res.status(200).json({ success: true, bootstrapped: true, cursor: eventUpdatedAt });
+    }
 
     const auth = await resolveSquareAuth({ account_key });
     if (!auth?.accessToken) {
@@ -1265,43 +1294,87 @@ exports.squareCatalogWebhook = async (req, res) => {
     }
     const baseUrl = getSquareBaseUrl();
 
-    const cleared = [];
-    const stillLinked = [];
-
-    for (const product of linkedProducts) {
-      const sku = product.sku;
-      let stillExists = false;
-      try {
-        const r = await axios.post(
-          `${baseUrl}/v2/catalog/search`,
-          {
-            object_types: ['ITEM_VARIATION'],
-            query: { exact_query: { attribute_name: 'sku', attribute_value: sku } },
-            limit: 1,
-          },
-          { headers: buildSquareHeaders(auth.accessToken), timeout: 30000, validateStatus: () => true }
-        );
-        stillExists =
-          r.status >= 200 && r.status < 300 && Array.isArray(r.data?.objects) && r.data.objects.length > 0;
-      } catch (checkErr) {
-        // Can't confirm it's gone — leave the link alone rather than clearing on an ambiguous error.
-        log('Square SKU re-check failed sku=%s: %s', sku, checkErr?.message);
-        stillLinked.push(sku);
-        continue;
+    const changedVariations = [];
+    let pageCursor;
+    do {
+      const r = await axios.post(
+        `${baseUrl}/v2/catalog/search`,
+        {
+          object_types: ['ITEM_VARIATION'],
+          include_deleted_objects: true,
+          begin_time: cursor,
+          limit: 100,
+          ...(pageCursor ? { cursor: pageCursor } : {}),
+        },
+        { headers: buildSquareHeaders(auth.accessToken), timeout: 30000, validateStatus: () => true }
+      );
+      if (r.status < 200 || r.status >= 300) {
+        const searchErr = new Error('Square catalog search failed');
+        searchErr.response = { status: r.status, data: r.data };
+        throw searchErr;
       }
+      changedVariations.push(...(Array.isArray(r.data?.objects) ? r.data.objects : []));
+      pageCursor = r.data?.cursor;
+    } while (pageCursor);
 
-      if (stillExists) {
-        stillLinked.push(sku);
-        continue;
-      }
+    log('Square catalog delta account_key=%s changed=%d since=%s', account_key, changedVariations.length, cursor);
 
-      const result = await clearVirtualInventoryLinkByConnectionId({
-        source: 'square',
-        connectionId: product.third_party_integrations.square_product_id,
-        accountKey: account_key,
-      });
-      cleared.push(...result.cleared);
+    const listResp = await finerworksService.LIST_VIRTUAL_INVENTORY({ account_key });
+    const allVI = Array.isArray(listResp?.products) ? listResp.products : [];
+    const viBySku = new Map();
+    const viByVariantId = new Map();
+    for (const p of allVI) {
+      if (p?.sku) viBySku.set(String(p.sku).trim().toLowerCase(), p);
+      const vid = p?.third_party_integrations?.square_variant_id;
+      if (vid) viByVariantId.set(String(vid), p);
     }
+
+    const linked = [];
+    const relinked = [];
+    const clearedStale = [];
+    const clearedDeleted = [];
+
+    for (const obj of changedVariations) {
+      const variantId = obj.id;
+      const itemId = obj.item_variation_data?.item_id || null;
+      const isDeleted = obj.is_deleted === true;
+      const sku = obj.item_variation_data?.sku ? String(obj.item_variation_data.sku).trim() : null;
+      const currentlyLinkedVI = viByVariantId.get(String(variantId)) || null;
+
+      if (isDeleted) {
+        if (currentlyLinkedVI) {
+          await clearVirtualInventoryLinkForProduct({ source: 'square', product: currentlyLinkedVI, accountKey: account_key });
+          clearedDeleted.push(currentlyLinkedVI.sku);
+        }
+        continue;
+      }
+
+      if (!sku) continue;
+      const skuNorm = sku.toLowerCase();
+
+      // Linked VI item's own sku no longer matches this variant's current sku — stale link.
+      if (currentlyLinkedVI && String(currentlyLinkedVI.sku).trim().toLowerCase() !== skuNorm) {
+        await clearVirtualInventoryLinkForProduct({ source: 'square', product: currentlyLinkedVI, accountKey: account_key });
+        clearedStale.push(currentlyLinkedVI.sku);
+      }
+
+      // This variant's current sku matches a VI item — link it if not already correctly linked.
+      const viMatch = viBySku.get(skuNorm) || null;
+      if (viMatch) {
+        const alreadyCorrect = String(viMatch.third_party_integrations?.square_variant_id || '') === String(variantId);
+        if (!alreadyCorrect) {
+          await writeVirtualInventoryLink({
+            source: 'square',
+            product: viMatch,
+            ids: { square_product_id: itemId, square_variant_id: variantId },
+            accountKey: account_key,
+          });
+          (currentlyLinkedVI ? relinked : linked).push(viMatch.sku);
+        }
+      }
+    }
+
+    await persistCursor(eventUpdatedAt || cursor);
 
     const successLog = JSON.stringify({
       level: 'INFO',
@@ -1309,9 +1382,15 @@ exports.squareCatalogWebhook = async (req, res) => {
       method: req.method,
       api: req.originalUrl || req.url,
       function: 'squareCatalogWebhook',
-      operation: 'Square catalog re-check completed',
+      operation: 'Square catalog sync completed',
       account_key,
-      result: { checked: linkedProducts.length, clearedCount: cleared.length },
+      result: {
+        checked: changedVariations.length,
+        linkedCount: linked.length,
+        relinkedCount: relinked.length,
+        clearedStaleCount: clearedStale.length,
+        clearedDeletedCount: clearedDeleted.length,
+      },
       timestamp: new Date().toISOString(),
     });
     console.log(successLog);
@@ -1320,9 +1399,11 @@ exports.squareCatalogWebhook = async (req, res) => {
     return res.status(200).json({
       success: true,
       account_key,
-      checked: linkedProducts.length,
-      cleared,
-      stillLinked,
+      checked: changedVariations.length,
+      linked,
+      relinked,
+      clearedStale,
+      clearedDeleted,
     });
   } catch (err) {
     const isSquareError = err?.response?.config?.url?.includes('squareup') || err?.config?.url?.includes('squareup');

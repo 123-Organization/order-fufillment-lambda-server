@@ -3,7 +3,12 @@ const app = express();
 const cors = require('cors');
 require('dotenv').config();
 const http = require('http');
-const { handleWixAppInstanceInstalled, handleWixProductDeletedWebhook } = require('./src/controllers/wix-webhooks');
+const {
+  handleWixAppInstanceInstalled,
+  handleWixProductDeletedWebhook,
+  handleWixProductCreatedWebhook,
+  handleWixProductChangedWebhook,
+} = require('./src/controllers/wix-webhooks');
 const { handleWixOAuthCallback } = require('./src/controllers/wix-auth');
 const { handleWixOrderCreateWebhook } = require('./src/controllers/wix-order-create-webhook');
 const { squareCatalogWebhook } = require('./src/controllers/platform-order-sync');
@@ -44,6 +49,8 @@ wixJwtBodyRouter.post('/wix/webhooks/app-instance-installed', wixJwtText, asyncH
 wixJwtBodyRouter.post('/wix/oauth/callback', wixJwtText, asyncHandler(handleWixOAuthCallback));
 wixJwtBodyRouter.post('/webhooks/wix/order-create', wixJwtText, asyncHandler(handleWixOrderCreateWebhook));
 wixJwtBodyRouter.post('/webhooks/wix/product-delete', wixJwtText, asyncHandler(handleWixProductDeletedWebhook));
+wixJwtBodyRouter.post('/webhooks/wix/product-create', wixJwtText, asyncHandler(handleWixProductCreatedWebhook));
+wixJwtBodyRouter.post('/webhooks/wix/product-update', wixJwtText, asyncHandler(handleWixProductChangedWebhook));
 app.use('/api', wixJwtBodyRouter);
 
 // Square catalog webhook needs the raw request body to verify x-square-hmacsha256-signature
