@@ -24,8 +24,20 @@ const {
   buildAuthHeaders: buildWixAuthHeaders,
   summarizeWixHttpError,
 } = require('./wix-products');
+const { normalizeShopDomain } = require('./shopify-orders');
 
 const SUPPORTED_SOURCES = ['squarespace', 'square', 'wix', 'etsy'];
+
+// FinerWorks `connections[].name` -> the platform key used in checkSkuExists' response. Shippo is
+// deliberately omitted from this map — it's a shipping/label service, not a sales channel with
+// products/SKUs, so it's excluded from the per-platform SKU check regardless of connection state.
+const CONNECTION_NAME_TO_SOURCE = {
+  Square: 'square',
+  Squarespace: 'squarespace',
+  Wix: 'wix',
+  Shopify: 'shopify',
+  WooCommerce: 'woocommerce',
+};
 
 /**
  * Squarespace has no dedicated SKU-search endpoint (Commerce API v2). We reuse the same
@@ -34,6 +46,7 @@ const SUPPORTED_SOURCES = ['squarespace', 'square', 'wix', 'etsy'];
  * against the returned variants — `query` is full-text, not an exact filter.
  */
 async function checkSquarespaceSku({ req, sku }) {
+  console.log('Checking Squarespace SKU: %s', sku);
   let accessToken = req.body?.access_token || req.headers['x-squarespace-access-token'];
   const authHeader = req.headers?.authorization || req.headers?.Authorization;
   if (!accessToken && typeof authHeader === 'string' && authHeader.startsWith('Bearer ')) {
@@ -52,7 +65,7 @@ async function checkSquarespaceSku({ req, sku }) {
     timeout: 30000,
     validateStatus: () => true,
   });
-
+  console.log('Squarespace product search response: %s', JSON.stringify({ status: r.status, data: r.data }));
   if (r.status < 200 || r.status >= 300) {
     throw new ApiError(r.status >= 400 && r.status < 600 ? r.status : 502, 'Squarespace product search failed', {
       platform: 'squarespace',
@@ -244,6 +257,84 @@ async function checkEtsySku({ access_token, shop_id, sku }) {
 }
 
 /**
+ * Shopify's GraphQL Admin API productVariants query filtered by `sku:` is a real exact-match lookup
+ * — same query shape as fetchExistingSkusInShop/syncShopifyProducts uses. Called directly here
+ * (rather than reusing that helper) because it swallows per-SKU request failures internally,
+ * treating an expired/invalid access_token the same as "not found" — confirmed live during testing:
+ * a genuinely revoked token returned a real 401, but the shared helper reported isExist:false with
+ * no indication anything was wrong. This endpoint needs to tell those two cases apart.
+ */
+async function checkShopifySku({ connectionData, sku }) {
+  const accessToken = connectionData?.access_token || connectionData?.accessToken;
+  const shopRaw =
+    connectionData?.shop ||
+    connectionData?.shop_domain ||
+    connectionData?.shopDomain ||
+    connectionData?.storeName ||
+    connectionData?.myshopify_domain;
+  if (!accessToken || !shopRaw) {
+    throw new ApiError(400, 'Shopify connection is missing access_token or shop domain', { platform: 'shopify' });
+  }
+
+  const shopDomain = normalizeShopDomain(String(shopRaw));
+  const apiVersion = process.env.SHOPIFY_API_VERSION || '2025-10';
+  const r = await axios.post(
+    `https://${shopDomain}/admin/api/${apiVersion}/graphql.json`,
+    {
+      query: `
+        query productVariantsBySku($query: String!) {
+          productVariants(first: 1, query: $query) {
+            edges { node { sku } }
+          }
+        }
+      `,
+      variables: { query: `sku:${sku.replace(/"/g, '\\"')}` },
+    },
+    {
+      headers: { 'X-Shopify-Access-Token': accessToken, 'Content-Type': 'application/json' },
+      timeout: 30000,
+      validateStatus: () => true,
+    }
+  );
+
+  if (r.status < 200 || r.status >= 300 || r.data?.errors) {
+    const message = typeof r.data?.errors === 'string' ? r.data.errors : 'Shopify product search failed';
+    throw new ApiError(r.status >= 400 && r.status < 600 ? r.status : 502, message, {
+      platform: 'shopify',
+      httpStatus: r.status,
+    });
+  }
+
+  const edges = r.data?.data?.productVariants?.edges;
+  return { isExist: Array.isArray(edges) && edges.length > 0 };
+}
+
+/**
+ * WooCommerce has no live "search by SKU" capability integrated in this codebase: the WooCommerce
+ * side is a custom FinerWorks WordPress plugin (wp-json/finerworks-media/v1/*) that only exposes
+ * import/order endpoints, not a product search/lookup one, and no generic WooCommerce REST API
+ * (consumer key/secret) credentials are stored per account either. So instead of a live check, this
+ * reports whether the SKU is *linked* to a WooCommerce product in our own virtual inventory record
+ * (third_party_integrations.woocommerce_product_id / _variant_id) — the same signal
+ * clearStaleVirtualInventoryLink already relies on for the other endpoint in this file. This is
+ * "known to have been synced to WooCommerce", not "currently verified present on the live store".
+ */
+async function checkWoocommerceLinkExists({ account_key, sku }) {
+  const listResult = await finerworksService.LIST_VIRTUAL_INVENTORY({ sku_filter: [sku], account_key });
+  if (!listResult?.status?.success) {
+    throw new ApiError(502, 'Failed to look up virtual inventory for WooCommerce link check', { platform: 'woocommerce' });
+  }
+
+  const skuNormalized = sku.trim().toLowerCase();
+  const product = (Array.isArray(listResult?.products) ? listResult.products : []).find(
+    (p) => String(p?.sku || '').trim().toLowerCase() === skuNormalized
+  );
+  const integrations = product?.third_party_integrations || {};
+  const isExist = Boolean(integrations.woocommerce_product_id) || Boolean(integrations.woocommerce_variant_id);
+  return { isExist };
+}
+
+/**
  * When a SKU no longer exists on `source`, the virtual inventory record for that SKU may still
  * carry a stale link (product/variant id) to that platform from a previous connection. Clears
  * only the fields owned by `source` (SOURCE_ID_FIELDS) — other platforms' links are left as-is.
@@ -380,6 +471,118 @@ exports.checkLinkForExternalSource = async (req, res) => {
     });
     console.error(errorJson);
     log('Formatted error in checkLinkForExternalSource: %s', errorJson);
+    return sendApiError(res, err);
+  }
+};
+/**
+ * Runs the SKU-existence check for one already-known-connected platform. Returns isExist:false
+ * (with an `error` note) rather than throwing on a per-platform failure — one platform's connection
+ * problem (e.g. an expired Squarespace site billing) shouldn't block results for the others.
+ */
+async function checkSkuForConnection({ platformKey, connectionData, account_key, sku }) {
+  try {
+    let result;
+    if (platformKey === 'squarespace') {
+      const accessToken = connectionData?.access_token;
+      if (!accessToken) {
+        throw new ApiError(400, 'Squarespace connection is missing access_token', { platform: 'squarespace' });
+      }
+      result = await checkSquarespaceSku({ req: { body: { access_token: accessToken }, headers: {} }, sku });
+    } else if (platformKey === 'square') {
+      result = await checkSquareSku({ account_key, sku });
+    } else if (platformKey === 'wix') {
+      result = await checkWixSku({ account_key, sku });
+    } else if (platformKey === 'shopify') {
+      result = await checkShopifySku({ connectionData, sku });
+    } else {
+      result = await checkWoocommerceLinkExists({ account_key, sku });
+    }
+    return { isExist: result.isExist };
+  } catch (platformErr) {
+    log('SKU existence check failed for %s (account_key %s): %s', platformKey, account_key, platformErr?.message);
+    return { isExist: false, error: platformErr?.message || 'Check failed' };
+  }
+}
+
+/**
+ * Checks a SKU against every platform connected to this account_key (per the `connections` array
+ * on get-info), skipping Shippo (not a sales channel) and any connection type this endpoint doesn't
+ * recognize. Response shape: { <platform>: { isConected: "true", isExist: boolean }, ... } — only
+ * platforms actually present in `connections` appear (so isConected is always "true" today; the
+ * field is kept, matching the requested response shape, for when disconnected entries are added).
+ */
+exports.checkSkuExists = async (req, res) => {
+  const skuRaw = req.body?.sku ?? req.query?.sku;
+  const sku = skuRaw != null ? String(skuRaw).trim() : '';
+  const account_key = req.body?.account_key || req.query?.account_key;
+
+  try {
+    if (!sku) {
+      return sendApiError(res, 400, 'Missing required parameter: sku');
+    }
+    if (!account_key) {
+      return sendApiError(res, 400, 'Missing required parameter: account_key');
+    }
+
+    const info = await finerworksService.GET_INFO({ account_key });
+    const connections = Array.isArray(info?.user_account?.connections) ? info.user_account.connections : [];
+
+    const platforms = {};
+    for (const conn of connections) {
+      const connName = conn?.name;
+      const platformKey = connName ? CONNECTION_NAME_TO_SOURCE[connName] : null;
+      if (!platformKey) continue; // Shippo, or a connection type this endpoint doesn't check
+
+      let connectionData = {};
+      try {
+        connectionData =
+          typeof conn.data === 'string'
+            ? JSON.parse(conn.data)
+            : conn.data && typeof conn.data === 'object'
+              ? conn.data
+              : {};
+      } catch (_) {
+        connectionData = {};
+      }
+
+      const { isExist, error } = await checkSkuForConnection({ platformKey, connectionData, account_key, sku });
+      platforms[platformKey] = {
+        isConected: 'true',
+        isExist,
+        ...(error ? { error } : {}),
+      };
+    }
+
+    const successLog = JSON.stringify({
+      level: 'INFO',
+      method: req.method,
+      api: req.originalUrl || req.url,
+      function: 'checkSkuExists',
+      operation: 'SKU existence checked across connected platforms',
+      account_key,
+      result: { sku, platforms: Object.keys(platforms) },
+      timestamp: new Date().toISOString(),
+    });
+    console.log('Success in checkSkuExists: %s', successLog);
+    log('Success in checkSkuExists: %s', successLog);
+
+    return res.status(200).json({
+      success: true,
+      sku,
+      ...platforms,
+    });
+  } catch (err) {
+    const errorJson = JSON.stringify({
+      level: 'ERROR',
+      source: 'finerworks_api',
+      function: 'checkSkuExists',
+      account_key: account_key || 'unknown',
+      httpStatus: err?.response?.status || err?.statusCode || null,
+      message: `Failed to check SKU across connected platforms: ${err?.message || 'Unknown error'}`,
+      timestamp: new Date().toISOString(),
+    });
+    console.error(errorJson);
+    log('Formatted error in checkSkuExists: %s', errorJson);
     return sendApiError(res, err);
   }
 };

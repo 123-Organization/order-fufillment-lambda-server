@@ -25,7 +25,7 @@ const { syncSquarespaceProducts, syncSquarespaceProductsV2 } = require('./square
 const { setPlatformOrderSync, squarespaceOrderCreateWebhook, squareOrderCreateWebhook } = require('./platform-order-sync');
 const { connectShippo, getShippoStatus, validateShippoKey } = require('./shippo-auth');
 const { fetchShippoOrders, fetchShippoOrdersByOrderNumber } = require('./shippo-orders');
-const { checkLinkForExternalSource } = require('./check-link-for-external-source');
+const { checkLinkForExternalSource, checkSkuExists } = require('./check-link-for-external-source');
 const healthCheck = require('./health-check');
 const app = Router();
 
@@ -142,6 +142,7 @@ app.post('/shippo/order-by-id', asyncHandler(fetchShippoOrdersByOrderNumber));
 
 // Common cross-platform SKU existence check (source: squarespace | square | wix | etsy)
 app.post('/check-link-for-external-source', asyncHandler(checkLinkForExternalSource));
+app.post('/check-sku-exists', asyncHandler(checkSkuExists));
 
 // Shopify webhooks (called by Shopify)
 app.post('/webhooks/product-delete', asyncHandler(shopifyProductDeleteWebhook));

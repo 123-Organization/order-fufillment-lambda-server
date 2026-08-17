@@ -6975,4 +6975,6 @@ module.exports = {
   shopifyProductDeleteWebhook,
   shopifyOrdersCreateWebhook,
   createUsCanadaShippingProfile,
+  // Shared helper (used by check-link-for-external-source's checkSkuExists)
+  normalizeShopDomain,
 };
