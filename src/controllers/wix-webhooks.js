@@ -222,7 +222,164 @@ const handleWixJwtBodyAsAppInstall = async (req, res) => {
 
 const handleWixAppInstanceInstalled = handleWixJwtBodyAsAppInstall;
 
+/**
+ * Verifies a Wix webhook JWT against the app's public key (RS256) — the key shown on the app's
+ * Webhooks page / "View ID & Keys" in Wix Dev Center. Unlike handleWixJwtBodyAsAppInstall (which
+ * only decodes), this fails closed: no key configured, or a signature that doesn't check out,
+ * both reject the request rather than trusting an unverified payload that would mutate Virtual
+ * Inventory links.
+ * https://dev.wix.com/docs/build-apps/develop-your-app/access/authentication/verify-requests-received-from-wix
+ */
+function verifyWixWebhookJwt(token) {
+  const rawKey = process.env.WIX_WEBHOOK_PUBLIC_KEY;
+  if (!rawKey || !rawKey.trim()) {
+    const err = new Error('WIX_WEBHOOK_PUBLIC_KEY is not configured; cannot verify Wix webhook signature');
+    err.statusCode = 500;
+    throw err;
+  }
+  // PEM keys pasted into a single-line env var commonly have literal "\n" instead of newlines.
+  const publicKey = rawKey.includes('\\n') ? rawKey.replace(/\\n/g, '\n') : rawKey;
+
+  try {
+    return jwt.verify(token, publicKey, { algorithms: ['RS256'] });
+  } catch (verifyErr) {
+    const err = new Error(`Wix webhook signature verification failed: ${verifyErr.message}`);
+    err.statusCode = 401;
+    throw err;
+  }
+}
+
+/** Wix's Product Deleted payload nests productId under `data` (possibly a JSON string) and the
+ *  tenant's site under `metadata.accountInfo.siteId` — same nested/stringified shape handled by
+ *  extractWixAppInstalledFields above. */
+function extractWixProductDeletedFields(payload) {
+  if (!payload || typeof payload !== 'object') return null;
+
+  const outerData =
+    parseMaybeJsonString(payload.data) || (typeof payload.data === 'object' ? payload.data : null) || {};
+  const metadata =
+    parseMaybeJsonString(payload.metadata) || (typeof payload.metadata === 'object' ? payload.metadata : null) || {};
+  const accountInfo =
+    metadata.accountInfo && typeof metadata.accountInfo === 'object'
+      ? metadata.accountInfo
+      : parseMaybeJsonString(metadata.accountInfo) || {};
+
+  const productId = outerData.productId || payload.entityId || payload.productId || null;
+  const siteId = accountInfo.siteId || metadata.siteId || outerData.siteId || payload.siteId || null;
+
+  return { productId, siteId };
+}
+
+/**
+ * Wix "Product Deleted" webhook receiver (Stores Catalog V1/V3 both fire this — see
+ * originatedFromVersion in the payload). Clears this platform's link fields
+ * (wix_product_id/wix_variant_id/wix_inventory_id) on whichever Virtual Inventory item(s) are
+ * currently linked to the deleted product — same pattern as Shopify's products/delete receiver
+ * (shopify-orders.js shopifyProductDeleteWebhook), generalized via
+ * clearVirtualInventoryLinkByConnectionId.
+ *
+ * Requires: WIX_WEBHOOK_PUBLIC_KEY (for signature verification) and the wix-accounts DynamoDB
+ * table populated by persistWixClientCredentialsConnection (for siteId -> account_key routing,
+ * since this webhook URL is shared across every install, not per-account).
+ */
+const handleWixProductDeletedWebhook = async (req, res) => {
+  let account_key = null;
+  try {
+    const raw =
+      typeof req.body === 'string'
+        ? req.body
+        : Buffer.isBuffer(req.body)
+          ? req.body.toString('utf8')
+          : '';
+    const token = String(raw || '').trim();
+    if (!token) {
+      return sendApiError(res, 400, 'Empty webhook body (expected JWT string)');
+    }
+
+    let payload;
+    try {
+      payload = verifyWixWebhookJwt(token);
+    } catch (verifyErr) {
+      log('Wix product-delete webhook verification failed: %s', verifyErr.message);
+      return sendApiError(res, verifyErr.statusCode || 401, verifyErr.message);
+    }
+
+    const extracted = extractWixProductDeletedFields(payload);
+    const productId = extracted?.productId ? String(extracted.productId).trim() : null;
+    const siteId = extracted?.siteId ? String(extracted.siteId).trim() : null;
+
+    if (!productId) {
+      return sendApiError(res, 400, 'Missing productId in decoded Wix webhook payload');
+    }
+    if (!siteId) {
+      return res.status(200).json({
+        success: true,
+        ignored: true,
+        message: 'No siteId in webhook payload; cannot resolve tenant',
+      });
+    }
+
+    const { findAccountKeyByWixSiteId } = require('../helpers/wix-accounts-dynamo');
+    account_key = await findAccountKeyByWixSiteId(siteId);
+    if (!account_key) {
+      return res.status(200).json({
+        success: true,
+        ignored: true,
+        message: 'Could not resolve account_key for this Wix site',
+        site_id: siteId,
+      });
+    }
+
+    const { clearVirtualInventoryLinkByConnectionId } = require('../helpers/virtual-inventory-links');
+    const result = await clearVirtualInventoryLinkByConnectionId({
+      source: 'wix',
+      connectionId: productId,
+      accountKey: account_key,
+    });
+
+    const successLog = JSON.stringify({
+      level: 'INFO',
+      platform: 'wix',
+      method: req.method,
+      api: req.originalUrl || req.url,
+      function: 'handleWixProductDeletedWebhook',
+      operation: 'Wix product deleted; virtual inventory link cleared',
+      account_key,
+      result: { productId, clearedCount: result.count },
+      timestamp: new Date().toISOString(),
+    });
+    console.log(successLog);
+    log('Success in handleWixProductDeletedWebhook: %s', successLog);
+
+    return res.status(200).json({
+      success: true,
+      account_key,
+      productId,
+      site_id: siteId,
+      cleared: result.cleared,
+    });
+  } catch (err) {
+    const isWixError = err?.response?.config?.url?.includes('wixapis.com') || err?.config?.url?.includes('wixapis.com');
+    const isFinerworksError = err?.response?.config?.url?.includes('finerworks.com') || err?.config?.url?.includes('finerworks.com');
+    const errorJson = JSON.stringify({
+      level: 'ERROR',
+      platform: 'wix',
+      source: isWixError ? 'wix_api' : (isFinerworksError ? 'finerworks_api' : 'lambda'),
+      function: 'handleWixProductDeletedWebhook',
+      account_key: account_key || 'unknown',
+      httpStatus: err?.response?.status || null,
+      message: `Failed to handle Wix product-deleted webhook: ${err?.message || 'Unknown error'}`,
+      detail: err?.response?.data?.message || err?.response?.data?.error || null,
+      timestamp: new Date().toISOString(),
+    });
+    console.error(errorJson);
+    log('Formatted error in handleWixProductDeletedWebhook: %s', errorJson);
+    return sendApiError(res, err);
+  }
+};
+
 module.exports = {
   handleWixAppInstanceInstalled,
   handleWixJwtBodyAsAppInstall,
+  handleWixProductDeletedWebhook,
 };
