@@ -812,3 +812,9 @@ Resources:
             RestApiId: !Ref ProdApiGateway
             Method: POST
             Path: "/api/shippo/validate-key"
+        CheckSkuExists:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ProdApiGateway
+            Method: POST
+            Path: "/api/check-sku-exists"

@@ -84,7 +84,7 @@ Resources:
         - ProdLambdaExecutionRole
         - Arn
       Runtime: nodejs18.x
-      CodeUri: s3://orderfullfilmentprodbucketlambda/10224c3385d15f4f80bd854b3ee9fdff
+      CodeUri: s3://orderfullfilmentprodbucketlambda/6f95a01034c968068a43bb609f2c21a2
       MemorySize: 3008
       Timeout: 900
       Environment:
@@ -289,7 +289,7 @@ Resources:
         - ProdLambdaExecutionRole
         - Arn
       Runtime: nodejs18.x
-      CodeUri: s3://orderfullfilmentprodbucketlambda/10224c3385d15f4f80bd854b3ee9fdff
+      CodeUri: s3://orderfullfilmentprodbucketlambda/6f95a01034c968068a43bb609f2c21a2
       MemorySize: 3008
       Timeout: 900
       Environment:
@@ -628,7 +628,7 @@ Resources:
         - ProdLambdaExecutionRole
         - Arn
       Runtime: nodejs18.x
-      CodeUri: s3://orderfullfilmentprodbucketlambda/10224c3385d15f4f80bd854b3ee9fdff
+      CodeUri: s3://orderfullfilmentprodbucketlambda/6f95a01034c968068a43bb609f2c21a2
       MemorySize: 3008
       Timeout: 900
       Environment:
@@ -887,5 +887,12 @@ Resources:
               Ref: ProdApiGateway
             Method: POST
             Path: /api/shippo/validate-key
+        CheckSkuExists:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: ProdApiGateway
+            Method: POST
+            Path: /api/check-sku-exists
     Metadata:
       SamResourceId: OrderFullFillmentServerLessProdServerAgainNew
