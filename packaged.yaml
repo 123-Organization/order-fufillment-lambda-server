@@ -84,7 +84,7 @@ Resources:
         - ProdLambdaExecutionRole
         - Arn
       Runtime: nodejs18.x
-      CodeUri: s3://orderfullfilmentprodbucketlambda/6f95a01034c968068a43bb609f2c21a2
+      CodeUri: s3://orderfullfilmentprodbucketlambda/e4c518871a8917bbe06cc47cf3bb1d78
       MemorySize: 3008
       Timeout: 900
       Environment:
@@ -289,7 +289,7 @@ Resources:
         - ProdLambdaExecutionRole
         - Arn
       Runtime: nodejs18.x
-      CodeUri: s3://orderfullfilmentprodbucketlambda/6f95a01034c968068a43bb609f2c21a2
+      CodeUri: s3://orderfullfilmentprodbucketlambda/e4c518871a8917bbe06cc47cf3bb1d78
       MemorySize: 3008
       Timeout: 900
       Environment:
@@ -628,7 +628,7 @@ Resources:
         - ProdLambdaExecutionRole
         - Arn
       Runtime: nodejs18.x
-      CodeUri: s3://orderfullfilmentprodbucketlambda/6f95a01034c968068a43bb609f2c21a2
+      CodeUri: s3://orderfullfilmentprodbucketlambda/818c03b7c2194a7c621dc4438511666d
       MemorySize: 3008
       Timeout: 900
       Environment:
@@ -894,5 +894,19 @@ Resources:
               Ref: ProdApiGateway
             Method: POST
             Path: /api/check-sku-exists
+        RelinkExternalSource:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: ProdApiGateway
+            Method: POST
+            Path: /api/relink-external-source
+        UnlinkFromExternalSource:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: ProdApiGateway
+            Method: POST
+            Path: /api/check-link-for-external-source
     Metadata:
       SamResourceId: OrderFullFillmentServerLessProdServerAgainNew
