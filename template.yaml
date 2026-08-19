@@ -72,7 +72,22 @@ Resources:
                 Resource:
                   - arn:aws:dynamodb:us-east-1:583574610515:table/square-accounts
                   - arn:aws:dynamodb:us-east-1:583574610515:table/square-accounts/index/*
-  
+        - PolicyName: WixAccountsDynamoDBPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:Scan
+                  - dynamodb:Query
+                Resource:
+                  - arn:aws:dynamodb:us-east-1:583574610515:table/wix-accounts
+                  - arn:aws:dynamodb:us-east-1:583574610515:table/wix-accounts/index/*
+
   OrderFullFillmentServerLessProdServer:
     Type: AWS::Serverless::Function
     Properties:
@@ -90,6 +105,8 @@ Resources:
           SQUARESPACE_ORDERS_LIMIT: "50"
           SQUARE_ACCOUNTS_TABLE_NAME: square-accounts
           SQUARE_ACCOUNTS_ACCOUNT_KEY_GSI: account-key
+          WIX_ACCOUNTS_TABLE_NAME: wix-accounts
+          WIX_ACCOUNTS_ACCOUNT_KEY_GSI: account-key
       Events:
         MainEntryRoute:
           Type: Api 
@@ -284,6 +301,8 @@ Resources:
           SQUARESPACE_ORDERS_LIMIT: "50"
           SQUARE_ACCOUNTS_TABLE_NAME: square-accounts
           SQUARE_ACCOUNTS_ACCOUNT_KEY_GSI: account-key
+          WIX_ACCOUNTS_TABLE_NAME: wix-accounts
+          WIX_ACCOUNTS_ACCOUNT_KEY_GSI: account-key
       Events:
         ExportToWoocommerce:
           Type: Api

@@ -31,13 +31,20 @@ const {
 } = require('../helpers/squarespace-order-webhook');
 const {
   SQUARE_ORDER_SYNC_EVENT_TYPES,
+  SQUARE_CATALOG_SYNC_EVENT_TYPES,
   getSquareWebhookAccessToken,
   listSquareWebhookSubscriptions,
   createSquareWebhookSubscription,
   updateSquareWebhookSubscription,
   findOrderSyncSubscription,
+  findCatalogSyncSubscription,
   subscriptionHasEventTypes,
+  verifySquareWebhookSignature,
 } = require('../helpers/square-webhook-api');
+const {
+  writeVirtualInventoryLink,
+  clearVirtualInventoryLinkForProduct,
+} = require('../helpers/virtual-inventory-links');
 const {
   buildSquareCatalogSkuMap,
   transformSquareOrderToFinerWorksPayload,
@@ -46,7 +53,7 @@ const {
 } = require('../helpers/square-order-webhook');
 const { findAccountKeyBySquareMerchantId } = require('../helpers/square-accounts-dynamo');
 const { getSquareBaseUrl } = require('./square-auth');
-const { resolveSquareAuth, summarizeSquareHttpError } = require('./square-products');
+const { resolveSquareAuth, summarizeSquareHttpError, buildSquareHeaders } = require('./square-products');
 const { createSquareAuthRetry, fetchSquareOrderById } = require('./square-orders');
 const debug = require('debug');
 const { sendApiError } = require('../helpers/api-error');
@@ -234,6 +241,65 @@ async function enableSquareOrderSync() {
   return { endpointUrl, webhookSubscription };
 }
 
+function buildSquareCatalogWebhookUrl() {
+  const apiBase = String(
+    process.env.SQUARE_ORDER_CREATE_WEBHOOK_URL || process.env.OFA_PUBLIC_API_BASE_URL || ''
+  )
+    .trim()
+    .replace(/\/$/, '');
+  if (!apiBase) {
+    return null;
+  }
+  // Same app-level-subscription shape as the order webhook: no account_key in the URL, the
+  // receiver resolves the tenant from the event's merchant_id.
+  return `${apiBase}/api/webhooks/square/catalog`;
+}
+
+/**
+ * Registers (or upgrades) the app-level catalog.version.updated subscription used to trigger
+ * delete-detection. Square gives no per-object delete event (see SQUARE_CATALOG_SYNC_EVENT_TYPES
+ * in square-webhook-api.js) — this subscription is only a "something changed, go re-check"
+ * trigger, not a payload of what changed.
+ */
+async function enableSquareCatalogSync() {
+  const endpointUrl = buildSquareCatalogWebhookUrl();
+  if (!endpointUrl || !endpointUrl.toLowerCase().startsWith('https://')) {
+    const err = new Error(
+      'Square catalog webhook URL is not configured. Set SQUARE_ORDER_CREATE_WEBHOOK_URL or OFA_PUBLIC_API_BASE_URL (https).'
+    );
+    err.status = 500;
+    throw err;
+  }
+
+  const webhookToken = getSquareWebhookAccessToken();
+  if (!webhookToken) {
+    const err = new Error(
+      'Square webhook credentials not configured. Set SQUARE_WEBHOOK_ACCESS_TOKEN (application personal access token).'
+    );
+    err.status = 500;
+    throw err;
+  }
+
+  const existing = await listSquareWebhookSubscriptions(webhookToken);
+  let webhookSubscription = findCatalogSyncSubscription(existing, endpointUrl);
+
+  if (!webhookSubscription) {
+    webhookSubscription = await createSquareWebhookSubscription(webhookToken, {
+      notificationUrl: endpointUrl,
+      eventTypes: SQUARE_CATALOG_SYNC_EVENT_TYPES,
+      name: 'OFA catalog sync',
+    });
+  } else if (webhookSubscription.enabled === false) {
+    webhookSubscription =
+      (await updateSquareWebhookSubscription(webhookToken, webhookSubscription.id, {
+        enabled: true,
+        event_types: SQUARE_CATALOG_SYNC_EVENT_TYPES,
+      })) || webhookSubscription;
+  }
+
+  return { endpointUrl, webhookSubscription };
+}
+
 function validateShopifyShopDomain(storeName) {
   const shopDomain = normalizeShopDomain(storeName);
   if (!shopDomain || !shopDomain.match(/^[a-z0-9][a-z0-9-]*\.myshopify\.com$/)) {
@@ -399,6 +465,8 @@ function applyOrderSyncToConnection(conn, order_sync, dataPatch = {}) {
     delete nextData.shopify_webhook_id;
     delete nextData.shop_domain;
     delete nextData.storeName;
+    delete nextData.catalog_webhook_subscription_id;
+    delete nextData.catalog_webhook_subscription_secret;
   }
 
   const { order_sync: _removed, ...connWithoutRootFlag } = conn;
@@ -515,6 +583,19 @@ exports.setPlatformOrderSync = async (req, res) => {
       if (order_sync) {
         const result = await enableSquareOrderSync();
         webhookSubscription = result.webhookSubscription;
+
+        let catalogWebhookSubscription = null;
+        let catalogSyncError = null;
+        try {
+          const catalogResult = await enableSquareCatalogSync();
+          catalogWebhookSubscription = catalogResult.webhookSubscription;
+        } catch (catalogErr) {
+          // Non-fatal: order sync (the thing the caller asked for) still succeeds even if
+          // registering the delete-detection subscription fails.
+          catalogSyncError = catalogErr?.message || 'Failed to register Square catalog webhook';
+          log('enableSquareCatalogSync failed: %s', catalogSyncError);
+        }
+
         syncMessage = 'Square payment webhook registered successfully (orders sync to OFA when paid)';
         connections[idx] = applyOrderSyncToConnection(existingConn, true, {
           webhook_subscription_id:
@@ -524,7 +605,16 @@ exports.setPlatformOrderSync = async (req, res) => {
             existingData.webhook_subscription_secret ||
             null,
           order_create_webhook_url: result.endpointUrl,
+          ...(catalogWebhookSubscription
+            ? {
+                catalog_webhook_subscription_id: catalogWebhookSubscription.id || null,
+                catalog_webhook_subscription_secret: catalogWebhookSubscription.signature_key || null,
+              }
+            : {}),
         });
+        if (catalogSyncError) {
+          syncMessage = `${syncMessage}. Catalog (delete-detection) webhook registration failed: ${catalogSyncError}`;
+        }
       } else {
         // App-level subscription stays registered for other merchants; the receiver
         // ignores events for tenants whose order_sync flag is off.
@@ -1093,6 +1183,245 @@ exports.squareOrderCreateWebhook = async (req, res) => {
     });
     console.error(errorJson);
     log('Formatted error in squareOrderCreateWebhook: %s', errorJson);
+    return sendApiError(res, err);
+  }
+};
+
+/**
+ * Square catalog.version.updated webhook receiver — create/update/delete sync in one pass.
+ *
+ * Square gives no per-object payload on this event (see SQUARE_CATALOG_SYNC_EVENT_TYPES in
+ * square-webhook-api.js): it only means "something in the catalog changed." Per Square's own
+ * recommended pattern for this event (developer.squareup.com/docs/catalog-api/sync-with-external-system),
+ * this calls SearchCatalogObjects with begin_time set to the *previous* event's catalog version
+ * timestamp (cached per account as catalog_sync_cursor) plus include_deleted_objects — that
+ * returns only what changed since last time, deletes included (is_deleted). The first-ever event
+ * for an account has no prior cursor to diff against, so it just records one and stops, rather
+ * than treating "no cursor yet" as "everything changed."
+ *
+ * For each changed ITEM_VARIATION:
+ *  - is_deleted -> clear whichever VI item is currently linked to it (same outcome as before).
+ *  - its current sku matches a VI item that isn't yet correctly linked to it -> write/move the
+ *    link (covers both a brand-new product using a Virtual Inventory SKU, and a variant whose
+ *    SKU was changed to now match a different item).
+ *  - a VI item is linked to this variant but its own sku no longer matches -> clear it (stale).
+ */
+exports.squareCatalogWebhook = async (req, res) => {
+  const eventType = req.body?.type != null ? String(req.body.type).trim() : '';
+  const merchantId = req.body?.merchant_id ? String(req.body.merchant_id).trim() : null;
+  let account_key = null;
+
+  try {
+    log('Square catalog webhook received type=%s merchant_id=%s', eventType, merchantId);
+
+    if (eventType && eventType !== 'catalog.version.updated') {
+      return res.status(200).json({
+        success: true,
+        ignored: true,
+        message: `Unsupported Square webhook event: ${eventType}`,
+      });
+    }
+
+    if (!merchantId) {
+      return sendApiError(res, 400, 'Missing merchant_id in webhook payload');
+    }
+
+    account_key =
+      req.query?.account_key ||
+      req.query?.accountKey ||
+      (await findAccountKeyBySquareMerchantId(merchantId));
+
+    if (!account_key) {
+      return res.status(200).json({
+        success: true,
+        ignored: true,
+        message: 'Could not resolve account_key for this Square merchant',
+      });
+    }
+
+    const getInformation = await finerworksService.GET_INFO({ account_key });
+    const connections = getInformation?.user_account?.connections || [];
+    const connIdx = Array.isArray(connections) ? connections.findIndex((c) => c && c.name === 'Square') : -1;
+    const conn = connIdx !== -1 ? connections[connIdx] : null;
+
+    if (!conn || !isOrderSyncEnabled(conn, 'Square')) {
+      return res.status(200).json({
+        success: true,
+        ignored: true,
+        message: 'Square sync is disabled for this account',
+      });
+    }
+
+    const connData = parseConnectionData(conn);
+    const signatureKey = connData.catalog_webhook_subscription_secret || connData.webhook_subscription_secret || null;
+    const signatureHeader = req.headers['x-square-hmacsha256-signature'];
+    const notificationUrl = buildSquareCatalogWebhookUrl();
+    const verified = verifySquareWebhookSignature({
+      signatureKey,
+      notificationUrl,
+      rawBody: req.rawBody ? req.rawBody.toString('utf8') : JSON.stringify(req.body || {}),
+      signatureHeader,
+    });
+
+    if (!verified) {
+      log('Square catalog webhook signature verification failed account_key=%s', account_key);
+      return sendApiError(res, 401, 'Webhook signature verification failed');
+    }
+
+    const eventUpdatedAt = req.body?.data?.object?.catalog_version?.updated_at || null;
+    const cursor = connData.catalog_sync_cursor || null;
+
+    const persistCursor = async (nextCursor) => {
+      if (!nextCursor) return;
+      connections[connIdx] = {
+        ...conn,
+        name: conn.name,
+        id: conn.id,
+        data: JSON.stringify({ ...connData, catalog_sync_cursor: nextCursor }),
+      };
+      await finerworksService.UPDATE_INFO({ account_key, connections });
+    };
+
+    if (!cursor) {
+      await persistCursor(eventUpdatedAt);
+      log('Square catalog sync bootstrapped account_key=%s cursor=%s (nothing to diff yet)', account_key, eventUpdatedAt);
+      return res.status(200).json({ success: true, bootstrapped: true, cursor: eventUpdatedAt });
+    }
+
+    const auth = await resolveSquareAuth({ account_key });
+    if (!auth?.accessToken) {
+      return sendApiError(res, 400, 'Unable to resolve Square access token for this account');
+    }
+    const baseUrl = getSquareBaseUrl();
+
+    const changedVariations = [];
+    let pageCursor;
+    do {
+      const r = await axios.post(
+        `${baseUrl}/v2/catalog/search`,
+        {
+          object_types: ['ITEM_VARIATION'],
+          include_deleted_objects: true,
+          begin_time: cursor,
+          limit: 100,
+          ...(pageCursor ? { cursor: pageCursor } : {}),
+        },
+        { headers: buildSquareHeaders(auth.accessToken), timeout: 30000, validateStatus: () => true }
+      );
+      if (r.status < 200 || r.status >= 300) {
+        const searchErr = new Error('Square catalog search failed');
+        searchErr.response = { status: r.status, data: r.data };
+        throw searchErr;
+      }
+      changedVariations.push(...(Array.isArray(r.data?.objects) ? r.data.objects : []));
+      pageCursor = r.data?.cursor;
+    } while (pageCursor);
+
+    log('Square catalog delta account_key=%s changed=%d since=%s', account_key, changedVariations.length, cursor);
+
+    const listResp = await finerworksService.LIST_VIRTUAL_INVENTORY({ account_key });
+    const allVI = Array.isArray(listResp?.products) ? listResp.products : [];
+    const viBySku = new Map();
+    const viByVariantId = new Map();
+    for (const p of allVI) {
+      if (p?.sku) viBySku.set(String(p.sku).trim().toLowerCase(), p);
+      const vid = p?.third_party_integrations?.square_variant_id;
+      if (vid) viByVariantId.set(String(vid), p);
+    }
+
+    const linked = [];
+    const relinked = [];
+    const clearedStale = [];
+    const clearedDeleted = [];
+
+    for (const obj of changedVariations) {
+      const variantId = obj.id;
+      const itemId = obj.item_variation_data?.item_id || null;
+      const isDeleted = obj.is_deleted === true;
+      const sku = obj.item_variation_data?.sku ? String(obj.item_variation_data.sku).trim() : null;
+      const currentlyLinkedVI = viByVariantId.get(String(variantId)) || null;
+
+      if (isDeleted) {
+        if (currentlyLinkedVI) {
+          await clearVirtualInventoryLinkForProduct({ source: 'square', product: currentlyLinkedVI, accountKey: account_key });
+          clearedDeleted.push(currentlyLinkedVI.sku);
+        }
+        continue;
+      }
+
+      if (!sku) continue;
+      const skuNorm = sku.toLowerCase();
+
+      // Linked VI item's own sku no longer matches this variant's current sku — stale link.
+      if (currentlyLinkedVI && String(currentlyLinkedVI.sku).trim().toLowerCase() !== skuNorm) {
+        await clearVirtualInventoryLinkForProduct({ source: 'square', product: currentlyLinkedVI, accountKey: account_key });
+        clearedStale.push(currentlyLinkedVI.sku);
+      }
+
+      // This variant's current sku matches a VI item — link it if not already correctly linked.
+      const viMatch = viBySku.get(skuNorm) || null;
+      if (viMatch) {
+        const alreadyCorrect = String(viMatch.third_party_integrations?.square_variant_id || '') === String(variantId);
+        if (!alreadyCorrect) {
+          await writeVirtualInventoryLink({
+            source: 'square',
+            product: viMatch,
+            ids: { square_product_id: itemId, square_variant_id: variantId },
+            accountKey: account_key,
+          });
+          (currentlyLinkedVI ? relinked : linked).push(viMatch.sku);
+        }
+      }
+    }
+
+    await persistCursor(eventUpdatedAt || cursor);
+
+    const successLog = JSON.stringify({
+      level: 'INFO',
+      platform: 'square',
+      method: req.method,
+      api: req.originalUrl || req.url,
+      function: 'squareCatalogWebhook',
+      operation: 'Square catalog sync completed',
+      account_key,
+      result: {
+        checked: changedVariations.length,
+        linkedCount: linked.length,
+        relinkedCount: relinked.length,
+        clearedStaleCount: clearedStale.length,
+        clearedDeletedCount: clearedDeleted.length,
+      },
+      timestamp: new Date().toISOString(),
+    });
+    console.log(successLog);
+    log('Success in squareCatalogWebhook: %s', successLog);
+
+    return res.status(200).json({
+      success: true,
+      account_key,
+      checked: changedVariations.length,
+      linked,
+      relinked,
+      clearedStale,
+      clearedDeleted,
+    });
+  } catch (err) {
+    const isSquareError = err?.response?.config?.url?.includes('squareup') || err?.config?.url?.includes('squareup');
+    const isFinerworksError = err?.response?.config?.url?.includes('finerworks.com') || err?.config?.url?.includes('finerworks.com');
+    const errorSource = isSquareError ? 'square_api' : (isFinerworksError ? 'finerworks_api' : 'lambda');
+    const errorJson = JSON.stringify({
+      level: 'ERROR',
+      platform: 'square',
+      source: errorSource,
+      function: 'squareCatalogWebhook',
+      account_key: account_key || 'unknown',
+      httpStatus: err?.response?.status || null,
+      message: `Square catalog webhook failed: ${err?.message || 'Unknown error'}`,
+      detail: err?.response?.data?.message || err?.response?.data?.errors?.[0]?.detail || null,
+      timestamp: new Date().toISOString(),
+    });
+    console.error(errorJson);
+    log('Formatted error in squareCatalogWebhook: %s', errorJson);
     return sendApiError(res, err);
   }
 };
