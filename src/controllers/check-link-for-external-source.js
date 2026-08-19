@@ -506,20 +506,80 @@ async function clearStaleVirtualInventoryLink({ source, sku, account_key }) {
 }
 
 /**
- * Cross-platform SKU quarantine — no `source` param: checks `sku` against every platform
- * connected to `account_key` (squarespace/square/wix; shopify/woocommerce/shippo are skipped —
- * no live rename capability is built for those here). Wherever the sku is found live on a
- * platform, that platform's own listing is renamed to `${sku}X` so it stops being an active
- * duplicate of the original sku, then this account's corresponding third_party_integrations
- * fields for that platform are cleared in FinerWorks — Virtual Inventory's own sku is never
- * touched, only the platform-side listing and the link fields pointing at it.
- * POST body: { sku, account_key }.
+ * Reverse of clearStaleVirtualInventoryLink — writes `source`'s product_id/variant_id onto the
+ * Virtual Inventory record for `sku`, keeping every other field (and every other platform's link)
+ * as-is. Returns { linked: false, reason } rather than creating a new record when `sku` doesn't
+ * exist in Virtual Inventory yet — this only re-attaches a link to an item that's already there.
+ */
+async function addVirtualInventoryLink({ source, sku, account_key, productId, variantId }) {
+  const idFields = SOURCE_ID_FIELDS[source];
+  if (!idFields) return { linked: false, reason: `Unsupported source: ${source}` };
+
+  const listResult = await finerworksService.LIST_VIRTUAL_INVENTORY({ sku_filter: [sku], account_key });
+  if (!listResult?.status?.success) {
+    throw new ApiError(502, 'Failed to look up virtual inventory for link add', { platform: 'finerworks' });
+  }
+
+  const skuNormalized = sku.trim().toLowerCase();
+  const product = (Array.isArray(listResult?.products) ? listResult.products : []).find(
+    (p) => String(p?.sku || '').trim().toLowerCase() === skuNormalized
+  );
+  if (!product) return { linked: false, reason: 'sku not found in Virtual Inventory' };
+
+  const [productField, variantField] = idFields;
+  const nextIntegrations = { ...(product.third_party_integrations || {}) };
+  const fieldsSet = [];
+  if (productField && productId != null) {
+    nextIntegrations[productField] = String(productId);
+    fieldsSet.push(productField);
+  }
+  if (variantField && variantId != null) {
+    nextIntegrations[variantField] = String(variantId);
+    fieldsSet.push(variantField);
+  }
+  if (!fieldsSet.length) return { linked: false, reason: 'No productId/variantId to link' };
+
+  const updateResult = await finerworksService.UPDATE_VIRTUAL_INVENTORY({
+    virtual_inventory: [
+      {
+        sku: product.sku,
+        asking_price: product.asking_price ?? 0,
+        name: product.name ?? 'Untitled',
+        description: product.description ?? '',
+        quantity_in_stock: product.quantity_in_stock ?? 0,
+        track_inventory: product.track_inventory ?? true,
+        third_party_integrations: nextIntegrations,
+      },
+    ],
+    account_key,
+  });
+  if (!updateResult?.status?.success) {
+    throw new ApiError(502, 'Failed to add virtual inventory link', { platform: 'finerworks' });
+  }
+
+  return { linked: true, fields: fieldsSet };
+}
+
+/**
+ * Cross-platform SKU quarantine, scoped to whichever platform(s) are named in `source` — every
+ * other connected platform is left completely untouched (not checked, not renamed, nothing
+ * cleared). Wherever the sku is found live on a requested platform, that platform's own listing
+ * is renamed to `X${sku}` so it stops being an active duplicate of the original sku, then this
+ * account's corresponding third_party_integrations fields for that platform are cleared in
+ * FinerWorks — Virtual Inventory's own sku is never touched, only the platform-side listing and
+ * the link fields pointing at it.
+ * POST body: { sku, account_key, source: 'squarespace'|'square'|'wix' (string or array of these) }.
  */
 exports.checkLinkForExternalSource = async (req, res) => {
   const skuRaw = req.body?.sku ?? req.query?.sku;
   const sku = skuRaw != null ? String(skuRaw).trim() : '';
   const account_key = req.body?.account_key || req.query?.account_key;
-  const newSku = sku ? `${sku}X` : '';
+  const newSku = sku ? `X${sku}` : '';
+
+  const sourceRaw = req.body?.source ?? req.query?.source;
+  const requestedSources = (Array.isArray(sourceRaw) ? sourceRaw : [sourceRaw])
+    .filter((s) => s != null && String(s).trim() !== '')
+    .map((s) => String(s).trim().toLowerCase());
 
   const platforms = {};
 
@@ -530,6 +590,13 @@ exports.checkLinkForExternalSource = async (req, res) => {
     if (!account_key) {
       return sendApiError(res, 400, 'Missing required parameter: account_key');
     }
+    if (!requestedSources.length) {
+      return sendApiError(res, 400, `Missing required parameter: source. Expected one or more of: ${SUPPORTED_SOURCES.join(', ')}`);
+    }
+    const invalidSources = requestedSources.filter((s) => !SUPPORTED_SOURCES.includes(s));
+    if (invalidSources.length) {
+      return sendApiError(res, 400, `Unsupported source(s): ${invalidSources.join(', ')}. Expected one or more of: ${SUPPORTED_SOURCES.join(', ')}`);
+    }
 
     const info = await finerworksService.GET_INFO({ account_key });
     const connections = Array.isArray(info?.user_account?.connections) ? info.user_account.connections : [];
@@ -537,7 +604,7 @@ exports.checkLinkForExternalSource = async (req, res) => {
     for (const conn of connections) {
       const connName = conn?.name;
       const platformKey = connName ? CONNECTION_NAME_TO_SOURCE[connName] : null;
-      if (!platformKey || !SUPPORTED_SOURCES.includes(platformKey)) continue; // shopify/woocommerce/shippo: no rename path here
+      if (!platformKey || !requestedSources.includes(platformKey)) continue; // not requested: leave untouched
 
       let connectionData = {};
       try {
@@ -643,6 +710,168 @@ exports.checkLinkForExternalSource = async (req, res) => {
     return sendApiError(res, err);
   }
 };
+
+/**
+ * Reverse of checkLinkForExternalSource — re-links a sku that was previously de-linked (and left
+ * quarantined on the platform as `X${sku}`). Scoped to whichever platform(s) are named in
+ * `source`, same as checkLinkForExternalSource; every other connected platform is left untouched.
+ *
+ * For each requested source: looks for `X${sku}` live on that platform (the marker
+ * checkLinkForExternalSource leaves behind); if found, renames it back to the plain `sku` on the
+ * platform, then writes that platform's product_id/variant_id back onto the Virtual Inventory
+ * record for `sku` in FinerWorks.
+ * POST body: { sku, account_key, source: 'squarespace'|'square'|'wix' (string or array of these) }.
+ */
+exports.relinkExternalSource = async (req, res) => {
+  const skuRaw = req.body?.sku ?? req.query?.sku;
+  const sku = skuRaw != null ? String(skuRaw).trim() : '';
+  const account_key = req.body?.account_key || req.query?.account_key;
+  const prefixedSku = sku ? `X${sku}` : '';
+
+  const sourceRaw = req.body?.source ?? req.query?.source;
+  const requestedSources = (Array.isArray(sourceRaw) ? sourceRaw : [sourceRaw])
+    .filter((s) => s != null && String(s).trim() !== '')
+    .map((s) => String(s).trim().toLowerCase());
+
+  const platforms = {};
+
+  try {
+    if (!sku) {
+      return sendApiError(res, 400, 'Missing required parameter: sku');
+    }
+    if (!account_key) {
+      return sendApiError(res, 400, 'Missing required parameter: account_key');
+    }
+    if (!requestedSources.length) {
+      return sendApiError(res, 400, `Missing required parameter: source. Expected one or more of: ${SUPPORTED_SOURCES.join(', ')}`);
+    }
+    const invalidSources = requestedSources.filter((s) => !SUPPORTED_SOURCES.includes(s));
+    if (invalidSources.length) {
+      return sendApiError(res, 400, `Unsupported source(s): ${invalidSources.join(', ')}. Expected one or more of: ${SUPPORTED_SOURCES.join(', ')}`);
+    }
+
+    const info = await finerworksService.GET_INFO({ account_key });
+    const connections = Array.isArray(info?.user_account?.connections) ? info.user_account.connections : [];
+
+    for (const conn of connections) {
+      const connName = conn?.name;
+      const platformKey = connName ? CONNECTION_NAME_TO_SOURCE[connName] : null;
+      if (!platformKey || !requestedSources.includes(platformKey)) continue; // not requested: leave untouched
+
+      let connectionData = {};
+      try {
+        connectionData =
+          typeof conn.data === 'string'
+            ? JSON.parse(conn.data)
+            : conn.data && typeof conn.data === 'object'
+              ? conn.data
+              : {};
+      } catch (_) {
+        connectionData = {};
+      }
+
+      try {
+        let checkResult;
+        if (platformKey === 'squarespace') {
+          const accessToken = connectionData?.access_token;
+          if (!accessToken) {
+            throw new ApiError(400, 'Squarespace connection is missing access_token', { platform: 'squarespace' });
+          }
+          checkResult = await checkSquarespaceSku({ req: { body: { access_token: accessToken }, headers: {} }, sku: prefixedSku });
+        } else if (platformKey === 'square') {
+          checkResult = await checkSquareSku({ account_key, sku: prefixedSku });
+        } else {
+          checkResult = await checkWixSku({ account_key, sku: prefixedSku });
+        }
+
+        if (!checkResult.isExist) {
+          platforms[platformKey] = { isExist: false };
+          continue;
+        }
+
+        let productId = null;
+        let variantId = null;
+        if (platformKey === 'squarespace') {
+          await renameSquarespaceSku({
+            accessToken: checkResult.accessToken,
+            productId: checkResult.matched.productId,
+            variantId: checkResult.matched.variantId,
+            newSku: sku,
+          });
+          productId = checkResult.matched.productId;
+          variantId = checkResult.matched.variantId;
+        } else if (platformKey === 'square') {
+          await renameSquareSku({ account_key, matched: checkResult.matched, newSku: sku });
+          productId = checkResult.matched.item_variation_data?.item_id || null;
+          variantId = checkResult.matched.id || null;
+        } else {
+          await renameWixSku({
+            wixAuth: checkResult.wixAuth,
+            productId: checkResult.matched.productId,
+            variantId: checkResult.matched.variantId,
+            newSku: sku,
+          });
+          productId = checkResult.matched.productId;
+          variantId = checkResult.matched.variantId;
+        }
+
+        const linkResult = await addVirtualInventoryLink({ source: platformKey, sku, account_key, productId, variantId });
+
+        platforms[platformKey] = {
+          isExist: true,
+          renamedTo: sku,
+          ...(linkResult.linked
+            ? { linkedFields: linkResult.fields }
+            : { linkedFields: [], linkWarning: linkResult.reason || 'Not linked in FinerWorks' }),
+        };
+      } catch (platformErr) {
+        console.error(JSON.stringify({
+          level: 'ERROR',
+          platform: platformKey,
+          function: 'relinkExternalSource',
+          message: `Failed to process ${platformKey} for sku ${sku}: ${platformErr?.message || 'Unknown error'}`,
+          timestamp: new Date().toISOString(),
+        }));
+        log('relinkExternalSource platform=%s failed: %s', platformKey, platformErr?.message);
+        platforms[platformKey] = { error: platformErr?.message || 'Check failed' };
+      }
+    }
+
+    const successLog = JSON.stringify({
+      level: 'INFO',
+      method: req.method,
+      api: req.originalUrl || req.url,
+      function: 'relinkExternalSource',
+      operation: 'Cross-platform sku re-link completed',
+      account_key,
+      result: { sku, prefixedSku, platforms: Object.keys(platforms) },
+      timestamp: new Date().toISOString(),
+    });
+    console.log('Success in relinkExternalSource: %s', successLog);
+    log('Success in relinkExternalSource: %s', successLog);
+
+    return res.status(200).json({
+      success: true,
+      sku,
+      prefixedSku,
+      ...platforms,
+    });
+  } catch (err) {
+    const errorJson = JSON.stringify({
+      level: 'ERROR',
+      source: 'finerworks_api',
+      function: 'relinkExternalSource',
+      account_key: account_key || 'unknown',
+      httpStatus: err?.response?.status || err?.statusCode || null,
+      message: `Failed to re-link SKU across connected platforms: ${err?.message || 'Unknown error'}`,
+      timestamp: new Date().toISOString(),
+    });
+    console.error(errorJson);
+    log('Formatted error in relinkExternalSource: %s', errorJson);
+    return sendApiError(res, err);
+  }
+};
+
 /**
  * Runs the SKU-existence check for one already-known-connected platform. Returns isExist:false
  * (with an `error` note) rather than throwing on a per-platform failure — one platform's connection

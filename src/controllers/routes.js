@@ -25,7 +25,7 @@ const { syncSquarespaceProducts, syncSquarespaceProductsV2 } = require('./square
 const { setPlatformOrderSync, squarespaceOrderCreateWebhook, squareOrderCreateWebhook } = require('./platform-order-sync');
 const { connectShippo, getShippoStatus, validateShippoKey } = require('./shippo-auth');
 const { fetchShippoOrders, fetchShippoOrdersByOrderNumber } = require('./shippo-orders');
-const { checkLinkForExternalSource, checkSkuExists } = require('./check-link-for-external-source');
+const { checkLinkForExternalSource, relinkExternalSource, checkSkuExists } = require('./check-link-for-external-source');
 const healthCheck = require('./health-check');
 const app = Router();
 
@@ -142,6 +142,8 @@ app.post('/shippo/order-by-id', asyncHandler(fetchShippoOrdersByOrderNumber));
 
 // Common cross-platform SKU existence check (source: squarespace | square | wix | etsy)
 app.post('/check-link-for-external-source', asyncHandler(checkLinkForExternalSource));
+// Reverse of the above: re-links a sku previously de-linked by check-link-for-external-source
+app.post('/relink-external-source', asyncHandler(relinkExternalSource));
 app.post('/check-sku-exists', asyncHandler(checkSkuExists));
 
 // Shopify webhooks (called by Shopify)
