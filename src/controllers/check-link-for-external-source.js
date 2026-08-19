@@ -560,32 +560,36 @@ async function addVirtualInventoryLink({ source, sku, account_key, productId, va
   return { linked: true, fields: fieldsSet };
 }
 
+/** Accepts either a single value or an array, trims/dedupes strings, drops empties. */
+function normalizeToStringList(raw) {
+  return (Array.isArray(raw) ? raw : [raw])
+    .filter((v) => v != null && String(v).trim() !== '')
+    .map((v) => String(v).trim());
+}
+
 /**
  * Cross-platform SKU quarantine, scoped to whichever platform(s) are named in `source` — every
  * other connected platform is left completely untouched (not checked, not renamed, nothing
- * cleared). Wherever the sku is found live on a requested platform, that platform's own listing
- * is renamed to `X${sku}` so it stops being an active duplicate of the original sku, then this
- * account's corresponding third_party_integrations fields for that platform are cleared in
- * FinerWorks — Virtual Inventory's own sku is never touched, only the platform-side listing and
- * the link fields pointing at it.
- * POST body: { sku, account_key, source: 'squarespace'|'square'|'wix' (string or array of these) }.
+ * cleared). Accepts one or many skus in a single call. For each sku, wherever it's found live on
+ * a requested platform, that platform's own listing is renamed to `X${sku}` so it stops being an
+ * active duplicate of the original sku, then this account's corresponding third_party_integrations
+ * fields for that platform are cleared in FinerWorks — Virtual Inventory's own sku is never
+ * touched, only the platform-side listing and the link fields pointing at it.
+ * POST body: { sku: string | string[], account_key, source: 'squarespace'|'square'|'wix' (string or array) }.
  */
 exports.checkLinkForExternalSource = async (req, res) => {
-  const skuRaw = req.body?.sku ?? req.query?.sku;
-  const sku = skuRaw != null ? String(skuRaw).trim() : '';
+  const skuRaw = req.body?.sku ?? req.query?.sku ?? req.body?.skus ?? req.query?.skus;
+  const skus = normalizeToStringList(skuRaw);
   const account_key = req.body?.account_key || req.query?.account_key;
-  const newSku = sku ? `X${sku}` : '';
 
   const sourceRaw = req.body?.source ?? req.query?.source;
-  const requestedSources = (Array.isArray(sourceRaw) ? sourceRaw : [sourceRaw])
-    .filter((s) => s != null && String(s).trim() !== '')
-    .map((s) => String(s).trim().toLowerCase());
+  const requestedSources = normalizeToStringList(sourceRaw).map((s) => s.toLowerCase());
 
-  const platforms = {};
+  const results = [];
 
   try {
-    if (!sku) {
-      return sendApiError(res, 400, 'Missing required parameter: sku');
+    if (!skus.length) {
+      return sendApiError(res, 400, 'Missing required parameter: sku (string or array of strings)');
     }
     if (!account_key) {
       return sendApiError(res, 400, 'Missing required parameter: account_key');
@@ -598,82 +602,91 @@ exports.checkLinkForExternalSource = async (req, res) => {
       return sendApiError(res, 400, `Unsupported source(s): ${invalidSources.join(', ')}. Expected one or more of: ${SUPPORTED_SOURCES.join(', ')}`);
     }
 
+    // Connections are fetched once and reused for every sku — they're the same account_key on
+    // every iteration, so there's no reason to re-fetch GET_INFO per sku.
     const info = await finerworksService.GET_INFO({ account_key });
     const connections = Array.isArray(info?.user_account?.connections) ? info.user_account.connections : [];
 
-    for (const conn of connections) {
-      const connName = conn?.name;
-      const platformKey = connName ? CONNECTION_NAME_TO_SOURCE[connName] : null;
-      if (!platformKey || !requestedSources.includes(platformKey)) continue; // not requested: leave untouched
+    for (const sku of skus) {
+      const newSku = `X${sku}`;
+      const platforms = {};
 
-      let connectionData = {};
-      try {
-        connectionData =
-          typeof conn.data === 'string'
-            ? JSON.parse(conn.data)
-            : conn.data && typeof conn.data === 'object'
-              ? conn.data
-              : {};
-      } catch (_) {
-        connectionData = {};
-      }
+      for (const conn of connections) {
+        const connName = conn?.name;
+        const platformKey = connName ? CONNECTION_NAME_TO_SOURCE[connName] : null;
+        if (!platformKey || !requestedSources.includes(platformKey)) continue; // not requested: leave untouched
 
-      try {
-        let checkResult;
-        if (platformKey === 'squarespace') {
-          const accessToken = connectionData?.access_token;
-          if (!accessToken) {
-            throw new ApiError(400, 'Squarespace connection is missing access_token', { platform: 'squarespace' });
+        let connectionData = {};
+        try {
+          connectionData =
+            typeof conn.data === 'string'
+              ? JSON.parse(conn.data)
+              : conn.data && typeof conn.data === 'object'
+                ? conn.data
+                : {};
+        } catch (_) {
+          connectionData = {};
+        }
+
+        try {
+          let checkResult;
+          if (platformKey === 'squarespace') {
+            const accessToken = connectionData?.access_token;
+            if (!accessToken) {
+              throw new ApiError(400, 'Squarespace connection is missing access_token', { platform: 'squarespace' });
+            }
+            checkResult = await checkSquarespaceSku({ req: { body: { access_token: accessToken }, headers: {} }, sku });
+          } else if (platformKey === 'square') {
+            checkResult = await checkSquareSku({ account_key, sku });
+          } else {
+            checkResult = await checkWixSku({ account_key, sku });
           }
-          checkResult = await checkSquarespaceSku({ req: { body: { access_token: accessToken }, headers: {} }, sku });
-        } else if (platformKey === 'square') {
-          checkResult = await checkSquareSku({ account_key, sku });
-        } else {
-          checkResult = await checkWixSku({ account_key, sku });
+
+          if (!checkResult.isExist) {
+            platforms[platformKey] = { isExist: false };
+            continue;
+          }
+
+          let renameResult;
+          if (platformKey === 'squarespace') {
+            renameResult = await renameSquarespaceSku({
+              accessToken: checkResult.accessToken,
+              productId: checkResult.matched.productId,
+              variantId: checkResult.matched.variantId,
+              newSku,
+            });
+          } else if (platformKey === 'square') {
+            renameResult = await renameSquareSku({ account_key, matched: checkResult.matched, newSku });
+          } else {
+            renameResult = await renameWixSku({
+              wixAuth: checkResult.wixAuth,
+              productId: checkResult.matched.productId,
+              variantId: checkResult.matched.variantId,
+              newSku,
+            });
+          }
+
+          const cleanup = await clearStaleVirtualInventoryLink({ source: platformKey, sku, account_key });
+
+          platforms[platformKey] = {
+            isExist: true,
+            renamedTo: renameResult.newSku,
+            clearedLinkFields: cleanup.cleared ? cleanup.fields : [],
+          };
+        } catch (platformErr) {
+          console.error(JSON.stringify({
+            level: 'ERROR',
+            platform: platformKey,
+            function: 'checkLinkForExternalSource',
+            message: `Failed to process ${platformKey} for sku ${sku}: ${platformErr?.message || 'Unknown error'}`,
+            timestamp: new Date().toISOString(),
+          }));
+          log('checkLinkForExternalSource sku=%s platform=%s failed: %s', sku, platformKey, platformErr?.message);
+          platforms[platformKey] = { error: platformErr?.message || 'Check failed' };
         }
-
-        if (!checkResult.isExist) {
-          platforms[platformKey] = { isExist: false };
-          continue;
-        }
-
-        let renameResult;
-        if (platformKey === 'squarespace') {
-          renameResult = await renameSquarespaceSku({
-            accessToken: checkResult.accessToken,
-            productId: checkResult.matched.productId,
-            variantId: checkResult.matched.variantId,
-            newSku,
-          });
-        } else if (platformKey === 'square') {
-          renameResult = await renameSquareSku({ account_key, matched: checkResult.matched, newSku });
-        } else {
-          renameResult = await renameWixSku({
-            wixAuth: checkResult.wixAuth,
-            productId: checkResult.matched.productId,
-            variantId: checkResult.matched.variantId,
-            newSku,
-          });
-        }
-
-        const cleanup = await clearStaleVirtualInventoryLink({ source: platformKey, sku, account_key });
-
-        platforms[platformKey] = {
-          isExist: true,
-          renamedTo: renameResult.newSku,
-          clearedLinkFields: cleanup.cleared ? cleanup.fields : [],
-        };
-      } catch (platformErr) {
-        console.error(JSON.stringify({
-          level: 'ERROR',
-          platform: platformKey,
-          function: 'checkLinkForExternalSource',
-          message: `Failed to process ${platformKey} for sku ${sku}: ${platformErr?.message || 'Unknown error'}`,
-          timestamp: new Date().toISOString(),
-        }));
-        log('checkLinkForExternalSource platform=%s failed: %s', platformKey, platformErr?.message);
-        platforms[platformKey] = { error: platformErr?.message || 'Check failed' };
       }
+
+      results.push({ sku, newSku, ...platforms });
     }
 
     const successLog = JSON.stringify({
@@ -683,7 +696,7 @@ exports.checkLinkForExternalSource = async (req, res) => {
       function: 'checkLinkForExternalSource',
       operation: 'Cross-platform sku quarantine completed',
       account_key,
-      result: { sku, newSku, platforms: Object.keys(platforms) },
+      result: { skuCount: skus.length, sources: requestedSources },
       timestamp: new Date().toISOString(),
     });
     console.log('Success in checkLinkForExternalSource: %s', successLog);
@@ -691,9 +704,7 @@ exports.checkLinkForExternalSource = async (req, res) => {
 
     return res.status(200).json({
       success: true,
-      sku,
-      newSku,
-      ...platforms,
+      results,
     });
   } catch (err) {
     const errorJson = JSON.stringify({
@@ -702,7 +713,7 @@ exports.checkLinkForExternalSource = async (req, res) => {
       function: 'checkLinkForExternalSource',
       account_key: account_key || 'unknown',
       httpStatus: err?.response?.status || err?.statusCode || null,
-      message: `Failed to check SKU across connected platforms: ${err?.message || 'Unknown error'}`,
+      message: `Failed to check SKUs across connected platforms: ${err?.message || 'Unknown error'}`,
       timestamp: new Date().toISOString(),
     });
     console.error(errorJson);
@@ -712,32 +723,30 @@ exports.checkLinkForExternalSource = async (req, res) => {
 };
 
 /**
- * Reverse of checkLinkForExternalSource — re-links a sku that was previously de-linked (and left
+ * Reverse of checkLinkForExternalSource — re-links skus that were previously de-linked (and left
  * quarantined on the platform as `X${sku}`). Scoped to whichever platform(s) are named in
  * `source`, same as checkLinkForExternalSource; every other connected platform is left untouched.
+ * Accepts one or many skus in a single call.
  *
- * For each requested source: looks for `X${sku}` live on that platform (the marker
+ * For each sku and each requested source: looks for `X${sku}` live on that platform (the marker
  * checkLinkForExternalSource leaves behind); if found, renames it back to the plain `sku` on the
  * platform, then writes that platform's product_id/variant_id back onto the Virtual Inventory
  * record for `sku` in FinerWorks.
- * POST body: { sku, account_key, source: 'squarespace'|'square'|'wix' (string or array of these) }.
+ * POST body: { sku: string | string[], account_key, source: 'squarespace'|'square'|'wix' (string or array) }.
  */
 exports.relinkExternalSource = async (req, res) => {
-  const skuRaw = req.body?.sku ?? req.query?.sku;
-  const sku = skuRaw != null ? String(skuRaw).trim() : '';
+  const skuRaw = req.body?.sku ?? req.query?.sku ?? req.body?.skus ?? req.query?.skus;
+  const skus = normalizeToStringList(skuRaw);
   const account_key = req.body?.account_key || req.query?.account_key;
-  const prefixedSku = sku ? `X${sku}` : '';
 
   const sourceRaw = req.body?.source ?? req.query?.source;
-  const requestedSources = (Array.isArray(sourceRaw) ? sourceRaw : [sourceRaw])
-    .filter((s) => s != null && String(s).trim() !== '')
-    .map((s) => String(s).trim().toLowerCase());
+  const requestedSources = normalizeToStringList(sourceRaw).map((s) => s.toLowerCase());
 
-  const platforms = {};
+  const results = [];
 
   try {
-    if (!sku) {
-      return sendApiError(res, 400, 'Missing required parameter: sku');
+    if (!skus.length) {
+      return sendApiError(res, 400, 'Missing required parameter: sku (string or array of strings)');
     }
     if (!account_key) {
       return sendApiError(res, 400, 'Missing required parameter: account_key');
@@ -753,88 +762,95 @@ exports.relinkExternalSource = async (req, res) => {
     const info = await finerworksService.GET_INFO({ account_key });
     const connections = Array.isArray(info?.user_account?.connections) ? info.user_account.connections : [];
 
-    for (const conn of connections) {
-      const connName = conn?.name;
-      const platformKey = connName ? CONNECTION_NAME_TO_SOURCE[connName] : null;
-      if (!platformKey || !requestedSources.includes(platformKey)) continue; // not requested: leave untouched
+    for (const sku of skus) {
+      const prefixedSku = `X${sku}`;
+      const platforms = {};
 
-      let connectionData = {};
-      try {
-        connectionData =
-          typeof conn.data === 'string'
-            ? JSON.parse(conn.data)
-            : conn.data && typeof conn.data === 'object'
-              ? conn.data
-              : {};
-      } catch (_) {
-        connectionData = {};
-      }
+      for (const conn of connections) {
+        const connName = conn?.name;
+        const platformKey = connName ? CONNECTION_NAME_TO_SOURCE[connName] : null;
+        if (!platformKey || !requestedSources.includes(platformKey)) continue; // not requested: leave untouched
 
-      try {
-        let checkResult;
-        if (platformKey === 'squarespace') {
-          const accessToken = connectionData?.access_token;
-          if (!accessToken) {
-            throw new ApiError(400, 'Squarespace connection is missing access_token', { platform: 'squarespace' });
+        let connectionData = {};
+        try {
+          connectionData =
+            typeof conn.data === 'string'
+              ? JSON.parse(conn.data)
+              : conn.data && typeof conn.data === 'object'
+                ? conn.data
+                : {};
+        } catch (_) {
+          connectionData = {};
+        }
+
+        try {
+          let checkResult;
+          if (platformKey === 'squarespace') {
+            const accessToken = connectionData?.access_token;
+            if (!accessToken) {
+              throw new ApiError(400, 'Squarespace connection is missing access_token', { platform: 'squarespace' });
+            }
+            checkResult = await checkSquarespaceSku({ req: { body: { access_token: accessToken }, headers: {} }, sku: prefixedSku });
+          } else if (platformKey === 'square') {
+            checkResult = await checkSquareSku({ account_key, sku: prefixedSku });
+          } else {
+            checkResult = await checkWixSku({ account_key, sku: prefixedSku });
           }
-          checkResult = await checkSquarespaceSku({ req: { body: { access_token: accessToken }, headers: {} }, sku: prefixedSku });
-        } else if (platformKey === 'square') {
-          checkResult = await checkSquareSku({ account_key, sku: prefixedSku });
-        } else {
-          checkResult = await checkWixSku({ account_key, sku: prefixedSku });
+
+          if (!checkResult.isExist) {
+            platforms[platformKey] = { isExist: false };
+            continue;
+          }
+
+          let productId = null;
+          let variantId = null;
+          if (platformKey === 'squarespace') {
+            await renameSquarespaceSku({
+              accessToken: checkResult.accessToken,
+              productId: checkResult.matched.productId,
+              variantId: checkResult.matched.variantId,
+              newSku: sku,
+            });
+            productId = checkResult.matched.productId;
+            variantId = checkResult.matched.variantId;
+          } else if (platformKey === 'square') {
+            await renameSquareSku({ account_key, matched: checkResult.matched, newSku: sku });
+            productId = checkResult.matched.item_variation_data?.item_id || null;
+            variantId = checkResult.matched.id || null;
+          } else {
+            await renameWixSku({
+              wixAuth: checkResult.wixAuth,
+              productId: checkResult.matched.productId,
+              variantId: checkResult.matched.variantId,
+              newSku: sku,
+            });
+            productId = checkResult.matched.productId;
+            variantId = checkResult.matched.variantId;
+          }
+
+          const linkResult = await addVirtualInventoryLink({ source: platformKey, sku, account_key, productId, variantId });
+
+          platforms[platformKey] = {
+            isExist: true,
+            renamedTo: sku,
+            ...(linkResult.linked
+              ? { linkedFields: linkResult.fields }
+              : { linkedFields: [], linkWarning: linkResult.reason || 'Not linked in FinerWorks' }),
+          };
+        } catch (platformErr) {
+          console.error(JSON.stringify({
+            level: 'ERROR',
+            platform: platformKey,
+            function: 'relinkExternalSource',
+            message: `Failed to process ${platformKey} for sku ${sku}: ${platformErr?.message || 'Unknown error'}`,
+            timestamp: new Date().toISOString(),
+          }));
+          log('relinkExternalSource sku=%s platform=%s failed: %s', sku, platformKey, platformErr?.message);
+          platforms[platformKey] = { error: platformErr?.message || 'Check failed' };
         }
-
-        if (!checkResult.isExist) {
-          platforms[platformKey] = { isExist: false };
-          continue;
-        }
-
-        let productId = null;
-        let variantId = null;
-        if (platformKey === 'squarespace') {
-          await renameSquarespaceSku({
-            accessToken: checkResult.accessToken,
-            productId: checkResult.matched.productId,
-            variantId: checkResult.matched.variantId,
-            newSku: sku,
-          });
-          productId = checkResult.matched.productId;
-          variantId = checkResult.matched.variantId;
-        } else if (platformKey === 'square') {
-          await renameSquareSku({ account_key, matched: checkResult.matched, newSku: sku });
-          productId = checkResult.matched.item_variation_data?.item_id || null;
-          variantId = checkResult.matched.id || null;
-        } else {
-          await renameWixSku({
-            wixAuth: checkResult.wixAuth,
-            productId: checkResult.matched.productId,
-            variantId: checkResult.matched.variantId,
-            newSku: sku,
-          });
-          productId = checkResult.matched.productId;
-          variantId = checkResult.matched.variantId;
-        }
-
-        const linkResult = await addVirtualInventoryLink({ source: platformKey, sku, account_key, productId, variantId });
-
-        platforms[platformKey] = {
-          isExist: true,
-          renamedTo: sku,
-          ...(linkResult.linked
-            ? { linkedFields: linkResult.fields }
-            : { linkedFields: [], linkWarning: linkResult.reason || 'Not linked in FinerWorks' }),
-        };
-      } catch (platformErr) {
-        console.error(JSON.stringify({
-          level: 'ERROR',
-          platform: platformKey,
-          function: 'relinkExternalSource',
-          message: `Failed to process ${platformKey} for sku ${sku}: ${platformErr?.message || 'Unknown error'}`,
-          timestamp: new Date().toISOString(),
-        }));
-        log('relinkExternalSource platform=%s failed: %s', platformKey, platformErr?.message);
-        platforms[platformKey] = { error: platformErr?.message || 'Check failed' };
       }
+
+      results.push({ sku, prefixedSku, ...platforms });
     }
 
     const successLog = JSON.stringify({
@@ -844,7 +860,7 @@ exports.relinkExternalSource = async (req, res) => {
       function: 'relinkExternalSource',
       operation: 'Cross-platform sku re-link completed',
       account_key,
-      result: { sku, prefixedSku, platforms: Object.keys(platforms) },
+      result: { skuCount: skus.length, sources: requestedSources },
       timestamp: new Date().toISOString(),
     });
     console.log('Success in relinkExternalSource: %s', successLog);
@@ -852,9 +868,7 @@ exports.relinkExternalSource = async (req, res) => {
 
     return res.status(200).json({
       success: true,
-      sku,
-      prefixedSku,
-      ...platforms,
+      results,
     });
   } catch (err) {
     const errorJson = JSON.stringify({
@@ -863,7 +877,7 @@ exports.relinkExternalSource = async (req, res) => {
       function: 'relinkExternalSource',
       account_key: account_key || 'unknown',
       httpStatus: err?.response?.status || err?.statusCode || null,
-      message: `Failed to re-link SKU across connected platforms: ${err?.message || 'Unknown error'}`,
+      message: `Failed to re-link SKUs across connected platforms: ${err?.message || 'Unknown error'}`,
       timestamp: new Date().toISOString(),
     });
     console.error(errorJson);
