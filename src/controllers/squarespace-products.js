@@ -1307,9 +1307,20 @@ function parseVariantFlag(value) {
   return false;
 }
 
+/** Distinguishes sibling variants (e.g. "Option 1"/"Option 2") that otherwise share the same Description-based label. */
+function getVariantOptionLabel(product) {
+  const labels = Array.isArray(product?.labels) ? product.labels : [];
+  const found = labels.find((l) => l && String(l?.key || '').trim().toLowerCase() === 'variant');
+  const value = found?.value != null ? String(found.value).trim() : '';
+  return value || null;
+}
+
 function buildVariantLabelForV2(product) {
   const fromDescription = buildVariantLabel(product);
-  if (fromDescription && fromDescription !== 'Variant') return fromDescription;
+  const variantOption = getVariantOptionLabel(product);
+  if (fromDescription && fromDescription !== 'Variant') {
+    return variantOption ? `${fromDescription} — ${variantOption}` : fromDescription;
+  }
   const name = product?.name != null ? String(product.name).trim() : '';
   if (name) return name;
   return normalizeSku(product?.sku) || 'Variant';

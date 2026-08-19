@@ -23,9 +23,9 @@ const { getSquarespaceOrders, getSquarespaceOrderByNumber, validateSquarespaceAc
 const { getShopifyOrders, getShopifyOrderByName, fulfillShopifyOrder, updateOrderReferenceNumbers, updateOrderFulfillmentStatus, syncShopifyProducts, createShopifyCarrierService, listShopifyCarrierServices, deleteShopifyCarrierService, shopifyCarrierServiceCallback, registerShopifyWebhook, registerShopifyOrderCreateWebhook, listShopifyWebhooks, deleteShopifyWebhookById, shopifyProductDeleteWebhook, shopifyOrdersCreateWebhook, createUsCanadaShippingProfile } = require('./shopify-orders');
 const { syncSquarespaceProducts, syncSquarespaceProductsV2 } = require('./squarespace-products');
 const { setPlatformOrderSync, squarespaceOrderCreateWebhook, squareOrderCreateWebhook } = require('./platform-order-sync');
-const { connectShippo, getShippoStatus } = require('./shippo-auth');
+const { connectShippo, getShippoStatus, validateShippoKey } = require('./shippo-auth');
 const { fetchShippoOrders, fetchShippoOrdersByOrderNumber } = require('./shippo-orders');
-const { checkLinkForExternalSource } = require('./check-link-for-external-source');
+const { checkLinkForExternalSource, relinkExternalSource, checkSkuExists } = require('./check-link-for-external-source');
 const healthCheck = require('./health-check');
 const app = Router();
 
@@ -136,11 +136,15 @@ app.delete('/shopify/delete-webhook', asyncHandler(deleteShopifyWebhookById));
 
 app.post('/shippo/connect', asyncHandler(connectShippo));
 app.post('/shippo/status', asyncHandler(getShippoStatus));
+app.post('/shippo/validate-key', asyncHandler(validateShippoKey));
 app.post('/shippo/orders', asyncHandler(fetchShippoOrders));
 app.post('/shippo/order-by-id', asyncHandler(fetchShippoOrdersByOrderNumber));
 
 // Common cross-platform SKU existence check (source: squarespace | square | wix | etsy)
 app.post('/check-link-for-external-source', asyncHandler(checkLinkForExternalSource));
+// Reverse of the above: re-links a sku previously de-linked by check-link-for-external-source
+app.post('/relink-external-source', asyncHandler(relinkExternalSource));
+app.post('/check-sku-exists', asyncHandler(checkSkuExists));
 
 // Shopify webhooks (called by Shopify)
 app.post('/webhooks/product-delete', asyncHandler(shopifyProductDeleteWebhook));

@@ -799,9 +799,6 @@ Resources:
           Properties:
             RestApiId: !Ref ProdApiGateway
             Method: POST
-<<<<<<< HEAD
-            Path: "/api/squarespace/fulfill-order"
-=======
             Path: "/api/squarespace/fulfill-order"
         FetchShippoOrdersbyNumber:
           Type: Api
@@ -809,4 +806,27 @@ Resources:
             RestApiId: !Ref ProdApiGateway
             Method: POST
             Path: "/api/shippo/order-by-id"
->>>>>>> origin/master
+        ShippoLiveKeyValidation:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ProdApiGateway
+            Method: POST
+            Path: "/api/shippo/validate-key"
+        CheckSkuExists:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ProdApiGateway
+            Method: POST
+            Path: "/api/check-sku-exists"
+        RelinkExternalSource:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ProdApiGateway
+            Method: POST
+            Path: "/api/relink-external-source"
+        UnlinkFromExternalSource:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ProdApiGateway
+            Method: POST
+            Path: "/api/check-link-for-external-source"

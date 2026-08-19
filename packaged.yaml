@@ -880,5 +880,33 @@ Resources:
               Ref: ProdApiGateway
             Method: POST
             Path: /api/shippo/order-by-id
+        ShippoLiveKeyValidation:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: ProdApiGateway
+            Method: POST
+            Path: /api/shippo/validate-key
+        CheckSkuExists:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: ProdApiGateway
+            Method: POST
+            Path: /api/check-sku-exists
+        RelinkExternalSource:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: ProdApiGateway
+            Method: POST
+            Path: /api/relink-external-source
+        UnlinkFromExternalSource:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: ProdApiGateway
+            Method: POST
+            Path: /api/check-link-for-external-source
     Metadata:
       SamResourceId: OrderFullFillmentServerLessProdServerAgainNew
