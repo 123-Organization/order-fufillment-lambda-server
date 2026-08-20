@@ -2,6 +2,10 @@ const debug = require('debug');
 const Joi = require('joi');
 const log = debug('app:virtualInventory');
 const finerworksService = require('../helpers/finerworks-service');
+const {
+    quarantineDeletedSkusOnPlatforms,
+    syncUpdatedPriceToPlatforms,
+} = require('./check-link-for-external-source');
 log('get virtual inventory api');
 // # region Get Virtual Inventory
 // Define the validation schema
@@ -243,6 +247,8 @@ const UpdateVirtualInventorySchema = Joi.object({
                 square_variant_id: Joi.any().allow(null).optional(),
                 squarespace_product_id: Joi.any().allow(null).optional(),
                 squarespace_variant_id: Joi.any().allow(null).optional(),
+                bigcommerce_id: Joi.any().allow(null).optional(),
+                bigcommerce_variant_id: Joi.any().allow(null).optional(),
                 wix_inventory_id: Joi.any().allow(null).optional(),
                 wix_product_id: Joi.any().allow(null).optional(),
                 wix_variant_id: Joi.any().allow(null).optional(),
@@ -291,10 +297,28 @@ exports.updateVirtualInventory = async (req, res) => {
             });
             console.log(successLog);
             log('Success in updateVirtualInventory: %s', successLog);
+
+            // Best-effort: push the updated price out to whichever connected platform
+            // (squarespace/square/wix) still has each sku live. Never lets a platform-side
+            // failure turn an already-successful FinerWorks update into a failed response.
+            let platform_sync = [];
+            const account_key = req.body?.account_key || req.query?.account_key;
+            if (account_key) {
+                try {
+                    platform_sync = await syncUpdatedPriceToPlatforms({
+                        items: req.body?.virtual_inventory,
+                        account_key
+                    });
+                } catch (syncErr) {
+                    log('updateVirtualInventory: syncUpdatedPriceToPlatforms failed: %s', syncErr?.message);
+                }
+            }
+
             res.status(200).json({
                 statusCode: 200,
                 status: true,
-                data: getInformation?.skus_updated
+                data: getInformation?.skus_updated,
+                platform_sync
             });
         } else {
             res.status(400).json({
@@ -462,7 +486,8 @@ exports.updateWoocommerceProductId = async (req, res) => {
 
 // # region Delete Virtual Inventory
 const skusSchema = Joi.object({
-    skus: Joi.array().items(Joi.string().required()).required()
+    skus: Joi.array().items(Joi.string().required()).required(),
+    account_key: Joi.string().optional()
 });
 // Middleware for validation
 exports.validateSkus = (req, res, next) => {
@@ -501,10 +526,29 @@ exports.deleteVirtualInventory = async (req, res) => {
             });
             console.log(successLog);
             log('Success in deleteVirtualInventory: %s', successLog);
+
+            // Best-effort: check every connected platform (squarespace/square/wix) for each
+            // deleted sku and rename it to X<sku> wherever it's still live there, so a listing
+            // no longer tracked in FinerWorks doesn't keep showing under its old sku. Never lets
+            // a platform-side failure turn an already-successful delete into a failed response.
+            let platform_sync = [];
+            const account_key = req.body?.account_key || req.query?.account_key;
+            if (account_key) {
+                try {
+                    platform_sync = await quarantineDeletedSkusOnPlatforms({
+                        skus: req.body?.skus,
+                        account_key
+                    });
+                } catch (syncErr) {
+                    log('deleteVirtualInventory: quarantineDeletedSkusOnPlatforms failed: %s', syncErr?.message);
+                }
+            }
+
             res.status(200).json({
                 statusCode: 200,
                 status: true,
-                message: "Virtual inventory got deleted successfully"
+                message: "Virtual inventory got deleted successfully",
+                platform_sync
             });
         } else {
             res.status(400).json({

@@ -453,6 +453,116 @@ async function renameWixSku({ wixAuth, productId, variantId, newSku }) {
   return { newSku };
 }
 
+/** "24.9" -> "24.90", matching the rounding convention already used for Wix prices elsewhere
+ *  (wix-products.js toAmountString) so this stays consistent with existing outbound price writes. */
+function toDecimalString(n) {
+  const x = Number(n);
+  if (!Number.isFinite(x)) return '0';
+  return (Math.round(x * 100) / 100).toFixed(2);
+}
+
+/**
+ * Updates an existing Squarespace product variant's price via the same partial-update endpoint
+ * used for sku renames. Confirmed live: the request body is a plain nested `pricing.basePrice`
+ * object — the `{ present, value }` wrapper some docs describe for this endpoint does not apply,
+ * same finding as renameSquarespaceSku's sku field.
+ */
+async function updateSquarespacePrice({ accessToken, productId, variantId, price, currency = 'USD' }) {
+  const r = await axios.post(
+    `https://api.squarespace.com/v2/commerce/products/${productId}/variants/${variantId}`,
+    { pricing: { basePrice: { currency, value: toDecimalString(price) } } },
+    {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'User-Agent': process.env.SQUARESPACE_USER_AGENT || 'ofa-node',
+        'Content-Type': 'application/json',
+      },
+      timeout: 30000,
+      validateStatus: () => true,
+    }
+  );
+  if (r.status < 200 || r.status >= 300) {
+    throw new ApiError(r.status >= 400 && r.status < 600 ? r.status : 502, 'Failed to update Squarespace variant price', {
+      platform: 'squarespace',
+      httpStatus: r.status,
+      detail: r.data?.message || null,
+    });
+  }
+  return { price };
+}
+
+/**
+ * Updates an existing Square ITEM_VARIATION's price via the same UpsertCatalogObject
+ * full-replacement call used for sku renames. price_money.amount is Square's standard Money
+ * object — an integer in the smallest currency unit (cents for USD), not a decimal.
+ */
+async function updateSquarePrice({ account_key, access_token, matched, price, currency = 'USD' }) {
+  const auth = await resolveSquareAuth({ account_key, access_token });
+  const baseUrl = getSquareBaseUrl();
+  const updatedObject = {
+    ...matched,
+    item_variation_data: {
+      ...matched.item_variation_data,
+      price_money: { amount: Math.round(Number(price) * 100), currency },
+    },
+  };
+
+  const r = await axios.post(
+    `${baseUrl}/v2/catalog/object`,
+    { idempotency_key: crypto.randomUUID(), object: updatedObject },
+    { headers: buildSquareHeaders(auth.accessToken), timeout: 30000, validateStatus: () => true }
+  );
+  if (r.status < 200 || r.status >= 300) {
+    throw new ApiError(r.status >= 400 && r.status < 600 ? r.status : 502, 'Failed to update Square variation price', {
+      platform: 'square',
+      httpStatus: r.status,
+    });
+  }
+  return { price };
+}
+
+/**
+ * Updates one variant's price on a Wix product. Same full-array + revision requirement as
+ * renameWixSku. The `price.actualPrice.amount` shape is confirmed via wix-products.js's existing
+ * product-sync code (buildCatalogUpsertBody / toAmountString) rather than guessed fresh — same
+ * field this codebase already writes when creating/syncing Wix products.
+ */
+async function updateWixPrice({ wixAuth, productId, variantId, price, currency = 'USD' }) {
+  const headers = buildWixAuthHeaders(wixAuth);
+
+  const productResp = await axios.get(`https://www.wixapis.com/stores/v3/products/${productId}`, {
+    headers,
+    timeout: 30000,
+    validateStatus: () => true,
+  });
+  if (productResp.status < 200 || productResp.status >= 300) {
+    throw new ApiError(
+      productResp.status >= 400 && productResp.status < 600 ? productResp.status : 502,
+      'Failed to fetch Wix product for price update',
+      { platform: 'wix', httpStatus: productResp.status }
+    );
+  }
+
+  const product = productResp.data?.product;
+  const variants = Array.isArray(product?.variantsInfo?.variants) ? product.variantsInfo.variants : [];
+  const updatedVariants = variants.map((v) =>
+    v.id === variantId ? { ...v, price: { actualPrice: { amount: toDecimalString(price), currency } } } : v
+  );
+
+  const r = await axios.patch(
+    `https://www.wixapis.com/stores/v3/products/${productId}`,
+    { product: { id: productId, revision: product?.revision, variantsInfo: { variants: updatedVariants } } },
+    { headers, timeout: 30000, validateStatus: () => true }
+  );
+  if (r.status < 200 || r.status >= 300) {
+    throw new ApiError(r.status >= 400 && r.status < 600 ? r.status : 502, 'Failed to update Wix variant price', {
+      platform: 'wix',
+      httpStatus: r.status,
+    });
+  }
+  return { price };
+}
+
 /**
  * Clears the third_party_integrations fields owned by `source` (SOURCE_ID_FIELDS) on the Virtual
  * Inventory record for `sku`, when they're set. Used after a live rename on the platform side
@@ -566,6 +676,214 @@ function normalizeToStringList(raw) {
     .filter((v) => v != null && String(v).trim() !== '')
     .map((v) => String(v).trim());
 }
+
+/**
+ * Looks up `connectionData` per-platform the same way checkLinkForExternalSource/relinkExternalSource
+ * already do inline — pulled out here so the two new Virtual Inventory hooks below don't duplicate
+ * the JSON.parse/typeof dance a third and fourth time.
+ */
+function parseConnectionData(conn) {
+  try {
+    return typeof conn?.data === 'string'
+      ? JSON.parse(conn.data)
+      : conn?.data && typeof conn.data === 'object'
+        ? conn.data
+        : {};
+  } catch (_) {
+    return {};
+  }
+}
+
+/**
+ * Checks whether `searchSku` is live on one platform and, if so, renames it to `targetSku` there.
+ * Shared by quarantineDeletedSkusOnPlatforms (delete hook) below — the same check+rename pairing
+ * checkLinkForExternalSource/relinkExternalSource already do inline for their own sku-prefixing
+ * use case. Returns `{ isExist: false }` without throwing when the sku isn't found.
+ */
+async function checkAndRenameOnPlatform({ platformKey, connectionData, account_key, searchSku, targetSku }) {
+  let checkResult;
+  if (platformKey === 'squarespace') {
+    const accessToken = connectionData?.access_token;
+    if (!accessToken) {
+      throw new ApiError(400, 'Squarespace connection is missing access_token', { platform: 'squarespace' });
+    }
+    checkResult = await checkSquarespaceSku({ req: { body: { access_token: accessToken }, headers: {} }, sku: searchSku });
+  } else if (platformKey === 'square') {
+    checkResult = await checkSquareSku({ account_key, sku: searchSku });
+  } else if (platformKey === 'wix') {
+    checkResult = await checkWixSku({ account_key, sku: searchSku });
+  } else {
+    return { isExist: false };
+  }
+
+  if (!checkResult.isExist) {
+    return { isExist: false };
+  }
+
+  if (platformKey === 'squarespace') {
+    await renameSquarespaceSku({
+      accessToken: checkResult.accessToken,
+      productId: checkResult.matched.productId,
+      variantId: checkResult.matched.variantId,
+      newSku: targetSku,
+    });
+  } else if (platformKey === 'square') {
+    await renameSquareSku({ account_key, matched: checkResult.matched, newSku: targetSku });
+  } else {
+    await renameWixSku({
+      wixAuth: checkResult.wixAuth,
+      productId: checkResult.matched.productId,
+      variantId: checkResult.matched.variantId,
+      newSku: targetSku,
+    });
+  }
+
+  return { isExist: true, renamedTo: targetSku };
+}
+
+/**
+ * Checks whether `sku` is live on one platform and, if so, pushes `price` to it. Mirrors
+ * checkAndRenameOnPlatform's shape/error handling but for a price push instead of a sku rename —
+ * used by syncUpdatedPriceToPlatforms (update hook) below.
+ */
+async function checkAndUpdatePriceOnPlatform({ platformKey, connectionData, account_key, sku, price }) {
+  let checkResult;
+  if (platformKey === 'squarespace') {
+    const accessToken = connectionData?.access_token;
+    if (!accessToken) {
+      throw new ApiError(400, 'Squarespace connection is missing access_token', { platform: 'squarespace' });
+    }
+    checkResult = await checkSquarespaceSku({ req: { body: { access_token: accessToken }, headers: {} }, sku });
+  } else if (platformKey === 'square') {
+    checkResult = await checkSquareSku({ account_key, sku });
+  } else if (platformKey === 'wix') {
+    checkResult = await checkWixSku({ account_key, sku });
+  } else {
+    return { isExist: false };
+  }
+
+  if (!checkResult.isExist) {
+    return { isExist: false };
+  }
+
+  if (platformKey === 'squarespace') {
+    await updateSquarespacePrice({
+      accessToken: checkResult.accessToken,
+      productId: checkResult.matched.productId,
+      variantId: checkResult.matched.variantId,
+      price,
+    });
+  } else if (platformKey === 'square') {
+    await updateSquarePrice({ account_key, matched: checkResult.matched, price });
+  } else {
+    await updateWixPrice({
+      wixAuth: checkResult.wixAuth,
+      productId: checkResult.matched.productId,
+      variantId: checkResult.matched.variantId,
+      price,
+    });
+  }
+
+  return { isExist: true, updatedPrice: price };
+}
+
+/**
+ * Hook for the Virtual Inventory delete flow (virtual-inventory.js deleteVirtualInventory): for
+ * each sku that was just deleted from FinerWorks, checks every connected platform
+ * (squarespace/square/wix) and, wherever the sku is still live there, renames it to `X${sku}` —
+ * same quarantine marker checkLinkForExternalSource leaves behind. Not scoped by `source` (there's
+ * no third_party_integrations link left to consult once the Virtual Inventory record is gone), and
+ * doesn't touch FinerWorks — the record is already deleted, only the platform-side listing changes.
+ * Swallows per-platform/per-sku errors into the result rather than throwing, since this runs after
+ * the delete has already succeeded and shouldn't turn a successful delete into a failed response.
+ */
+exports.quarantineDeletedSkusOnPlatforms = async ({ skus, account_key }) => {
+  const results = [];
+  const cleanSkus = normalizeToStringList(skus);
+  if (!account_key || !cleanSkus.length) return results;
+
+  let connections = [];
+  try {
+    const info = await finerworksService.GET_INFO({ account_key });
+    connections = Array.isArray(info?.user_account?.connections) ? info.user_account.connections : [];
+  } catch (err) {
+    log('quarantineDeletedSkusOnPlatforms: failed to fetch connections account_key=%s: %s', account_key, err?.message);
+    return cleanSkus.map((sku) => ({ sku, newSku: `X${sku}`, error: 'Failed to fetch platform connections' }));
+  }
+
+  for (const sku of cleanSkus) {
+    const newSku = `X${sku}`;
+    const platforms = {};
+
+    for (const conn of connections) {
+      const connName = conn?.name;
+      const platformKey = connName ? CONNECTION_NAME_TO_SOURCE[connName] : null;
+      if (!platformKey || !SUPPORTED_SOURCES.includes(platformKey)) continue;
+
+      const connectionData = parseConnectionData(conn);
+      try {
+        const result = await checkAndRenameOnPlatform({ platformKey, connectionData, account_key, searchSku: sku, targetSku: newSku });
+        platforms[platformKey] = result.isExist ? { isExist: true, renamedTo: newSku } : { isExist: false };
+      } catch (platformErr) {
+        log('quarantineDeletedSkusOnPlatforms sku=%s platform=%s failed: %s', sku, platformKey, platformErr?.message);
+        platforms[platformKey] = { error: platformErr?.message || 'Check failed' };
+      }
+    }
+
+    results.push({ sku, newSku, ...platforms });
+  }
+
+  return results;
+};
+
+/**
+ * Hook for the Virtual Inventory update flow (virtual-inventory.js updateVirtualInventory): for
+ * each { sku, asking_price } item that was just updated in FinerWorks, checks every connected
+ * platform (squarespace/square/wix) and, wherever that sku is live there, pushes the same price.
+ * Scoped to price only — quantity_in_stock and name live in separate APIs (Inventory API for
+ * stock on Square/Wix; a second catalog object for Square's item name) not integrated here.
+ * Swallows per-platform/per-item errors into the result rather than throwing, since this runs
+ * after the FinerWorks update has already succeeded.
+ */
+exports.syncUpdatedPriceToPlatforms = async ({ items, account_key }) => {
+  const results = [];
+  const cleanItems = (Array.isArray(items) ? items : [])
+    .map((item) => ({ sku: item?.sku != null ? String(item.sku).trim() : '', price: item?.asking_price }))
+    .filter((item) => item.sku && item.price != null);
+  if (!account_key || !cleanItems.length) return results;
+
+  let connections = [];
+  try {
+    const info = await finerworksService.GET_INFO({ account_key });
+    connections = Array.isArray(info?.user_account?.connections) ? info.user_account.connections : [];
+  } catch (err) {
+    log('syncUpdatedPriceToPlatforms: failed to fetch connections account_key=%s: %s', account_key, err?.message);
+    return cleanItems.map(({ sku }) => ({ sku, error: 'Failed to fetch platform connections' }));
+  }
+
+  for (const { sku, price } of cleanItems) {
+    const platforms = {};
+
+    for (const conn of connections) {
+      const connName = conn?.name;
+      const platformKey = connName ? CONNECTION_NAME_TO_SOURCE[connName] : null;
+      if (!platformKey || !SUPPORTED_SOURCES.includes(platformKey)) continue;
+
+      const connectionData = parseConnectionData(conn);
+      try {
+        const result = await checkAndUpdatePriceOnPlatform({ platformKey, connectionData, account_key, sku, price });
+        platforms[platformKey] = result.isExist ? { isExist: true, updatedPrice: price } : { isExist: false };
+      } catch (platformErr) {
+        log('syncUpdatedPriceToPlatforms sku=%s platform=%s failed: %s', sku, platformKey, platformErr?.message);
+        platforms[platformKey] = { error: platformErr?.message || 'Check failed' };
+      }
+    }
+
+    results.push({ sku, price, ...platforms });
+  }
+
+  return results;
+};
 
 /**
  * Cross-platform SKU quarantine, scoped to whichever platform(s) are named in `source` — every
