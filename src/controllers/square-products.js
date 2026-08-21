@@ -773,4 +773,5 @@ module.exports = {
   buildSquareHeaders,
   summarizeSquareHttpError,
   syncSquareTokensToDynamo,
+  setInventoryCounts,
 };

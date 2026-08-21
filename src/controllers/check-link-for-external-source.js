@@ -18,6 +18,7 @@ const SOURCE_ID_FIELDS = {
 const {
   resolveSquareAuth,
   buildSquareHeaders,
+  setInventoryCounts,
 } = require('./square-products');
 const { getSquareBaseUrl } = require('./square-auth');
 const {
@@ -453,6 +454,365 @@ async function renameWixSku({ wixAuth, productId, variantId, newSku }) {
   return { newSku };
 }
 
+/** "24.9" -> "24.90", matching the rounding convention already used for Wix prices elsewhere
+ *  (wix-products.js toAmountString) so this stays consistent with existing outbound price writes. */
+function toDecimalString(n) {
+  const x = Number(n);
+  if (!Number.isFinite(x)) return '0';
+  return (Math.round(x * 100) / 100).toFixed(2);
+}
+
+function toStockQuantity(n) {
+  return Math.max(0, Math.round(Number(n) || 0));
+}
+
+/** Mirrors square-products.js/wix-products.js's own pickDescriptionHtml: wraps plain text in a
+ *  <p> (escaping entities) so it renders correctly on platforms that expect an HTML description,
+ *  while passing through text that already looks like HTML as-is. */
+function toDescriptionHtml(text) {
+  if (typeof text !== 'string') return null;
+  const t = text.trim();
+  if (!t) return '';
+  if (/<[a-z][\s\S]*>/i.test(t)) return t;
+  return `<p>${t.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</p>`;
+}
+
+async function postSquarespaceVariantUpdate({ accessToken, productId, variantId, body, failureMessage }) {
+  const r = await axios.post(
+    `https://api.squarespace.com/v2/commerce/products/${productId}/variants/${variantId}`,
+    body,
+    {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'User-Agent': process.env.SQUARESPACE_USER_AGENT || 'ofa-node',
+        'Content-Type': 'application/json',
+      },
+      timeout: 30000,
+      validateStatus: () => true,
+    }
+  );
+  if (r.status < 200 || r.status >= 300) {
+    console.log('Squarespace variant update failed: %s', JSON.stringify({ status: r.status, data: r.data }));
+    throw new ApiError(r.status >= 400 && r.status < 600 ? r.status : 502, failureMessage, {
+      platform: 'squarespace',
+      httpStatus: r.status,
+      detail: r.data?.message || (typeof r.data === 'string' ? r.data.slice(0, 500) : null),
+    });
+  }
+}
+
+/**
+ * Updates an existing Squarespace product variant's price via the same partial-update endpoint
+ * used for sku renames. Confirmed live: the request body is a plain nested `pricing.basePrice`
+ * object — the `{ present, value }` wrapper some docs describe for this endpoint does not apply,
+ * same finding as renameSquarespaceSku's sku field.
+ */
+async function updateSquarespacePrice({ accessToken, productId, variantId, price, currency = 'USD' }) {
+  await postSquarespaceVariantUpdate({
+    accessToken,
+    productId,
+    variantId,
+    body: { pricing: { basePrice: { currency, value: toDecimalString(price) } } },
+    failureMessage: 'Failed to update Squarespace variant price',
+  });
+  return { price };
+}
+
+/**
+ * Sets a Squarespace variant's exact stock quantity via the dedicated Inventory API — confirmed
+ * live that stock is NOT settable through the product/variant update endpoint used by
+ * updateSquarespacePrice ("The request body has unknown or readonly fields: [stock]"). Per
+ * https://developers.squarespace.com/commerce-apis/adjust-stock-quantities, `SET_FINITE`
+ * operations go through `POST /1.0/commerce/inventory/adjustments` and require an
+ * `Idempotency-Key` header; success returns 204 with no body.
+ */
+async function updateSquarespaceQuantity({ accessToken, variantId, quantity }) {
+  const r = await axios.post(
+    'https://api.squarespace.com/1.0/commerce/inventory/adjustments',
+    { setFiniteOperations: [{ variantId, quantity: toStockQuantity(quantity) }] },
+    {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'User-Agent': process.env.SQUARESPACE_USER_AGENT || 'ofa-node',
+        'Content-Type': 'application/json',
+        'Idempotency-Key': crypto.randomUUID(),
+      },
+      timeout: 30000,
+      validateStatus: () => true,
+    }
+  );
+  if (r.status < 200 || r.status >= 300) {
+    throw new ApiError(r.status >= 400 && r.status < 600 ? r.status : 502, 'Failed to update Squarespace variant quantity', {
+      platform: 'squarespace',
+      httpStatus: r.status,
+      detail: r.data?.message || (typeof r.data === 'string' ? r.data.slice(0, 500) : null),
+    });
+  }
+  return { quantity };
+}
+
+/**
+ * Updates a Squarespace product's name/description. These are product-level fields (not
+ * per-variant), so this writes to the product itself — `POST /products/{productId}` with no
+ * variant segment, unlike updateSquarespacePrice/updateSquarespaceQuantity. Passed as plain values, matching the
+ * plain (non-`{present,value}`) shape this codebase already confirmed live for the variant
+ * endpoint's `sku`/`pricing.basePrice` and the plain shape `name`/`description` use at product
+ * creation (squarespace-products.js) — not separately live-verified for this update endpoint.
+ */
+async function updateSquarespaceProductFields({ accessToken, productId, name, description }) {
+  const body = {
+    ...(name != null ? { name: String(name) } : {}),
+    ...(description != null ? { description } : {}),
+  };
+  const r = await axios.post(
+    `https://api.squarespace.com/v2/commerce/products/${productId}`,
+    body,
+    {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'User-Agent': process.env.SQUARESPACE_USER_AGENT || 'ofa-node',
+        'Content-Type': 'application/json',
+      },
+      timeout: 30000,
+      validateStatus: () => true,
+    }
+  );
+  if (r.status < 200 || r.status >= 300) {
+    throw new ApiError(r.status >= 400 && r.status < 600 ? r.status : 502, 'Failed to update Squarespace product', {
+      platform: 'squarespace',
+      httpStatus: r.status,
+      detail: r.data?.message || null,
+    });
+  }
+  return { name, description };
+}
+
+/**
+ * Updates an existing Square ITEM_VARIATION's price via the same UpsertCatalogObject
+ * full-replacement call used for sku renames. price_money.amount is Square's standard Money
+ * object — an integer in the smallest currency unit (cents for USD), not a decimal.
+ */
+async function updateSquarePrice({ account_key, access_token, matched, price, currency = 'USD' }) {
+  const auth = await resolveSquareAuth({ account_key, access_token });
+  const baseUrl = getSquareBaseUrl();
+  const updatedObject = {
+    ...matched,
+    item_variation_data: {
+      ...matched.item_variation_data,
+      price_money: { amount: Math.round(Number(price) * 100), currency },
+    },
+  };
+
+  const r = await axios.post(
+    `${baseUrl}/v2/catalog/object`,
+    { idempotency_key: crypto.randomUUID(), object: updatedObject },
+    { headers: buildSquareHeaders(auth.accessToken), timeout: 30000, validateStatus: () => true }
+  );
+  if (r.status < 200 || r.status >= 300) {
+    throw new ApiError(r.status >= 400 && r.status < 600 ? r.status : 502, 'Failed to update Square variation price', {
+      platform: 'square',
+      httpStatus: r.status,
+    });
+  }
+  return { price };
+}
+
+/**
+ * Pushes stock quantity for a Square ITEM_VARIATION via the Inventory API's PHYSICAL_COUNT
+ * (setInventoryCounts, square-products.js) rather than UpsertCatalogObject — quantity isn't a
+ * catalog field on Square, it's tracked per-location in a separate ledger. Resolves the same
+ * "preferred ACTIVE location" a fresh sync would (square-products.js's syncSquareProducts), since
+ * this update path isn't given an explicit location_id.
+ */
+async function updateSquareQuantity({ account_key, access_token, variationId, quantity }) {
+  const auth = await resolveSquareAuth({ account_key, access_token });
+  const baseUrl = getSquareBaseUrl();
+  const headers = buildSquareHeaders(auth.accessToken);
+
+  const locResp = await axios.get(`${baseUrl}/v2/locations`, { headers, timeout: 30000, validateStatus: () => true });
+  if (locResp.status < 200 || locResp.status >= 300) {
+    throw new ApiError(502, 'Failed to resolve Square location for inventory update', { platform: 'square', httpStatus: locResp.status });
+  }
+  const locations = Array.isArray(locResp.data?.locations) ? locResp.data.locations : [];
+  const locationId = (locations.find((l) => l?.status === 'ACTIVE') || locations[0])?.id || null;
+  if (!locationId) {
+    throw new ApiError(502, 'No Square location available for inventory update', { platform: 'square' });
+  }
+
+  const result = await setInventoryCounts({ baseUrl, headers, locationId, counts: [{ variationId, quantity }] });
+  if (!result.ok) {
+    throw new ApiError(502, 'Failed to update Square inventory count', { platform: 'square', detail: result.error });
+  }
+  return { quantity };
+}
+
+/** Square caps CatalogItem.name at 512 chars (matching MAX_SQUARE_ITEM_NAME_LEN in square-products.js). */
+const MAX_SQUARE_ITEM_NAME_LEN = 512;
+
+/**
+ * Fetches the parent ITEM catalog object for an ITEM_VARIATION's `item_variation_data.item_id`.
+ * Needed because name/description live on the ITEM, not the ITEM_VARIATION that checkSquareSku
+ * returns and updateSquarePrice/renameSquareSku mutate directly.
+ */
+async function fetchSquareItem({ baseUrl, headers, itemId }) {
+  const r = await axios.get(`${baseUrl}/v2/catalog/object/${itemId}`, {
+    params: { include_related_objects: false },
+    headers,
+    timeout: 30000,
+    validateStatus: () => true,
+  });
+  if (r.status < 200 || r.status >= 300) {
+    throw new ApiError(r.status >= 400 && r.status < 600 ? r.status : 502, 'Failed to fetch Square item', {
+      platform: 'square',
+      httpStatus: r.status,
+    });
+  }
+  return r.data?.object || null;
+}
+
+/**
+ * Updates a Square ITEM's name/description via the same full-replacement UpsertCatalogObject
+ * pattern as updateSquarePrice, but operating on the ITEM object (fetched via fetchSquareItem)
+ * instead of the ITEM_VARIATION. `description_html` matches the field this codebase already
+ * writes at item creation (square-products.js buildCatalogUpsertBody).
+ */
+async function updateSquareItemFields({ account_key, access_token, itemId, name, descriptionHtml }) {
+  const auth = await resolveSquareAuth({ account_key, access_token });
+  const baseUrl = getSquareBaseUrl();
+  const headers = buildSquareHeaders(auth.accessToken);
+
+  const item = await fetchSquareItem({ baseUrl, headers, itemId });
+  if (!item) {
+    throw new ApiError(404, 'Square item not found', { platform: 'square' });
+  }
+
+  const updatedObject = {
+    ...item,
+    item_data: {
+      ...item.item_data,
+      ...(name != null ? { name: String(name).slice(0, MAX_SQUARE_ITEM_NAME_LEN) } : {}),
+      ...(descriptionHtml != null ? { description_html: descriptionHtml } : {}),
+    },
+  };
+
+  const r = await axios.post(
+    `${baseUrl}/v2/catalog/object`,
+    { idempotency_key: crypto.randomUUID(), object: updatedObject },
+    { headers, timeout: 30000, validateStatus: () => true }
+  );
+  if (r.status < 200 || r.status >= 300) {
+    throw new ApiError(r.status >= 400 && r.status < 600 ? r.status : 502, 'Failed to update Square item name/description', {
+      platform: 'square',
+      httpStatus: r.status,
+    });
+  }
+  return { name, descriptionHtml };
+}
+
+/**
+ * Updates one Wix product's variant price and/or top-level name/description in a single
+ * GET-then-PATCH, mirroring renameWixSku's full-array + revision requirement. `price.actualPrice`
+ * is confirmed via wix-products.js's own product-sync code (buildProductRequestBody);
+ * `plainDescription` (despite its name, an HTML string) and `name` are confirmed top-level product
+ * fields from the same file. Quantity is NOT handled here — Wix Stores V3 manages inventory as its
+ * own resource (see updateWixQuantity below); it isn't a writable field on Update Product.
+ */
+async function updateWixProductFields({ wixAuth, productId, variantId, price, name, descriptionHtml, currency = 'USD' }) {
+  const headers = buildWixAuthHeaders(wixAuth);
+
+  const productResp = await axios.get(`https://www.wixapis.com/stores/v3/products/${productId}`, {
+    headers,
+    timeout: 30000,
+    validateStatus: () => true,
+  });
+  if (productResp.status < 200 || productResp.status >= 300) {
+    throw new ApiError(
+      productResp.status >= 400 && productResp.status < 600 ? productResp.status : 502,
+      'Failed to fetch Wix product for update',
+      { platform: 'wix', httpStatus: productResp.status }
+    );
+  }
+
+  const product = productResp.data?.product;
+  const variants = Array.isArray(product?.variantsInfo?.variants) ? product.variantsInfo.variants : [];
+  const updatedVariants = price != null
+    ? variants.map((v) => (v.id === variantId ? { ...v, price: { actualPrice: { amount: toDecimalString(price), currency } } } : v))
+    : variants;
+
+  const r = await axios.patch(
+    `https://www.wixapis.com/stores/v3/products/${productId}`,
+    {
+      product: {
+        id: productId,
+        revision: product?.revision,
+        ...(price != null ? { variantsInfo: { variants: updatedVariants } } : {}),
+        ...(name != null ? { name: String(name) } : {}),
+        ...(descriptionHtml != null ? { plainDescription: descriptionHtml } : {}),
+      },
+    },
+    { headers, timeout: 30000, validateStatus: () => true }
+  );
+  if (r.status < 200 || r.status >= 300) {
+    throw new ApiError(r.status >= 400 && r.status < 600 ? r.status : 502, 'Failed to update Wix product', {
+      platform: 'wix',
+      httpStatus: r.status,
+      detail: r.data?.message || r.data?.details || (typeof r.data === 'string' ? r.data.slice(0, 500) : null),
+    });
+  }
+  return { price, name, descriptionHtml };
+}
+
+/**
+ * Finds the InventoryItem for `variantId` via Wix's dedicated Inventory Items v3 API — inventory
+ * is its own resource in Stores V3, not a field on Product/Variant (confirmed: Update Product's
+ * schema has no `inventoryItem` field; setting it via variantsInfo was rejected with 428
+ * FAILED_PRECONDITION). https://dev.wix.com/docs/api-reference/business-solutions/stores/catalog-v3/inventory-items-v3/query-inventory-items
+ */
+async function findWixInventoryItem({ headers, variantId }) {
+  const r = await axios.post(
+    'https://www.wixapis.com/stores/v3/inventory-items/query',
+    { query: { filter: { variantId: { $eq: variantId } } } },
+    { headers, timeout: 30000, validateStatus: () => true }
+  );
+  if (r.status < 200 || r.status >= 300) {
+    throw new ApiError(r.status >= 400 && r.status < 600 ? r.status : 502, 'Failed to look up Wix inventory item', {
+      platform: 'wix',
+      httpStatus: r.status,
+      detail: r.data?.message || null,
+    });
+  }
+  return (Array.isArray(r.data?.inventoryItems) ? r.data.inventoryItems : [])[0] || null;
+}
+
+/**
+ * Sets a Wix variant's exact stock quantity via the dedicated Inventory Items v3 API:
+ * PATCH /stores/v3/inventory-items/{inventoryItem.id} with the inventory item's OWN revision
+ * (distinct from the product's revision) — see findWixInventoryItem above for why this replaces
+ * the old variantsInfo.inventoryItem approach.
+ * https://dev.wix.com/docs/api-reference/business-solutions/stores/catalog-v3/inventory-items-v3/update-inventory-item
+ */
+async function updateWixQuantity({ wixAuth, variantId, quantity }) {
+  const headers = buildWixAuthHeaders(wixAuth);
+  const item = await findWixInventoryItem({ headers, variantId });
+  if (!item?.id) {
+    throw new ApiError(404, 'Wix inventory item not found for variant', { platform: 'wix' });
+  }
+
+  const r = await axios.patch(
+    `https://www.wixapis.com/stores/v3/inventory-items/${item.id}`,
+    { inventoryItem: { id: item.id, revision: item.revision, quantity: toStockQuantity(quantity) }, reason: 'MANUAL' },
+    { headers, timeout: 30000, validateStatus: () => true }
+  );
+  if (r.status < 200 || r.status >= 300) {
+    throw new ApiError(r.status >= 400 && r.status < 600 ? r.status : 502, 'Failed to update Wix inventory item quantity', {
+      platform: 'wix',
+      httpStatus: r.status,
+      detail: r.data?.message || null,
+    });
+  }
+  return { quantity };
+}
+
 /**
  * Clears the third_party_integrations fields owned by `source` (SOURCE_ID_FIELDS) on the Virtual
  * Inventory record for `sku`, when they're set. Used after a live rename on the platform side
@@ -566,6 +926,303 @@ function normalizeToStringList(raw) {
     .filter((v) => v != null && String(v).trim() !== '')
     .map((v) => String(v).trim());
 }
+
+/**
+ * Looks up `connectionData` per-platform the same way checkLinkForExternalSource/relinkExternalSource
+ * already do inline — pulled out here so the two new Virtual Inventory hooks below don't duplicate
+ * the JSON.parse/typeof dance a third and fourth time.
+ */
+function parseConnectionData(conn) {
+  try {
+    return typeof conn?.data === 'string'
+      ? JSON.parse(conn.data)
+      : conn?.data && typeof conn.data === 'object'
+        ? conn.data
+        : {};
+  } catch (_) {
+    return {};
+  }
+}
+
+/**
+ * Checks whether `searchSku` is live on one platform and, if so, renames it to `targetSku` there.
+ * Shared by quarantineDeletedSkusOnPlatforms (delete hook) below — the same check+rename pairing
+ * checkLinkForExternalSource/relinkExternalSource already do inline for their own sku-prefixing
+ * use case. Returns `{ isExist: false }` without throwing when the sku isn't found.
+ */
+async function checkAndRenameOnPlatform({ platformKey, connectionData, account_key, searchSku, targetSku }) {
+  let checkResult;
+  if (platformKey === 'squarespace') {
+    const accessToken = connectionData?.access_token;
+    if (!accessToken) {
+      throw new ApiError(400, 'Squarespace connection is missing access_token', { platform: 'squarespace' });
+    }
+    checkResult = await checkSquarespaceSku({ req: { body: { access_token: accessToken }, headers: {} }, sku: searchSku });
+  } else if (platformKey === 'square') {
+    checkResult = await checkSquareSku({ account_key, sku: searchSku });
+  } else if (platformKey === 'wix') {
+    checkResult = await checkWixSku({ account_key, sku: searchSku });
+  } else {
+    return { isExist: false };
+  }
+
+  if (!checkResult.isExist) {
+    return { isExist: false };
+  }
+
+  if (platformKey === 'squarespace') {
+    await renameSquarespaceSku({
+      accessToken: checkResult.accessToken,
+      productId: checkResult.matched.productId,
+      variantId: checkResult.matched.variantId,
+      newSku: targetSku,
+    });
+  } else if (platformKey === 'square') {
+    await renameSquareSku({ account_key, matched: checkResult.matched, newSku: targetSku });
+  } else {
+    await renameWixSku({
+      wixAuth: checkResult.wixAuth,
+      productId: checkResult.matched.productId,
+      variantId: checkResult.matched.variantId,
+      newSku: targetSku,
+    });
+  }
+
+  return { isExist: true, renamedTo: targetSku };
+}
+
+/**
+ * Checks whether `sku` is live on one platform and, if so, pushes whichever of `fields`
+ * (price/quantity/name/descriptionHtml) are non-null to it. Mirrors checkAndRenameOnPlatform's
+ * shape/error handling but for a field push instead of a sku rename — used by
+ * syncUpdatedFieldsToPlatforms (update hook) below. name/description are product-level on every
+ * platform (not per-variant like in FinerWorks), so pushing them affects the whole parent product,
+ * including any other variants under it.
+ */
+async function checkAndUpdatePlatformFields({ platformKey, connectionData, account_key, sku, fields }) {
+  const { price, quantity, name, descriptionHtml } = fields;
+  let checkResult;
+  if (platformKey === 'squarespace') {
+    const accessToken = connectionData?.access_token;
+    if (!accessToken) {
+      throw new ApiError(400, 'Squarespace connection is missing access_token', { platform: 'squarespace' });
+    }
+    checkResult = await checkSquarespaceSku({ req: { body: { access_token: accessToken }, headers: {} }, sku });
+  } else if (platformKey === 'square') {
+    checkResult = await checkSquareSku({ account_key, sku });
+  } else if (platformKey === 'wix') {
+    checkResult = await checkWixSku({ account_key, sku });
+  } else {
+    return { isExist: false };
+  }
+
+  if (!checkResult.isExist) {
+    return { isExist: false };
+  }
+
+  // Each field group is attempted independently and its failure recorded rather than thrown, so
+  // e.g. an unverified quantity write failing doesn't also swallow an already-proven price write.
+  const updated = {};
+  const errors = {};
+  const attempt = async (fieldKey, fn) => {
+    try {
+      await fn();
+      updated[fieldKey] = true;
+    } catch (err) {
+      errors[fieldKey] = {
+        message: err?.message || 'Update failed',
+        ...(err?.data?.httpStatus ? { httpStatus: err.data.httpStatus } : {}),
+        ...(err?.data?.detail ? { detail: err.data.detail } : {}),
+      };
+    }
+  };
+
+  if (platformKey === 'squarespace') {
+    if (price != null) {
+      await attempt('price', () =>
+        updateSquarespacePrice({ accessToken: checkResult.accessToken, productId: checkResult.matched.productId, variantId: checkResult.matched.variantId, price })
+      );
+    }
+    if (quantity != null) {
+      await attempt('quantity', () =>
+        updateSquarespaceQuantity({ accessToken: checkResult.accessToken, variantId: checkResult.matched.variantId, quantity })
+      );
+    }
+    if (name != null || descriptionHtml != null) {
+      await attempt('name_description', () =>
+        updateSquarespaceProductFields({ accessToken: checkResult.accessToken, productId: checkResult.matched.productId, name, description: descriptionHtml })
+      );
+    }
+  } else if (platformKey === 'square') {
+    if (price != null) {
+      await attempt('price', () => updateSquarePrice({ account_key, matched: checkResult.matched, price }));
+    }
+    if (quantity != null) {
+      await attempt('quantity', () => updateSquareQuantity({ account_key, variationId: checkResult.matched.id, quantity }));
+    }
+    if (name != null || descriptionHtml != null) {
+      const itemId = checkResult.matched.item_variation_data?.item_id;
+      if (itemId) {
+        await attempt('name_description', () => updateSquareItemFields({ account_key, itemId, name, descriptionHtml }));
+      } else {
+        errors.name_description = { message: 'Square item_id not found on matched variation' };
+      }
+    }
+  } else {
+    if (price != null) {
+      await attempt('price', () =>
+        updateWixProductFields({ wixAuth: checkResult.wixAuth, productId: checkResult.matched.productId, variantId: checkResult.matched.variantId, price })
+      );
+    }
+    if (quantity != null) {
+      await attempt('quantity', () => updateWixQuantity({ wixAuth: checkResult.wixAuth, variantId: checkResult.matched.variantId, quantity }));
+    }
+    if (name != null || descriptionHtml != null) {
+      await attempt('name_description', () =>
+        updateWixProductFields({ wixAuth: checkResult.wixAuth, productId: checkResult.matched.productId, variantId: checkResult.matched.variantId, name, descriptionHtml })
+      );
+    }
+  }
+
+  return {
+    isExist: true,
+    updated: { price, quantity, name, descriptionHtml },
+    ...(Object.keys(errors).length ? { fieldErrors: errors } : {}),
+  };
+}
+
+/**
+ * Hook for the Virtual Inventory delete flow (virtual-inventory.js deleteVirtualInventory): for
+ * each sku that was just deleted from FinerWorks, checks every connected platform
+ * (squarespace/square/wix) and, wherever the sku is still live there, renames it to `X${sku}` —
+ * same quarantine marker checkLinkForExternalSource leaves behind. Not scoped by `source` (there's
+ * no third_party_integrations link left to consult once the Virtual Inventory record is gone), and
+ * doesn't touch FinerWorks — the record is already deleted, only the platform-side listing changes.
+ * Swallows per-platform/per-sku errors into the result rather than throwing, since this runs after
+ * the delete has already succeeded and shouldn't turn a successful delete into a failed response.
+ */
+exports.quarantineDeletedSkusOnPlatforms = async ({ skus, account_key }) => {
+  const results = [];
+  const cleanSkus = normalizeToStringList(skus);
+  if (!account_key || !cleanSkus.length) return results;
+
+  let connections = [];
+  try {
+    const info = await finerworksService.GET_INFO({ account_key });
+    connections = Array.isArray(info?.user_account?.connections) ? info.user_account.connections : [];
+  } catch (err) {
+    log('quarantineDeletedSkusOnPlatforms: failed to fetch connections account_key=%s: %s', account_key, err?.message);
+    return cleanSkus.map((sku) => ({ sku, newSku: `X${sku}`, error: 'Failed to fetch platform connections' }));
+  }
+
+  for (const sku of cleanSkus) {
+    const newSku = `X${sku}`;
+    const platforms = {};
+
+    for (const conn of connections) {
+      const connName = conn?.name;
+      const platformKey = connName ? CONNECTION_NAME_TO_SOURCE[connName] : null;
+      if (!platformKey || !SUPPORTED_SOURCES.includes(platformKey)) continue;
+
+      const connectionData = parseConnectionData(conn);
+      try {
+        const result = await checkAndRenameOnPlatform({ platformKey, connectionData, account_key, searchSku: sku, targetSku: newSku });
+        platforms[platformKey] = result.isExist ? { isExist: true, renamedTo: newSku } : { isExist: false };
+      } catch (platformErr) {
+        log('quarantineDeletedSkusOnPlatforms sku=%s platform=%s failed: %s', sku, platformKey, platformErr?.message);
+        platforms[platformKey] = { error: platformErr?.message || 'Check failed' };
+      }
+    }
+
+    results.push({ sku, newSku, ...platforms });
+  }
+
+  return results;
+};
+
+/**
+ * Hook for the Virtual Inventory update flow (virtual-inventory.js updateVirtualInventory): for
+ * each item that was just updated in FinerWorks, checks every connected platform
+ * (squarespace/square/wix) and, wherever that sku is live there, pushes price, quantity_in_stock,
+ * name, and description along with it. name/description are product-level on every platform (not
+ * per-variant like in FinerWorks), so pushing them affects the whole parent product, including any
+ * other variants under it. `track_inventory` has no platform-side equivalent wired up here and is
+ * not synced. Swallows per-platform/per-item errors into the result rather than throwing, since
+ * this runs after the FinerWorks update has already succeeded.
+ */
+exports.syncUpdatedFieldsToPlatforms = async ({ items, account_key }) => {
+  const results = [];
+  const cleanItems = (Array.isArray(items) ? items : [])
+    .map((item) => ({
+      sku: item?.sku != null ? String(item.sku).trim() : '',
+      price: item?.asking_price ?? null,
+      quantity: item?.quantity_in_stock ?? null,
+      name: item?.name ?? null,
+      descriptionHtml: toDescriptionHtml(item?.description),
+    }))
+    .filter((item) => item.sku && (item.price != null || item.quantity != null || item.name != null || item.descriptionHtml != null));
+  if (!account_key || !cleanItems.length) return results;
+
+  let connections = [];
+  try {
+    const info = await finerworksService.GET_INFO({ account_key });
+    connections = Array.isArray(info?.user_account?.connections) ? info.user_account.connections : [];
+  } catch (err) {
+    log('syncUpdatedFieldsToPlatforms: failed to fetch connections account_key=%s: %s', account_key, err?.message);
+    return cleanItems.map(({ sku }) => ({ sku, error: 'Failed to fetch platform connections' }));
+  }
+
+  for (const { sku, price, quantity, name, descriptionHtml } of cleanItems) {
+    const platforms = {};
+    const fields = { price, quantity, name, descriptionHtml };
+
+    for (const conn of connections) {
+      const connName = conn?.name;
+      const platformKey = connName ? CONNECTION_NAME_TO_SOURCE[connName] : null;
+      if (!platformKey || !SUPPORTED_SOURCES.includes(platformKey)) continue;
+
+      const connectionData = parseConnectionData(conn);
+      try {
+        const result = await checkAndUpdatePlatformFields({ platformKey, connectionData, account_key, sku, fields });
+        if (result.fieldErrors) {
+          console.error(JSON.stringify({
+            level: 'ERROR',
+            platform: platformKey,
+            function: 'syncUpdatedFieldsToPlatforms',
+            message: `Partial failure syncing sku ${sku} to ${platformKey}`,
+            fieldErrors: result.fieldErrors,
+            timestamp: new Date().toISOString(),
+          }));
+        }
+        platforms[platformKey] = result.isExist
+          ? { isExist: true, updated: result.updated, ...(result.fieldErrors ? { fieldErrors: result.fieldErrors } : {}) }
+          : { isExist: false };
+      } catch (platformErr) {
+        const httpStatus = platformErr?.data?.httpStatus ?? platformErr?.response?.status ?? null;
+        const detail = platformErr?.data?.detail ?? platformErr?.response?.data?.message ?? null;
+        console.error(JSON.stringify({
+          level: 'ERROR',
+          platform: platformKey,
+          function: 'syncUpdatedFieldsToPlatforms',
+          message: `Failed to sync sku ${sku} to ${platformKey}: ${platformErr?.message || 'Unknown error'}`,
+          httpStatus,
+          detail,
+          timestamp: new Date().toISOString(),
+        }));
+        log('syncUpdatedFieldsToPlatforms sku=%s platform=%s failed: %s', sku, platformKey, platformErr?.message);
+        platforms[platformKey] = {
+          error: platformErr?.message || 'Check failed',
+          ...(httpStatus ? { httpStatus } : {}),
+          ...(detail ? { detail } : {}),
+        };
+      }
+    }
+
+    results.push({ sku, price, quantity, name, ...platforms });
+  }
+
+  return results;
+};
 
 /**
  * Cross-platform SKU quarantine, scoped to whichever platform(s) are named in `source` — every
