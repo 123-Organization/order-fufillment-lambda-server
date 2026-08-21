@@ -4,7 +4,7 @@ const log = debug('app:virtualInventory');
 const finerworksService = require('../helpers/finerworks-service');
 const {
     quarantineDeletedSkusOnPlatforms,
-    syncUpdatedPriceToPlatforms,
+    syncUpdatedFieldsToPlatforms,
 } = require('./check-link-for-external-source');
 log('get virtual inventory api');
 // # region Get Virtual Inventory
@@ -298,19 +298,20 @@ exports.updateVirtualInventory = async (req, res) => {
             console.log(successLog);
             log('Success in updateVirtualInventory: %s', successLog);
 
-            // Best-effort: push the updated price out to whichever connected platform
-            // (squarespace/square/wix) still has each sku live. Never lets a platform-side
-            // failure turn an already-successful FinerWorks update into a failed response.
+            // Best-effort: push price/quantity/name/description out to whichever connected
+            // platform (squarespace/square/wix) still has each sku live. Never lets a
+            // platform-side failure turn an already-successful FinerWorks update into a failed
+            // response.
             let platform_sync = [];
             const account_key = req.body?.account_key || req.query?.account_key;
             if (account_key) {
                 try {
-                    platform_sync = await syncUpdatedPriceToPlatforms({
+                    platform_sync = await syncUpdatedFieldsToPlatforms({
                         items: req.body?.virtual_inventory,
                         account_key
                     });
                 } catch (syncErr) {
-                    log('updateVirtualInventory: syncUpdatedPriceToPlatforms failed: %s', syncErr?.message);
+                    log('updateVirtualInventory: syncUpdatedFieldsToPlatforms failed: %s', syncErr?.message);
                 }
             }
 
