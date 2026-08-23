@@ -3,9 +3,15 @@ const app = express();
 const cors = require('cors');
 require('dotenv').config();
 const http = require('http');
-const { handleWixAppInstanceInstalled } = require('./src/controllers/wix-webhooks');
+const {
+  handleWixAppInstanceInstalled,
+  handleWixProductDeletedWebhook,
+  handleWixProductCreatedWebhook,
+  handleWixProductChangedWebhook,
+} = require('./src/controllers/wix-webhooks');
 const { handleWixOAuthCallback } = require('./src/controllers/wix-auth');
 const { handleWixOrderCreateWebhook } = require('./src/controllers/wix-order-create-webhook');
+const { squareCatalogWebhook } = require('./src/controllers/platform-order-sync');
 const optionalAccountKeyValidator = require('./src/middleware/optional-account-key-validator');
 const asyncHandler = require('./src/middleware/async-handler');
 const { errorHandler, notFoundHandler } = require('./src/middleware/error-handler');
@@ -42,7 +48,24 @@ wixJwtBodyRouter.use(optionalAccountKeyValidator);
 wixJwtBodyRouter.post('/wix/webhooks/app-instance-installed', wixJwtText, asyncHandler(handleWixAppInstanceInstalled));
 wixJwtBodyRouter.post('/wix/oauth/callback', wixJwtText, asyncHandler(handleWixOAuthCallback));
 wixJwtBodyRouter.post('/webhooks/wix/order-create', wixJwtText, asyncHandler(handleWixOrderCreateWebhook));
+wixJwtBodyRouter.post('/webhooks/wix/product-delete', wixJwtText, asyncHandler(handleWixProductDeletedWebhook));
+wixJwtBodyRouter.post('/webhooks/wix/product-create', wixJwtText, asyncHandler(handleWixProductCreatedWebhook));
+wixJwtBodyRouter.post('/webhooks/wix/product-update', wixJwtText, asyncHandler(handleWixProductChangedWebhook));
 app.use('/api', wixJwtBodyRouter);
+
+// Square catalog webhook needs the raw request body to verify x-square-hmacsha256-signature
+// (HMAC over notificationUrl + rawBody) — capture it via express.json's verify hook before the
+// global parser below would otherwise consume the stream without keeping the raw bytes.
+const squareWebhookRouter = express.Router();
+const squareJsonWithRawBody = express.json({
+  type: '*/*',
+  limit: '512kb',
+  verify: (req, res, buf) => {
+    req.rawBody = buf;
+  },
+});
+squareWebhookRouter.post('/webhooks/square/catalog', squareJsonWithRawBody, asyncHandler(squareCatalogWebhook));
+app.use('/api', squareWebhookRouter);
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
