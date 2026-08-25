@@ -13,6 +13,9 @@ const SOURCE_ID_FIELDS = {
   square: ['square_product_id', 'square_variant_id'],
   wix: ['wix_product_id', 'wix_variant_id'],
   etsy: ['etsy_product_id'],
+  // Shopify sync (shopify-orders.js) only ever writes shopify_graphql_product_id today — no
+  // variant-level id field is populated for Shopify anywhere in this codebase.
+  shopify: ['shopify_graphql_product_id'],
 };
 
 const {
@@ -27,7 +30,7 @@ const {
 } = require('./wix-products');
 const { normalizeShopDomain } = require('./shopify-orders');
 
-const SUPPORTED_SOURCES = ['squarespace', 'square', 'wix', 'etsy'];
+const SUPPORTED_SOURCES = ['squarespace', 'square', 'wix', 'etsy', 'shopify'];
 
 // FinerWorks `connections[].name` -> the platform key used in checkSkuExists' response. Shippo is
 // deliberately omitted from this map — it's a shipping/label service, not a sales channel with
@@ -299,7 +302,7 @@ async function checkShopifySku({ connectionData, sku }) {
       query: `
         query productVariantsBySku($query: String!) {
           productVariants(first: 1, query: $query) {
-            edges { node { sku } }
+            edges { node { id sku product { id } } }
           }
         }
       `,
@@ -321,7 +324,56 @@ async function checkShopifySku({ connectionData, sku }) {
   }
 
   const edges = r.data?.data?.productVariants?.edges;
-  return { isExist: Array.isArray(edges) && edges.length > 0 };
+  const node = Array.isArray(edges) && edges.length ? edges[0]?.node : null;
+  if (!node) return { isExist: false };
+  return {
+    isExist: true,
+    matched: { variantId: node.id || null, productId: node.product?.id || null },
+    accessToken,
+    shopDomain,
+    apiVersion,
+  };
+}
+
+/**
+ * Renames an existing Shopify product variant's sku via the `productVariantsBulkUpdate` mutation
+ * (the current, non-deprecated way to update a single variant's fields on API versions this
+ * codebase targets — the older singular `productVariantUpdate` mutation is deprecated on Shopify's
+ * 2024+ Admin API). Mirrors renameSquarespaceSku/renameSquareSku/renameWixSku's shape.
+ */
+async function renameShopifySku({ accessToken, shopDomain, apiVersion, productId, variantId, newSku }) {
+  const r = await axios.post(
+    `https://${shopDomain}/admin/api/${apiVersion}/graphql.json`,
+    {
+      query: `
+        mutation productVariantsBulkUpdate($productId: ID!, $variants: [ProductVariantsBulkInput!]!) {
+          productVariantsBulkUpdate(productId: $productId, variants: $variants) {
+            productVariants { id sku }
+            userErrors { field message }
+          }
+        }
+      `,
+      variables: { productId, variants: [{ id: variantId, sku: newSku }] },
+    },
+    {
+      headers: { 'X-Shopify-Access-Token': accessToken, 'Content-Type': 'application/json' },
+      timeout: 30000,
+      validateStatus: () => true,
+    }
+  );
+
+  const userErrors = r.data?.data?.productVariantsBulkUpdate?.userErrors;
+  if (r.status < 200 || r.status >= 300 || r.data?.errors || (Array.isArray(userErrors) && userErrors.length)) {
+    const message =
+      (Array.isArray(userErrors) && userErrors.length && userErrors.map((e) => e.message).join(' | ')) ||
+      (typeof r.data?.errors === 'string' ? r.data.errors : null) ||
+      'Failed to rename Shopify variant sku';
+    throw new ApiError(r.status >= 400 && r.status < 600 ? r.status : 502, message, {
+      platform: 'shopify',
+      httpStatus: r.status,
+    });
+  }
+  return { newSku };
 }
 
 /**
@@ -575,7 +627,7 @@ function normalizeToStringList(raw) {
  * active duplicate of the original sku, then this account's corresponding third_party_integrations
  * fields for that platform are cleared in FinerWorks — Virtual Inventory's own sku is never
  * touched, only the platform-side listing and the link fields pointing at it.
- * POST body: { sku: string | string[], account_key, source: 'squarespace'|'square'|'wix' (string or array) }.
+ * POST body: { sku: string | string[], account_key, source: 'squarespace'|'square'|'wix'|'etsy'|'shopify' (string or array) }.
  */
 exports.checkLinkForExternalSource = async (req, res) => {
   const skuRaw = req.body?.sku ?? req.query?.sku ?? req.body?.skus ?? req.query?.skus;
@@ -638,8 +690,10 @@ exports.checkLinkForExternalSource = async (req, res) => {
             checkResult = await checkSquarespaceSku({ req: { body: { access_token: accessToken }, headers: {} }, sku });
           } else if (platformKey === 'square') {
             checkResult = await checkSquareSku({ account_key, sku });
-          } else {
+          } else if (platformKey === 'wix') {
             checkResult = await checkWixSku({ account_key, sku });
+          } else {
+            checkResult = await checkShopifySku({ connectionData, sku });
           }
 
           if (!checkResult.isExist) {
@@ -657,9 +711,18 @@ exports.checkLinkForExternalSource = async (req, res) => {
             });
           } else if (platformKey === 'square') {
             renameResult = await renameSquareSku({ account_key, matched: checkResult.matched, newSku });
-          } else {
+          } else if (platformKey === 'wix') {
             renameResult = await renameWixSku({
               wixAuth: checkResult.wixAuth,
+              productId: checkResult.matched.productId,
+              variantId: checkResult.matched.variantId,
+              newSku,
+            });
+          } else {
+            renameResult = await renameShopifySku({
+              accessToken: checkResult.accessToken,
+              shopDomain: checkResult.shopDomain,
+              apiVersion: checkResult.apiVersion,
               productId: checkResult.matched.productId,
               variantId: checkResult.matched.variantId,
               newSku,
@@ -732,7 +795,7 @@ exports.checkLinkForExternalSource = async (req, res) => {
  * checkLinkForExternalSource leaves behind); if found, renames it back to the plain `sku` on the
  * platform, then writes that platform's product_id/variant_id back onto the Virtual Inventory
  * record for `sku` in FinerWorks.
- * POST body: { sku: string | string[], account_key, source: 'squarespace'|'square'|'wix' (string or array) }.
+ * POST body: { sku: string | string[], account_key, source: 'squarespace'|'square'|'wix'|'etsy'|'shopify' (string or array) }.
  */
 exports.relinkExternalSource = async (req, res) => {
   const skuRaw = req.body?.sku ?? req.query?.sku ?? req.body?.skus ?? req.query?.skus;
@@ -793,8 +856,10 @@ exports.relinkExternalSource = async (req, res) => {
             checkResult = await checkSquarespaceSku({ req: { body: { access_token: accessToken }, headers: {} }, sku: prefixedSku });
           } else if (platformKey === 'square') {
             checkResult = await checkSquareSku({ account_key, sku: prefixedSku });
-          } else {
+          } else if (platformKey === 'wix') {
             checkResult = await checkWixSku({ account_key, sku: prefixedSku });
+          } else {
+            checkResult = await checkShopifySku({ connectionData, sku: prefixedSku });
           }
 
           if (!checkResult.isExist) {
@@ -817,9 +882,20 @@ exports.relinkExternalSource = async (req, res) => {
             await renameSquareSku({ account_key, matched: checkResult.matched, newSku: sku });
             productId = checkResult.matched.item_variation_data?.item_id || null;
             variantId = checkResult.matched.id || null;
-          } else {
+          } else if (platformKey === 'wix') {
             await renameWixSku({
               wixAuth: checkResult.wixAuth,
+              productId: checkResult.matched.productId,
+              variantId: checkResult.matched.variantId,
+              newSku: sku,
+            });
+            productId = checkResult.matched.productId;
+            variantId = checkResult.matched.variantId;
+          } else {
+            await renameShopifySku({
+              accessToken: checkResult.accessToken,
+              shopDomain: checkResult.shopDomain,
+              apiVersion: checkResult.apiVersion,
               productId: checkResult.matched.productId,
               variantId: checkResult.matched.variantId,
               newSku: sku,
