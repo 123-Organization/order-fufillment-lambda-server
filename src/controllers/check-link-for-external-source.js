@@ -340,6 +340,11 @@ async function checkShopifySku({ connectionData, sku }) {
  * (the current, non-deprecated way to update a single variant's fields on API versions this
  * codebase targets — the older singular `productVariantUpdate` mutation is deprecated on Shopify's
  * 2024+ Admin API). Mirrors renameSquarespaceSku/renameSquareSku/renameWixSku's shape.
+ *
+ * `sku` is NOT a field on `ProductVariantsBulkInput` directly — confirmed live ("Field is not
+ * defined on ProductVariantsBulkInput") — Shopify moved it under the variant's `inventoryItem`
+ * starting with the 2024-04 Admin API (this repo targets 2025-10 by default), so it must be set
+ * via `inventoryItem: { sku }` instead. Read back the same way for consistency.
  */
 async function renameShopifySku({ accessToken, shopDomain, apiVersion, productId, variantId, newSku }) {
   const r = await axios.post(
@@ -348,12 +353,12 @@ async function renameShopifySku({ accessToken, shopDomain, apiVersion, productId
       query: `
         mutation productVariantsBulkUpdate($productId: ID!, $variants: [ProductVariantsBulkInput!]!) {
           productVariantsBulkUpdate(productId: $productId, variants: $variants) {
-            productVariants { id sku }
+            productVariants { id inventoryItem { sku } }
             userErrors { field message }
           }
         }
       `,
-      variables: { productId, variants: [{ id: variantId, sku: newSku }] },
+      variables: { productId, variants: [{ id: variantId, inventoryItem: { sku: newSku } }] },
     },
     {
       headers: { 'X-Shopify-Access-Token': accessToken, 'Content-Type': 'application/json' },
@@ -362,15 +367,25 @@ async function renameShopifySku({ accessToken, shopDomain, apiVersion, productId
     }
   );
 
+  // GraphQL top-level errors (`data.errors`) come back as an ARRAY of { message, ... }, not a
+  // string — a naive `typeof r.data?.errors === 'string'` check (as used elsewhere for REST
+  // error bodies) silently discards these, masking the real reason behind a generic message.
   const userErrors = r.data?.data?.productVariantsBulkUpdate?.userErrors;
-  if (r.status < 200 || r.status >= 300 || r.data?.errors || (Array.isArray(userErrors) && userErrors.length)) {
-    const message =
-      (Array.isArray(userErrors) && userErrors.length && userErrors.map((e) => e.message).join(' | ')) ||
-      (typeof r.data?.errors === 'string' ? r.data.errors : null) ||
-      'Failed to rename Shopify variant sku';
+  const graphqlErrors = Array.isArray(r.data?.errors)
+    ? r.data.errors
+    : typeof r.data?.errors === 'string'
+      ? [{ message: r.data.errors }]
+      : [];
+  if (r.status < 200 || r.status >= 300 || graphqlErrors.length || (Array.isArray(userErrors) && userErrors.length)) {
+    const messages = [
+      ...(Array.isArray(userErrors) ? userErrors.map((e) => e?.message).filter(Boolean) : []),
+      ...graphqlErrors.map((e) => e?.message).filter(Boolean),
+    ];
+    const message = messages.length ? messages.join(' | ') : 'Failed to rename Shopify variant sku';
     throw new ApiError(r.status >= 400 && r.status < 600 ? r.status : 502, message, {
       platform: 'shopify',
       httpStatus: r.status,
+      detail: message,
     });
   }
   return { newSku };
@@ -737,15 +752,23 @@ exports.checkLinkForExternalSource = async (req, res) => {
             clearedLinkFields: cleanup.cleared ? cleanup.fields : [],
           };
         } catch (platformErr) {
+          const httpStatus = platformErr?.data?.httpStatus ?? platformErr?.statusCode ?? null;
+          const detail = platformErr?.data?.detail ?? null;
           console.error(JSON.stringify({
             level: 'ERROR',
             platform: platformKey,
             function: 'checkLinkForExternalSource',
             message: `Failed to process ${platformKey} for sku ${sku}: ${platformErr?.message || 'Unknown error'}`,
+            httpStatus,
+            detail,
             timestamp: new Date().toISOString(),
           }));
           log('checkLinkForExternalSource sku=%s platform=%s failed: %s', sku, platformKey, platformErr?.message);
-          platforms[platformKey] = { error: platformErr?.message || 'Check failed' };
+          platforms[platformKey] = {
+            error: platformErr?.message || 'Check failed',
+            ...(httpStatus ? { httpStatus } : {}),
+            ...(detail ? { detail } : {}),
+          };
         }
       }
 
@@ -914,15 +937,23 @@ exports.relinkExternalSource = async (req, res) => {
               : { linkedFields: [], linkWarning: linkResult.reason || 'Not linked in FinerWorks' }),
           };
         } catch (platformErr) {
+          const httpStatus = platformErr?.data?.httpStatus ?? platformErr?.statusCode ?? null;
+          const detail = platformErr?.data?.detail ?? null;
           console.error(JSON.stringify({
             level: 'ERROR',
             platform: platformKey,
             function: 'relinkExternalSource',
             message: `Failed to process ${platformKey} for sku ${sku}: ${platformErr?.message || 'Unknown error'}`,
+            httpStatus,
+            detail,
             timestamp: new Date().toISOString(),
           }));
           log('relinkExternalSource sku=%s platform=%s failed: %s', sku, platformKey, platformErr?.message);
-          platforms[platformKey] = { error: platformErr?.message || 'Check failed' };
+          platforms[platformKey] = {
+            error: platformErr?.message || 'Check failed',
+            ...(httpStatus ? { httpStatus } : {}),
+            ...(detail ? { detail } : {}),
+          };
         }
       }
 
