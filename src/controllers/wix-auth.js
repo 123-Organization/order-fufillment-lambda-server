@@ -42,7 +42,7 @@ function jwtPayloadDecode(token) {
 
 const buildWixRedirectUri = () => {
   // Keep redirect_uri consistent between initiate + callback.
-  return 'https://d7z22w3j4h.execute-api.us-east-1.amazonaws.com/Prod/api/wix/oauth/callback';
+  return 'https://dwe8rzhebf.execute-api.us-east-1.amazonaws.com/Prod/api/wix/oauth/callback';
 };
 
 /**
