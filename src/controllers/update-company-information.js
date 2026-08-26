@@ -4,6 +4,7 @@ const debug = require('debug');
 const log = debug('app:updateCompanyInformation');
 log('Update company information');
 const Joi = require('joi');
+const { logIncomingRequest, redactAndTruncate } = require('../helpers/request-log');
 
 
 // Define the Joi schema for business_info
@@ -34,10 +35,19 @@ const businessInfoSchema = Joi.object({
  */
 exports.updateCompanyInformation = async (req, res) => {
   try {
+    logIncomingRequest(log, {
+      method: req.method,
+      path: req.originalUrl || req.url,
+      functionName: 'updateCompanyInformation',
+      accountKey: req.body?.account_key,
+      body: req.body,
+      query: req.query,
+    });
     const reqBody = JSON.parse(JSON.stringify(req.body));
     const payloadForCompanyInformation = {};
     const accountKeyRegex = /^[a-f0-9]{8}-([a-f0-9]{4}-){3}[a-f0-9]{12}$/i;
     if (!reqBody.account_key || !accountKeyRegex.test(reqBody.account_key)) {
+      log('updateCompanyInformation rejected: invalid or missing account_key');
       return res.status(400).json({
         statusCode: 400,
         status: false,
@@ -52,6 +62,7 @@ exports.updateCompanyInformation = async (req, res) => {
       const { error } = businessInfoSchema.validate(reqBody.business_info);
 
       if (error) {
+        log('updateCompanyInformation rejected: invalid business_info: %s', error.details[0].message);
         return res.status(400).json({
           statusCode: 400,
           status: false,
@@ -81,7 +92,7 @@ exports.updateCompanyInformation = async (req, res) => {
     if (reqBody.logo_data) {
       payloadForCompanyInformation.logo_data = reqBody.logo_data;
     }
-    console.log("payloadForCompanyInformation====", payloadForCompanyInformation);
+    log('updateCompanyInformation payload to FinerWorks: %s', redactAndTruncate(payloadForCompanyInformation));
 
     const updateInformation = await finerworksService.UPDATE_INFO(payloadForCompanyInformation);
     if (!updateInformation?.status) {

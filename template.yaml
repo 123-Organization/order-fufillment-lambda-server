@@ -581,7 +581,17 @@ Resources:
     Properties:
       LogGroupName: !Sub /aws/lambda/${OrderFullFillmentServerLessProdServer}
       RetentionInDays: '30'
-  OrderFullFillmentServerLessProdServerAgainNew: 
+  OrderFullFillmentServerLessProdServerV2LogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${OrderFullFillmentServerLessProdServerV2}
+      RetentionInDays: '30'
+  OrderFullFillmentServerLessProdServerAgainNewLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${OrderFullFillmentServerLessProdServerAgainNew}
+      RetentionInDays: '30'
+  OrderFullFillmentServerLessProdServerAgainNew:
     Type: AWS::Serverless::Function
     Properties:
       FunctionName: OrderFullFillmentServerLessProdServerAgainNew

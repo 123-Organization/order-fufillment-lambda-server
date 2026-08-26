@@ -1,16 +1,24 @@
 const debug = require("debug");
 const finerworksService = require("../helpers/finerworks-service");
 const log = debug("app:UserInformation");
+const { logIncomingRequest } = require("../helpers/request-log");
 log("User Information");
 
 
 exports.updateUserInformation = async (req, res) => {
   try {
-    log("user token payload", JSON.stringify(req?.body));
+    logIncomingRequest(log, {
+      method: req.method,
+      path: req.originalUrl || req.url,
+      functionName: 'updateUserInformation',
+      accountKey: req.body?.account_key,
+      body: req.body,
+      query: req.query,
+    });
     const reqBody = JSON.parse(JSON.stringify(req.body));
-    log("user token payload", reqBody);
 
     if (!reqBody) {
+      log('updateUserInformation rejected: empty body');
       res.status(400).json({
         statusCode: 400,
         status: false,

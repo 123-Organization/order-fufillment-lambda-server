@@ -2,6 +2,7 @@ const axios = require('axios');
 const finerworksService = require('../helpers/finerworks-service');
 const debug = require('debug');
 const { sendApiError } = require('../helpers/api-error');
+const { logIncomingRequest, redactAndTruncate } = require('../helpers/request-log');
 const log = debug('app:shopifyOrders');
 
 const normalizeShopDomain = (shopInput) => {
@@ -622,6 +623,14 @@ const applyFinerWorksShippingProfileForVariants = async ({
 // Create a new shipping profile restricted to US and CA via Shopify GraphQL Admin API.
 const createUsCanadaShippingProfile = async (req, res) => {
   try {
+    logIncomingRequest(log, {
+      method: req.method,
+      path: req.originalUrl || req.url,
+      functionName: 'createUsCanadaShippingProfile',
+      accountKey: req.body?.account_key || req.query?.account_key,
+      body: req.body,
+      query: req.query,
+    });
     let accessToken = req.body?.access_token || req.headers['x-shopify-access-token'];
     const authHeader = req.headers?.authorization || req.headers?.Authorization;
 
@@ -640,11 +649,13 @@ const createUsCanadaShippingProfile = async (req, res) => {
     const apiVersion = process.env.SHOPIFY_API_VERSION || '2025-10';
 
     if (!accessToken || !storeName) {
+      log('createUsCanadaShippingProfile rejected: missing access_token/storeName');
       return sendApiError(res, 400, "Missing required parameters: access_token and storeName");
     }
 
     const shopDomain = normalizeShopDomain(storeName);
     if (!shopDomain || !shopDomain.match(/^[a-z0-9][a-z0-9-]*\.myshopify\.com$/)) {
+      log('createUsCanadaShippingProfile rejected: invalid storeName %s', storeName);
       return sendApiError(res, 400, "Invalid storeName. Expected shopname or shopname.myshopify.com");
     }
 
@@ -653,10 +664,12 @@ const createUsCanadaShippingProfile = async (req, res) => {
     try {
       primaryLocationId = await fetchPrimaryLocation({ shopDomain, accessToken, apiVersion });
     } catch (locErr) {
+      log('createUsCanadaShippingProfile: failed to fetch primary location for shop=%s: %s', shopDomain, locErr?.message || locErr);
       return sendApiError(res, locErr);
     }
 
     if (!primaryLocationId) {
+      log('createUsCanadaShippingProfile rejected: no Shopify locations found for shop=%s', shopDomain);
       return sendApiError(res, 400, "No Shopify locations found; cannot create delivery profile");
     }
 
@@ -784,6 +797,7 @@ const createUsCanadaShippingProfile = async (req, res) => {
       const message = Array.isArray(resp.data.errors)
         ? resp.data.errors.map((e) => e.message).join('; ')
         : 'Unknown GraphQL error';
+      log('createUsCanadaShippingProfile: Shopify GraphQL error for shop=%s: %s', shopDomain, message);
       const error = new Error(message);
       error.status = 502;
       throw error;
@@ -791,6 +805,7 @@ const createUsCanadaShippingProfile = async (req, res) => {
 
     const payload = resp.data?.data?.deliveryProfileCreate;
     if (!payload) {
+      log('createUsCanadaShippingProfile: invalid Shopify response for shop=%s', shopDomain);
       return sendApiError(res, 502, "Invalid Shopify response for deliveryProfileCreate");
     }
 
@@ -798,8 +813,23 @@ const createUsCanadaShippingProfile = async (req, res) => {
       const message = payload.userErrors
         .map((e) => `${e.field ? e.field.join('.') : 'error'}: ${e.message}`)
         .join('; ');
+      log('createUsCanadaShippingProfile rejected by Shopify for shop=%s: %s', shopDomain, message);
       return sendApiError(res, 400, message);
     }
+
+    const successLog = JSON.stringify({
+      level: 'INFO',
+      platform: 'shopify',
+      method: req.method,
+      api: req.originalUrl || req.url,
+      function: 'createUsCanadaShippingProfile',
+      operation: 'US/CA delivery profile created successfully',
+      account_key: req.body?.account_key || 'unknown',
+      result: { shopDomain, profileId: payload.profile?.id || null },
+      timestamp: new Date().toISOString(),
+    });
+    console.log(successLog);
+    log('Success in createUsCanadaShippingProfile: %s', successLog);
 
     return res.status(200).json({
       success: true,
@@ -807,6 +837,19 @@ const createUsCanadaShippingProfile = async (req, res) => {
       profile: payload.profile,
     });
   } catch (err) {
+    const errorJson = JSON.stringify({
+      level: 'ERROR',
+      platform: 'shopify',
+      source: 'shopify_api',
+      function: 'createUsCanadaShippingProfile',
+      account_key: req.body?.account_key || 'unknown',
+      httpStatus: err?.response?.status || err?.status || null,
+      message: `Failed to create US/CA delivery profile: ${err?.message || 'Unknown error'}`,
+      detail: err?.response?.data?.message || null,
+      timestamp: new Date().toISOString(),
+    });
+    console.error(errorJson);
+    log('Formatted error in createUsCanadaShippingProfile: %s', errorJson);
     return sendApiError(res, err);
   }
 };
@@ -2182,26 +2225,24 @@ const fetchAllOrders = async ({
   endDate,
 }) => {
   const endpoint = `https://${shopDomain}/admin/api/${apiVersion}/graphql.json`;
-  console.log('endpoint=========>>>>>>', endpoint);
+  log('searchShopifyOrdersPage: endpoint=%s', endpoint);
 
   const headers = {
     'X-Shopify-Access-Token': accessToken,
     'Content-Type': 'application/json',
     // 'Accept': 'application/json'
   };
-  console.log('headers=====>>>>', headers);
 
   const query = overrideQuery || buildOrdersQuery(startDate, endDate);
-  console.log('query================', query);
   const variables = {};
   let resp;
   try {
     resp = await axios.post(endpoint, { query, variables }, { headers });
   } catch (err) {
-    console.log(
-      'err=========>>>>>>>>>>>>>>>>',
+    log(
+      'searchShopifyOrdersPage error: status=%s detail=%s',
       err?.response?.status,
-      err?.response?.data || err?.message
+      JSON.stringify(err?.response?.data || err?.message)
     );
     const status = err?.response?.status || 500;
     const message =
@@ -2212,7 +2253,7 @@ const fetchAllOrders = async ({
     error.status = status;
     throw error;
   }
-  console.log('resp=========>>>>>>>>>>>>>>>>', resp);
+  log('searchShopifyOrdersPage: response received, status=%s', resp.status);
   if (resp.data.errors) {
     const message = Array.isArray(resp.data.errors)
       ? resp.data.errors.map((e) => e.message).join('; ')
@@ -2233,6 +2274,14 @@ const fetchAllOrders = async ({
 
 const getShopifyOrders = async (req, res) => {
   try {
+    logIncomingRequest(log, {
+      method: req.method,
+      path: req.originalUrl || req.url,
+      functionName: 'getShopifyOrders',
+      accountKey: req.body?.account_key || req.query?.account_key,
+      body: req.body,
+      query: req.query,
+    });
     let accessToken = req.body?.access_token || req.headers['x-shopify-access-token'];
     const authHeader = req.headers?.authorization || req.headers?.Authorization;
     const startDate =
@@ -3138,6 +3187,14 @@ const fetchOrderByName = async ({ shopDomain, accessToken, apiVersion, orderName
 
 const getShopifyOrderByName = async (req, res) => {
   try {
+    logIncomingRequest(log, {
+      method: req.method,
+      path: req.originalUrl || req.url,
+      functionName: 'getShopifyOrderByName',
+      accountKey: req.body?.account_key || req.query?.account_key,
+      body: req.body,
+      query: req.query,
+    });
     let accessToken = req.body?.access_token || req.headers['x-shopify-access-token'];
     const authHeader = req.headers?.authorization || req.headers?.Authorization;
     if (!accessToken && authHeader && authHeader.startsWith('Bearer ')) {
@@ -3518,6 +3575,14 @@ const processSingleOrderFulfillment = async ({
 
 const fulfillShopifyOrder = async (req, res) => {
   try {
+    logIncomingRequest(log, {
+      method: req.method,
+      path: req.originalUrl || req.url,
+      functionName: 'fulfillShopifyOrder',
+      accountKey: req.body?.account_key || req.query?.account_key,
+      body: req.body,
+      query: req.query,
+    });
     let accessToken = req.body?.access_token || req.headers['x-shopify-access-token'];
     const authHeader = req.headers?.authorization || req.headers?.Authorization;
 
@@ -4069,6 +4134,14 @@ const updateOrderTags = async ({
 // Endpoint to update order metafields with reference numbers
 const updateOrderReferenceNumbers = async (req, res) => {
   try {
+    logIncomingRequest(log, {
+      method: req.method,
+      path: req.originalUrl || req.url,
+      functionName: 'updateOrderReferenceNumbers',
+      accountKey: req.body?.account_key || req.query?.account_key,
+      body: req.body,
+      query: req.query,
+    });
     let accessToken = req.body?.access_token || req.headers['x-shopify-access-token'];
     const authHeader = req.headers?.authorization || req.headers?.Authorization;
 
@@ -4250,6 +4323,14 @@ const updateOrderReferenceNumbers = async (req, res) => {
 // Uses Shopify GraphQL Admin API under the hood to set a metafield on the Order.
 const updateOrderFulfillmentStatus = async (req, res) => {
   try {
+    logIncomingRequest(log, {
+      method: req.method,
+      path: req.originalUrl || req.url,
+      functionName: 'updateOrderFulfillmentStatus',
+      accountKey: req.body?.account_key || req.query?.account_key,
+      body: req.body,
+      query: req.query,
+    });
     let accessToken = req.body?.access_token || req.headers['x-shopify-access-token'];
     const authHeader = req.headers?.authorization || req.headers?.Authorization;
 
@@ -5283,6 +5364,14 @@ const syncShopifyProducts = async (req, res) => {
  */
 const createShopifyCarrierService = async (req, res) => {
   try {
+    logIncomingRequest(log, {
+      method: req.method,
+      path: req.originalUrl || req.url,
+      functionName: 'createShopifyCarrierService',
+      accountKey: req.body?.account_key || req.query?.account_key,
+      body: req.body,
+      query: req.query,
+    });
     let accessToken = req.body?.access_token || req.headers['x-shopify-access-token'];
     const authHeader = req.headers?.authorization || req.headers?.Authorization;
 
@@ -5300,11 +5389,13 @@ const createShopifyCarrierService = async (req, res) => {
     const carrierService = req.body?.carrier_service || req.body?.carrierService || null;
 
     if (!accessToken || !storeName || !carrierService) {
+      log('createShopifyCarrierService rejected: missing accessToken/storeName/carrier_service');
       return sendApiError(res, 400, "Missing required parameters: accessToken, storeName, carrier_service");
     }
 
     const shopDomain = normalizeShopDomain(storeName);
     if (!shopDomain || !shopDomain.match(/^[a-z0-9][a-z0-9-]*\.myshopify\.com$/)) {
+      log('createShopifyCarrierService rejected: invalid storeName %s', storeName);
       return sendApiError(res, 400, "Invalid storeName. Expected shopname or shopname.myshopify.com");
     }
 
@@ -5323,6 +5414,20 @@ const createShopifyCarrierService = async (req, res) => {
     };
 
     const resp = await axios.post(endpoint, payload, { headers });
+
+    const successLog = JSON.stringify({
+      level: 'INFO',
+      platform: 'shopify',
+      method: req.method,
+      api: req.originalUrl || req.url,
+      function: 'createShopifyCarrierService',
+      operation: 'Shopify carrier service created successfully',
+      shop: shopDomain,
+      result: { carrierServiceId: resp.data?.carrier_service?.id || null },
+      timestamp: new Date().toISOString(),
+    });
+    console.log(successLog);
+    log('Success in createShopifyCarrierService: %s', successLog);
 
     return res.status(200).json({
       success: true,
@@ -5359,6 +5464,14 @@ const createShopifyCarrierService = async (req, res) => {
  */
 const listShopifyCarrierServices = async (req, res) => {
   try {
+    logIncomingRequest(log, {
+      method: req.method,
+      path: req.originalUrl || req.url,
+      functionName: 'listShopifyCarrierServices',
+      accountKey: req.body?.account_key || req.query?.account_key,
+      body: req.body,
+      query: req.query,
+    });
     let accessToken =
       req.body?.access_token || req.query?.access_token || req.headers['x-shopify-access-token'];
     const authHeader = req.headers?.authorization || req.headers?.Authorization;
@@ -5375,11 +5488,13 @@ const listShopifyCarrierServices = async (req, res) => {
       req.query?.shop;
 
     if (!accessToken || !storeName) {
+      log('listShopifyCarrierServices rejected: missing accessToken/storeName');
       return sendApiError(res, 400, "Missing required parameters: accessToken, storeName");
     }
 
     const shopDomain = normalizeShopDomain(storeName);
     if (!shopDomain || !shopDomain.match(/^[a-z0-9][a-z0-9-]*\.myshopify\.com$/)) {
+      log('listShopifyCarrierServices rejected: invalid storeName %s', storeName);
       return sendApiError(res, 400, "Invalid storeName. Expected shopname or shopname.myshopify.com");
     }
 
@@ -5391,6 +5506,7 @@ const listShopifyCarrierServices = async (req, res) => {
     };
 
     const resp = await axios.get(endpoint, { headers });
+    log('Success in listShopifyCarrierServices: shop=%s count=%d', shopDomain, (resp.data?.carrier_services || []).length);
 
     return res.status(200).json({
       success: true,
@@ -5426,6 +5542,14 @@ const listShopifyCarrierServices = async (req, res) => {
  */
 const deleteShopifyCarrierService = async (req, res) => {
   try {
+    logIncomingRequest(log, {
+      method: req.method,
+      path: req.originalUrl || req.url,
+      functionName: 'deleteShopifyCarrierService',
+      accountKey: req.body?.account_key || req.query?.account_key,
+      body: req.body,
+      query: req.query,
+    });
     let accessToken = req.body?.access_token || req.headers['x-shopify-access-token'];
     const authHeader = req.headers?.authorization || req.headers?.Authorization;
 
@@ -5447,11 +5571,13 @@ const deleteShopifyCarrierService = async (req, res) => {
       req.query?.id;
 
     if (!accessToken || !storeName || !carrierServiceId) {
+      log('deleteShopifyCarrierService rejected: missing accessToken/storeName/carrier_service_id');
       return sendApiError(res, 400, "Missing required parameters: accessToken, storeName, carrier_service_id");
     }
 
     const shopDomain = normalizeShopDomain(storeName);
     if (!shopDomain || !shopDomain.match(/^[a-z0-9][a-z0-9-]*\.myshopify\.com$/)) {
+      log('deleteShopifyCarrierService rejected: invalid storeName %s', storeName);
       return sendApiError(res, 400, "Invalid storeName. Expected shopname or shopname.myshopify.com");
     }
 
@@ -5463,6 +5589,7 @@ const deleteShopifyCarrierService = async (req, res) => {
     };
 
     await axios.delete(endpoint, { headers });
+    log('Success in deleteShopifyCarrierService: shop=%s carrier_service_id=%s', shopDomain, carrierServiceId);
 
     return res.status(200).json({
       success: true,
@@ -5930,6 +6057,14 @@ const mapWebhookTopicToGraphql = (topic) => {
 
 const registerShopifyWebhook = async (req, res) => {
   try {
+    logIncomingRequest(log, {
+      method: req.method,
+      path: req.originalUrl || req.url,
+      functionName: 'registerShopifyWebhook',
+      accountKey: req.body?.account_key || req.query?.account_key,
+      body: req.body,
+      query: req.query,
+    });
     let accessToken = req.body?.access_token || req.headers['x-shopify-access-token'];
     const authHeader = req.headers?.authorization || req.headers?.Authorization;
 
@@ -5948,10 +6083,12 @@ const registerShopifyWebhook = async (req, res) => {
     const apiVersion = process.env.SHOPIFY_API_VERSION || '2025-10';
 
     if (!accessToken || !storeName) {
+      log('registerShopifyWebhook rejected: missing access_token/storeName');
       return sendApiError(res, 400, "Missing required parameters: access_token and storeName");
     }
 
     if (!webhook || typeof webhook !== 'object') {
+      log('registerShopifyWebhook rejected: missing webhook object');
       return sendApiError(res, 400, "Missing required object: webhook");
     }
 
@@ -5959,20 +6096,24 @@ const registerShopifyWebhook = async (req, res) => {
     const address = webhook.address ? String(webhook.address) : null;
 
     if (!topic || !address) {
+      log('registerShopifyWebhook rejected: missing webhook.topic/address');
       return sendApiError(res, 400, "webhook.topic and webhook.address are required");
     }
 
     if (!address.toLowerCase().startsWith('https://')) {
+      log('registerShopifyWebhook rejected: webhook.address not https');
       return sendApiError(res, 400, "webhook.address must be an https URL");
     }
 
     const shopDomain = normalizeShopDomain(storeName);
     if (!shopDomain || !shopDomain.match(/^[a-z0-9][a-z0-9-]*\.myshopify\.com$/)) {
+      log('registerShopifyWebhook rejected: invalid storeName %s', storeName);
       return sendApiError(res, 400, "Invalid storeName. Expected shopname or shopname.myshopify.com");
     }
 
     const gqlTopic = mapWebhookTopicToGraphql(topic);
     if (!gqlTopic) {
+      log('registerShopifyWebhook rejected: unsupported topic %s', topic);
       return sendApiError(res, 400, "Unsupported webhook.topic for GraphQL. Use \"products/delete\" or an enum like \"PRODUCTS_DELETE\".");
     }
 
@@ -6023,6 +6164,7 @@ const registerShopifyWebhook = async (req, res) => {
       throw error;
     }
 
+    log('Success in registerShopifyWebhook: shop=%s topic=%s webhookId=%s', shopDomain, topic, payload.webhookSubscription?.id || null);
     return res.status(200).json({
       success: true,
       shopDomain,
@@ -6053,6 +6195,14 @@ const registerShopifyWebhook = async (req, res) => {
  */
 const registerShopifyOrderCreateWebhook = async (req, res) => {
   try {
+    logIncomingRequest(log, {
+      method: req.method,
+      path: req.originalUrl || req.url,
+      functionName: 'registerShopifyOrderCreateWebhook',
+      accountKey: req.body?.account_key || req.query?.account_key,
+      body: req.body,
+      query: req.query,
+    });
     let accessToken = req.body?.access_token || req.headers['x-shopify-access-token'];
     const authHeader = req.headers?.authorization || req.headers?.Authorization;
     if (!accessToken && authHeader && authHeader.startsWith('Bearer ')) {
@@ -6075,6 +6225,7 @@ const registerShopifyOrderCreateWebhook = async (req, res) => {
     const apiVersion = process.env.SHOPIFY_API_VERSION || '2025-10';
 
     if (!accessToken || !storeName) {
+      log('registerShopifyOrderCreateWebhook rejected: missing access_token/storeName');
       return sendApiError(res, 400, "Missing required parameters: access_token and storeName (or shop)");
     }
 
@@ -6083,11 +6234,13 @@ const registerShopifyOrderCreateWebhook = async (req, res) => {
       typeof address !== 'string' ||
       !address.trim().toLowerCase().startsWith('https://')
     ) {
+      log('registerShopifyOrderCreateWebhook rejected: missing/invalid webhook address');
       return sendApiError(res, 400, "Missing or invalid webhook address. Provide body.address or set SHOPIFY_ORDER_CREATE_WEBHOOK_URL (must be https).");
     }
 
     const shopDomain = normalizeShopDomain(storeName);
     if (!shopDomain || !shopDomain.match(/^[a-z0-9][a-z0-9-]*\.myshopify\.com$/)) {
+      log('registerShopifyOrderCreateWebhook rejected: invalid storeName %s', storeName);
       return sendApiError(res, 400, "Invalid storeName. Expected shopname or shopname.myshopify.com");
     }
 
@@ -6116,11 +6269,13 @@ const registerShopifyOrderCreateWebhook = async (req, res) => {
       const message = Array.isArray(resp.data.errors)
         ? resp.data.errors.map((e) => e.message).join('; ')
         : 'Unknown GraphQL error';
+      log('registerShopifyOrderCreateWebhook: Shopify GraphQL error for shop=%s: %s', shopDomain, message);
       return sendApiError(res, 502, message);
     }
 
     const payload = resp.data?.data?.webhookSubscriptionCreate;
     if (!payload) {
+      log('registerShopifyOrderCreateWebhook: invalid Shopify response for shop=%s', shopDomain);
       return sendApiError(res, 502, "Invalid Shopify response for webhookSubscriptionCreate");
     }
 
@@ -6128,9 +6283,11 @@ const registerShopifyOrderCreateWebhook = async (req, res) => {
       const message = payload.userErrors
         .map((e) => `${e.field ? e.field.join('.') : 'error'}: ${e.message}`)
         .join('; ');
+      log('registerShopifyOrderCreateWebhook rejected by Shopify for shop=%s: %s', shopDomain, message);
       return sendApiError(res, 400, message, { errors: payload.userErrors });
     }
 
+    log('Success in registerShopifyOrderCreateWebhook: shop=%s webhookId=%s', shopDomain, payload.webhookSubscription?.id || null);
     return res.status(200).json({
       success: true,
       topic: 'orders/create',
@@ -6161,6 +6318,14 @@ const registerShopifyOrderCreateWebhook = async (req, res) => {
 // - access_token (body/header/bearer)
 const listShopifyWebhooks = async (req, res) => {
   try {
+    logIncomingRequest(log, {
+      method: req.method,
+      path: req.originalUrl || req.url,
+      functionName: 'listShopifyWebhooks',
+      accountKey: req.body?.account_key || req.query?.account_key,
+      body: req.body,
+      query: req.query,
+    });
     let accessToken = req.body?.access_token || req.headers['x-shopify-access-token'];
     const authHeader = req.headers?.authorization || req.headers?.Authorization;
 
@@ -6178,11 +6343,13 @@ const listShopifyWebhooks = async (req, res) => {
     const apiVersion = process.env.SHOPIFY_API_VERSION || '2025-10';
 
     if (!accessToken || !storeName) {
+      log('listShopifyWebhooks rejected: missing access_token/storeName');
       return sendApiError(res, 400, "Missing required parameters: access_token and storeName");
     }
 
     const shopDomain = normalizeShopDomain(storeName);
     if (!shopDomain || !shopDomain.match(/^[a-z0-9][a-z0-9-]*\.myshopify\.com$/)) {
+      log('listShopifyWebhooks rejected: invalid storeName %s', storeName);
       return sendApiError(res, 400, "Invalid storeName. Expected shopname or shopname.myshopify.com");
     }
 
@@ -6191,8 +6358,8 @@ const listShopifyWebhooks = async (req, res) => {
       'X-Shopify-Access-Token': accessToken,
       Accept: 'application/json',
     };
-    console.log('came herererererer');
     const resp = await axios.get(endpoint, { headers });
+    log('Success in listShopifyWebhooks: shop=%s count=%d', shopDomain, (resp.data?.webhooks || []).length);
 
     return res.status(200).json({
       success: true,
@@ -6224,6 +6391,14 @@ const listShopifyWebhooks = async (req, res) => {
 // - webhook_id/id (body/query)
 const deleteShopifyWebhookById = async (req, res) => {
   try {
+    logIncomingRequest(log, {
+      method: req.method,
+      path: req.originalUrl || req.url,
+      functionName: 'deleteShopifyWebhookById',
+      accountKey: req.body?.account_key || req.query?.account_key,
+      body: req.body,
+      query: req.query,
+    });
     let accessToken = req.body?.access_token || req.headers['x-shopify-access-token'];
     const authHeader = req.headers?.authorization || req.headers?.Authorization;
 
@@ -6249,20 +6424,24 @@ const deleteShopifyWebhookById = async (req, res) => {
     const apiVersion = process.env.SHOPIFY_API_VERSION || '2025-10';
 
     if (!accessToken || !storeName) {
+      log('deleteShopifyWebhookById rejected: missing access_token/storeName');
       return sendApiError(res, 400, "Missing required parameters: access_token and storeName");
     }
 
     if (!webhookIdRaw) {
+      log('deleteShopifyWebhookById rejected: missing webhook_id');
       return sendApiError(res, 400, "Missing required parameter: webhook_id");
     }
 
     const webhookId = String(webhookIdRaw).trim();
     if (!/^\d+$/.test(webhookId)) {
+      log('deleteShopifyWebhookById rejected: non-numeric webhook_id %s', webhookId);
       return sendApiError(res, 400, "webhook_id must be a numeric id");
     }
 
     const shopDomain = normalizeShopDomain(storeName);
     if (!shopDomain || !shopDomain.match(/^[a-z0-9][a-z0-9-]*\.myshopify\.com$/)) {
+      log('deleteShopifyWebhookById rejected: invalid storeName %s', storeName);
       return sendApiError(res, 400, "Invalid storeName. Expected shopname or shopname.myshopify.com");
     }
 
@@ -6273,6 +6452,7 @@ const deleteShopifyWebhookById = async (req, res) => {
     };
 
     await axios.delete(endpoint, { headers });
+    log('Success in deleteShopifyWebhookById: shop=%s webhook_id=%s', shopDomain, webhookId);
 
     return res.status(200).json({
       success: true,
@@ -6453,7 +6633,6 @@ const ACCOUNT_INFO_URL =
 const ACCOUNT_INFO_SECRET = 'XSiLA7OpH5RdUsljgBD9VaJ1kr6euQz3F4Ny0Iq2tcCEnoYG';
 
 const fetchAccountInfoByShop = async () => {
-  console.log('entererererer');
   const resp = await axios.post(
     ACCOUNT_INFO_URL,
     { secret: ACCOUNT_INFO_SECRET },
@@ -6462,12 +6641,11 @@ const fetchAccountInfoByShop = async () => {
       timeout: 10000,
     }
   );
-  console.log('resp=====', resp);
+  log('fetchAccountInfoByShop: response status=%s', resp.status);
   return resp?.data || null;
 };
 
 const fetchAccountInfoByShopV2 = async (shop) => {
-  console.log('entererererer');
   const resp = await axios.post(
     ACCOUNT_INFO_URL,
     { shop: shop },
@@ -6476,13 +6654,13 @@ const fetchAccountInfoByShopV2 = async (shop) => {
       timeout: 10000,
     }
   );
-  console.log('resp=====', resp);
+  log('fetchAccountInfoByShopV2: shop=%s response status=%s', shop, resp.status);
   return resp?.data || null;
 };
 
 /** Fetch account info (access_token, account_key) for a specific shop. Used by webhooks that have X-Shopify-Shop-Domain. */
 const fetchAccountInfoByShopDomain = async (shopDomain) => {
-  console.log('herererererererere', shopDomain);
+  log('fetchAccountInfoByShopDomain: shop=%s', shopDomain);
   if (!shopDomain) return null;
   const resp = await axios.post(
     ACCOUNT_INFO_URL,
@@ -6653,6 +6831,14 @@ const transformShopifyOrderToOrdersPayload = (order) => {
  */
 const shopifyOrdersCreateWebhook = async (req, res) => {
   try {
+    logIncomingRequest(log, {
+      method: req.method,
+      path: req.originalUrl || req.url,
+      functionName: 'shopifyOrdersCreateWebhook',
+      accountKey: req.body?.account_key || req.query?.account_key,
+      body: req.body,
+      query: req.query,
+    });
     const apiVersion = process.env.SHOPIFY_API_VERSION || '2025-10';
     log('shopifyOrdersCreateWebhook hit');
 
@@ -6677,7 +6863,7 @@ const shopifyOrdersCreateWebhook = async (req, res) => {
     let accountInfo = null;
     try {
       accountInfo = await fetchAccountInfoByShopDomain(shopDomain);
-      console.log('accountInfo===', accountInfo);
+      log('accountInfo lookup by shop domain: %s', redactAndTruncate(accountInfo));
       if (!accountInfo?.access_token) {
         accountInfo = await fetchAccountInfoByShop();
       }
@@ -6879,8 +7065,7 @@ const shopifyProductDeleteWebhook = async (req, res) => {
     try {
       log('fetching account info');
       accountInfo = await fetchAccountInfoByShopV2(shopDomain);
-      console.log('accountInfo====', accountInfo);
-      log('account info fetched success=%s', accountInfo?.success);
+      log('accountInfo lookup by shop v2: %s', redactAndTruncate(accountInfo));
     } catch (lookupErr) {
       log('account info fetch failed status=%s message=%s', lookupErr?.response?.status || 500, lookupErr?.message);
       return sendApiError(res, lookupErr);

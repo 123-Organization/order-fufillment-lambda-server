@@ -2,6 +2,7 @@ const debug = require('debug');
 const Joi = require('joi');
 const log = debug('app:virtualInventory');
 const finerworksService = require('../helpers/finerworks-service');
+const { logIncomingRequest, redactAndTruncate } = require('../helpers/request-log');
 log('get virtual inventory api');
 // # region Get Virtual Inventory
 // Define the validation schema
@@ -20,8 +21,17 @@ const listVirtualInventorySchema = Joi.object({
 });
 // Middleware for validation
 exports.validateListVirtualInventory = async (req, res, next) => {
+    logIncomingRequest(log, {
+        method: req.method,
+        path: req.originalUrl || req.url,
+        functionName: 'validateListVirtualInventory',
+        accountKey: req.body?.account_key,
+        body: req.body,
+        query: req.query,
+    });
     const { error, value } = listVirtualInventorySchema.validate(req.body);
     if (error) {
+        log('validateListVirtualInventory rejected: %s', error.details[0].message);
         return res.status(400).json({
             statusCode: 400,
             status: false,
@@ -107,6 +117,14 @@ exports.getProductBySku = async (req, res) => {
  */
 exports.listVirtualInventory = async (req, res) => {
     try {
+        logIncomingRequest(log, {
+            method: req.method,
+            path: req.originalUrl || req.url,
+            functionName: 'listVirtualInventory',
+            accountKey: req.body?.account_key,
+            body: req.body,
+            query: req.query,
+        });
         const reqBody = JSON.parse(JSON.stringify(req.body));
         const getInformation = await finerworksService.LIST_VIRTUAL_INVENTORY(reqBody);
         if (getInformation && getInformation.status && getInformation.status.success) {
@@ -165,6 +183,14 @@ exports.listVirtualInventory = async (req, res) => {
 
 exports.listVirtualInventoryV2 = async (req, res) => {
     try {
+        logIncomingRequest(log, {
+            method: req.method,
+            path: req.originalUrl || req.url,
+            functionName: 'listVirtualInventoryV2',
+            accountKey: req.body?.account_key,
+            body: req.body,
+            query: req.query,
+        });
         const reqBody = JSON.parse(JSON.stringify(req.body));
         const getInformation = await finerworksService.LIST_VIRTUAL_INVENTORY(reqBody);
         if (getInformation && getInformation.status && getInformation.status.success) {
@@ -255,8 +281,17 @@ const UpdateVirtualInventorySchema = Joi.object({
 });
 // Middleware for validation
 exports.validateUpdateVirtualInventory = async (req, res, next) => {
+    logIncomingRequest(log, {
+        method: req.method,
+        path: req.originalUrl || req.url,
+        functionName: 'validateUpdateVirtualInventory',
+        accountKey: req.body?.account_key,
+        body: req.body,
+        query: req.query,
+    });
     const { error, value } = UpdateVirtualInventorySchema.validate(req.body);
     if (error) {
+        log('validateUpdateVirtualInventory rejected: %s', error.details[0].message);
         return res.status(400).json({
             statusCode: 400,
             status: false,
@@ -275,6 +310,7 @@ exports.validateUpdateVirtualInventory = async (req, res, next) => {
  */
 exports.updateVirtualInventory = async (req, res) => {
     try {
+        log('updateVirtualInventory payload: %s', redactAndTruncate(req.body));
         const reqBody = JSON.parse(JSON.stringify(req.body));
         const getInformation = await finerworksService.UPDATE_VIRTUAL_INVENTORY(reqBody);
         if (getInformation && getInformation.status && getInformation.status.success) {
@@ -339,8 +375,17 @@ const updateWoocommerceProductIdSchema = Joi.object({
 });
 // Middleware for validation
 exports.validateUpdateWoocommerceProductId = async (req, res, next) => {
+    logIncomingRequest(log, {
+        method: req.method,
+        path: req.originalUrl || req.url,
+        functionName: 'validateUpdateWoocommerceProductId',
+        accountKey: req.body?.account_key,
+        body: req.body,
+        query: req.query,
+    });
     const { error, value } = updateWoocommerceProductIdSchema.validate(req.body);
     if (error) {
+        log('validateUpdateWoocommerceProductId rejected: %s', error.details[0].message);
         return res.status(400).json({
             statusCode: 400,
             status: false,
@@ -361,6 +406,7 @@ exports.validateUpdateWoocommerceProductId = async (req, res, next) => {
  */
 exports.updateWoocommerceProductId = async (req, res) => {
     try {
+        log('updateWoocommerceProductId payload: %s', redactAndTruncate(req.body));
         const { account_key, products } = req.body;
         const skuToWoocommerceId = products.reduce((acc, product) => {
             acc[product.sku] = product.woocommerce_product_id;
@@ -466,8 +512,17 @@ const skusSchema = Joi.object({
 });
 // Middleware for validation
 exports.validateSkus = (req, res, next) => {
+    logIncomingRequest(log, {
+        method: req.method,
+        path: req.originalUrl || req.url,
+        functionName: 'validateSkus',
+        accountKey: req.body?.account_key,
+        body: req.body,
+        query: req.query,
+    });
     const { error, value } = skusSchema.validate(req.body);
     if (error) {
+        log('validateSkus rejected: %s', error.details[0].message);
         return res.status(400).json({
             statusCode: 400,
             status: false,
@@ -485,6 +540,7 @@ exports.validateSkus = (req, res, next) => {
  */
 exports.deleteVirtualInventory = async (req, res) => {
     try {
+        log('deleteVirtualInventory payload: %s', redactAndTruncate(req.body));
         const reqBody = JSON.parse(JSON.stringify(req.body));
         const getInformation = await finerworksService.DELETE_VIRTUAL_INVENTORY(reqBody);
         if (getInformation && getInformation.status && getInformation.status.success) {

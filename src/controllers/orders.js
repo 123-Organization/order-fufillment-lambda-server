@@ -4,6 +4,7 @@ const debug = require("debug");
 const log = debug("app:uploadOrders");
 const { validateOrderPayload } = require("./validate-order");
 const { randomUUID: uuidv4 } = require('crypto'); // Use Node's built-in crypto.randomUUID for UUID generation
+const { logIncomingRequest, redactAndTruncate } = require("../helpers/request-log");
 
 log("Orders");
 const axios = require('axios'); // Import axios for making HTTP requests
@@ -138,6 +139,14 @@ const axios = require('axios'); // Import axios for making HTTP requests
 
 exports.viewAllOrders = async (req, res) => {
   try {
+    logIncomingRequest(log, {
+      method: req.method,
+      path: req.originalUrl || req.url,
+      functionName: 'viewAllOrders',
+      accountKey: req.body?.account_key || req.query?.account_key,
+      body: req.body,
+      query: req.query,
+    });
     // Validate request body format
     if (!req.body || typeof req.body !== "object") {
       return res.status(400).json({
@@ -263,6 +272,14 @@ exports.viewAllOrders = async (req, res) => {
 
 exports.viewOrderDetails = async (req, res) => {
   try {
+    logIncomingRequest(log, {
+      method: req.method,
+      path: req.originalUrl || req.url,
+      functionName: 'viewOrderDetails',
+      accountKey: req.body?.account_key || req.query?.account_key,
+      body: req.body,
+      query: req.query,
+    });
     const reqBody = JSON.parse(JSON.stringify(req.body));
 
     if (!reqBody || !reqBody.accountId || !reqBody.orderFullFillmentId) {
@@ -329,8 +346,15 @@ exports.viewOrderDetails = async (req, res) => {
 };
 exports.updateOrderByProductSkuCode = async (req, res) => {
   try {
+    logIncomingRequest(log, {
+      method: req.method,
+      path: req.originalUrl || req.url,
+      functionName: 'updateOrderByProductSkuCode',
+      accountKey: req.body?.account_key || req.query?.account_key,
+      body: req.body,
+      query: req.query,
+    });
     const reqBody = JSON.parse(JSON.stringify(req.body));
-    console.log("testinggggggggg", req.body);
     let getProductDetails
 
     if (!reqBody.orderFullFillmentId) {
@@ -548,6 +572,14 @@ exports.updateOrderByProductSkuCode = async (req, res) => {
 
 exports.updateOrderByValidProductSkuCode = async (req, res) => {
   try {
+    logIncomingRequest(log, {
+      method: req.method,
+      path: req.originalUrl || req.url,
+      functionName: 'updateOrderByValidProductSkuCode',
+      accountKey: req.body?.account_key || req.query?.account_key,
+      body: req.body,
+      query: req.query,
+    });
     const reqBody = JSON.parse(JSON.stringify(req.body));
     let getProductDetails
 
@@ -754,6 +786,14 @@ function generateGUID() {
 }
 exports.createNewOrder = async (req, res) => {
   try {
+    logIncomingRequest(log, {
+      method: req.method,
+      path: req.originalUrl || req.url,
+      functionName: 'createNewOrder',
+      accountKey: req.body?.account_key || req.query?.account_key,
+      body: req.body,
+      query: req.query,
+    });
     const reqBody = JSON.parse(JSON.stringify(req.body));
     if (
       !reqBody.accountId ||
@@ -901,6 +941,14 @@ exports.createNewOrder = async (req, res) => {
 
 exports.deleteOrder = async (req, res) => {
   try {
+    logIncomingRequest(log, {
+      method: req.method,
+      path: req.originalUrl || req.url,
+      functionName: 'deleteOrder',
+      accountKey: req.body?.account_key || req.query?.account_key,
+      body: req.body,
+      query: req.query,
+    });
     const reqBody = JSON.parse(JSON.stringify(req.body));
     const { accountId, orderFullFillmentId } = reqBody;
 
@@ -1004,6 +1052,14 @@ exports.deleteOrder = async (req, res) => {
 
 exports.submitOrders = async (req, res) => {
   try {
+    logIncomingRequest(log, {
+      method: req.method,
+      path: req.originalUrl || req.url,
+      functionName: 'submitOrders',
+      accountKey: req.body?.account_key || req.query?.account_key,
+      body: req.body,
+      query: req.query,
+    });
     const reqBody = JSON.parse(JSON.stringify(req.body));
     if (!reqBody?.orders || !reqBody?.payment_token || !reqBody?.accountId || !reqBody?.account_key) {
       res.status(400).json({
@@ -1109,6 +1165,14 @@ exports.submitOrders = async (req, res) => {
 
 exports.submitOrdersV2 = async (req, res) => {
   try {
+    logIncomingRequest(log, {
+      method: req.method,
+      path: req.originalUrl || req.url,
+      functionName: 'submitOrdersV2',
+      accountKey: req.body?.account_key || req.query?.account_key,
+      body: req.body,
+      query: req.query,
+    });
     const reqBody = JSON.parse(JSON.stringify(req.body));
     if (!reqBody?.orders || !reqBody?.accountId || !reqBody?.account_key) {
       res.status(400).json({
@@ -1270,6 +1334,14 @@ exports.submitOrdersV2 = async (req, res) => {
 
 exports.orderSubmitStatus = async (req, res) => {
   try {
+    logIncomingRequest(log, {
+      method: req.method,
+      path: req.originalUrl || req.url,
+      functionName: 'orderSubmitStatus',
+      accountKey: req.body?.account_key || req.query?.account_key,
+      body: req.body,
+      query: req.query,
+    });
     const reqBody = JSON.parse(JSON.stringify(req.body));
     if (!reqBody.accountId || !reqBody.account_key || !reqBody.orderId) {
       res.status(400).json({
@@ -1339,6 +1411,14 @@ exports.orderSubmitStatus = async (req, res) => {
 
 exports.orderSubmitStatusBulk = async (req, res) => {
   try {
+    logIncomingRequest(log, {
+      method: req.method,
+      path: req.originalUrl || req.url,
+      functionName: 'orderSubmitStatusBulk',
+      accountKey: req.body?.account_key || req.query?.account_key,
+      body: req.body,
+      query: req.query,
+    });
     const reqBody = JSON.parse(JSON.stringify(req.body));
     const { account_key, orderIds } = reqBody;
 
@@ -1405,6 +1485,14 @@ exports.orderSubmitStatusBulk = async (req, res) => {
 
 exports.getOrderPrice = async (req, res) => {
   try {
+    logIncomingRequest(log, {
+      method: req.method,
+      path: req.originalUrl || req.url,
+      functionName: 'getOrderPrice',
+      accountKey: req.body?.account_key || req.query?.account_key,
+      body: req.body,
+      query: req.query,
+    });
     const reqBody = JSON.parse(JSON.stringify(req.body));
     if (!reqBody?.orderId) {
       res.status(400).json({
@@ -1468,6 +1556,14 @@ exports.getOrderPrice = async (req, res) => {
 
 exports.getOrderDetailsById = async (req, res) => {
   try {
+    logIncomingRequest(log, {
+      method: req.method,
+      path: req.originalUrl || req.url,
+      functionName: 'getOrderDetailsById',
+      accountKey: req.body?.account_key || req.query?.account_key,
+      body: req.body,
+      query: req.query,
+    });
     console.log("hererererere");
     const reqBody = JSON.parse(JSON.stringify(req.body));
 
@@ -1616,6 +1712,14 @@ const callApiWithMissingOrders = async (missingOrders, platformName, res, domain
 
 exports.softDeleteOrders = async (req, res) => {
   try {
+    logIncomingRequest(log, {
+      method: req.method,
+      path: req.originalUrl || req.url,
+      functionName: 'softDeleteOrders',
+      accountKey: req.body?.account_key || req.query?.account_key,
+      body: req.body,
+      query: req.query,
+    });
     // Validate request body format
     if (!req.body || typeof req.body !== "object") {
       return res.status(400).json({
@@ -1693,6 +1797,14 @@ exports.softDeleteOrders = async (req, res) => {
 
 exports.disconnectAndProcess = async (req, res) => {
   try {
+    logIncomingRequest(log, {
+      method: req.method,
+      path: req.originalUrl || req.url,
+      functionName: 'disconnectAndProcess',
+      accountKey: req.body?.account_key || req.query?.account_key,
+      body: req.body,
+      query: req.query,
+    });
     const { client_id, platformName, domainName } = req.body;
 
     // Validate client_id
@@ -1810,8 +1922,15 @@ exports.disconnectAndProcess = async (req, res) => {
 
 exports.connectAndProcess = async (req, res) => {
   try {
+    logIncomingRequest(log, {
+      method: req.method,
+      path: req.originalUrl || req.url,
+      functionName: 'connectAndProcess',
+      accountKey: req.body?.account_key || req.query?.account_key,
+      body: req.body,
+      query: req.query,
+    });
     const { clientId, account_key } = req.body;
-    console.log("Received body:", req.body, clientId);
 
     // Validate client_id
     if (!clientId) {
@@ -1951,8 +2070,15 @@ exports.connectAndProcess = async (req, res) => {
 
 exports.connectAndProcessOfa = async (req, res) => {
   try {
+    logIncomingRequest(log, {
+      method: req.method,
+      path: req.originalUrl || req.url,
+      functionName: 'connectAndProcessOfa',
+      accountKey: req.body?.account_key || req.query?.account_key,
+      body: req.body,
+      query: req.query,
+    });
     const { domainName, account_key } = req.body;
-    console.log("Received body:", req.body);
 
     // Validate domainName and account_key
     if (!domainName || !account_key) {
@@ -2069,8 +2195,15 @@ exports.connectAndProcessOfa = async (req, res) => {
 
 exports.checkDomain = async (req, res) => {
   try {
+    logIncomingRequest(log, {
+      method: req.method,
+      path: req.originalUrl || req.url,
+      functionName: 'checkDomain',
+      accountKey: req.body?.account_key || req.query?.account_key,
+      body: req.body,
+      query: req.query,
+    });
     const { domainName } = req.body;
-    console.log("Received body:", req.body);
 
     // Validate domainName and account_key
     if (!domainName) {
@@ -2125,8 +2258,15 @@ exports.checkDomain = async (req, res) => {
 
 exports.sendOrderDetails = async (req, res) => {
   try {
+    logIncomingRequest(log, {
+      method: req.method,
+      path: req.originalUrl || req.url,
+      functionName: 'sendOrderDetails',
+      accountKey: req.body?.account_key || req.query?.account_key,
+      body: req.body,
+      query: req.query,
+    });
     const { account_key, orders, domainName } = req.body;
-    console.log("Received body:", req.body);
 
     // Validate domainName and account_key
     if (!account_key) {
@@ -2184,6 +2324,14 @@ exports.sendOrderDetails = async (req, res) => {
 
 exports.updateOrderItemImage = async (req, res) => {
   try {
+    logIncomingRequest(log, {
+      method: req.method,
+      path: req.originalUrl || req.url,
+      functionName: 'updateOrderItemImage',
+      accountKey: req.body?.account_key || req.query?.account_key,
+      body: req.body,
+      query: req.query,
+    });
     const reqBody = JSON.parse(JSON.stringify(req.body));
 
     if (!reqBody.orderFullFillmentId) {
@@ -2258,8 +2406,15 @@ exports.updateOrderItemImage = async (req, res) => {
 
 exports.testAccountKey = async (req, res) => {
   try {
+    logIncomingRequest(log, {
+      method: req.method,
+      path: req.originalUrl || req.url,
+      functionName: 'testAccountKey',
+      accountKey: req.body?.account_key || req.query?.account_key,
+      body: req.body,
+      query: req.query,
+    });
     const { account_key, domainName } = req.body;
-    console.log("Received body:", req.body);
 
     // Validate client_id
     if (!account_key && domainName) {
@@ -2342,6 +2497,14 @@ exports.testAccountKey = async (req, res) => {
 
 exports.disconnectProductsFromInventory = async (req, res) => {
   try {
+    logIncomingRequest(log, {
+      method: req.method,
+      path: req.originalUrl || req.url,
+      functionName: 'disconnectProductsFromInventory',
+      accountKey: req.body?.account_key || req.query?.account_key,
+      body: req.body,
+      query: req.query,
+    });
     const { platform, account_key } = req.body;
 
     // Validate input
