@@ -50,9 +50,13 @@ const apiRoutes = require('./src/controllers/routes');
 const server = http.createServer(app);
 app.use('/api', optionalAccountKeyValidator);
 app.use('/api', apiRoutes);
+// Registered before notFoundHandler so it's actually reachable — app.use() below is a
+// catch-all for every method/path and always responds, so anything registered after it
+// (as this route previously was) never runs.
+app.get('/', (req, res) => {
+  log('Incoming request: GET / (root health check)');
+  res.send('File Management App will run on this port');
+});
 app.use(notFoundHandler);
 app.use(errorHandler);
-app.get('/', (req, res) => {
-  res.send('File Management App will run on this port');
-})
 module.exports = server;

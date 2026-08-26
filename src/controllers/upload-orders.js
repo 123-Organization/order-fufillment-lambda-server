@@ -3,6 +3,7 @@ const finerworksService = require("../helpers/finerworks-service");
 const debug = require("debug");
 const log = debug("app:uploadOrders");
 const Joi = require("joi");
+const { logIncomingRequest, redactAndTruncate } = require("../helpers/request-log");
 log("Upload order");
 
 
@@ -359,8 +360,17 @@ const ordersSchema = Joi.object({
 
 // Middleware for validation
 exports.validateSubmitOrders = async (req, res, next) => {
+  logIncomingRequest(log, {
+    method: req.method,
+    path: req.originalUrl || req.url,
+    functionName: 'validateSubmitOrders',
+    accountKey: req.body?.account_key,
+    body: req.body,
+    query: req.query,
+  });
   const { error, value } = ordersSchema.validate(req.body);
   if (error) {
+    log('validateSubmitOrders rejected: %s', error.details[0].message);
     return res.status(400).json({
       statusCode: 400,
       status: false,
@@ -374,10 +384,19 @@ exports.validateSubmitOrders = async (req, res, next) => {
 
 exports.updateOrder = async (req, res) => {
   try {
+    logIncomingRequest(log, {
+      method: req.method,
+      path: req.originalUrl || req.url,
+      functionName: 'updateOrder',
+      accountKey: req.body?.account_key,
+      body: req.body,
+      query: req.query,
+    });
     const reqBody = JSON.parse(JSON.stringify(req.body));
 
     const { error } = recipientSchema.validate(reqBody?.orders?.[0]?.recipient);
     if (error) {
+      log('updateOrder rejected: %s', error.details[0].message);
       return res.status(400).json({
         statusCode: 400,
         status: false,
@@ -385,6 +404,7 @@ exports.updateOrder = async (req, res) => {
       });
     }
     if (!reqBody || !reqBody?.accountId) {
+      log('updateOrder rejected: missing accountId');
       res.status(400).json({
         statusCode: 400,
         status: false,
@@ -477,8 +497,17 @@ exports.updateOrder = async (req, res) => {
  */
 exports.validateOrders = async (req, res) => {
   try {
+    logIncomingRequest(log, {
+      method: req.method,
+      path: req.originalUrl || req.url,
+      functionName: 'validateOrders',
+      accountKey: req.body?.account_key,
+      body: req.body,
+      query: req.query,
+    });
     const reqBody = JSON.parse(JSON.stringify(req.body));
     if (!reqBody || !reqBody.orders) {
+      log('validateOrders rejected: missing orders');
       res.status(400).json({
         statusCode: 400,
         status: false,
@@ -493,7 +522,7 @@ exports.validateOrders = async (req, res) => {
         validate_only: true,
         account_key: reqBody.account_key
       };
-      console.log("payloadToBeSubmitted=====", payloadToBeSubmitted);
+      log('validateOrders payload to FinerWorks: %s', redactAndTruncate(payloadToBeSubmitted));
       const submitOrders = await finerworksService.SUBMIT_ORDERS(
         payloadToBeSubmitted
       );
@@ -548,8 +577,17 @@ exports.validateOrders = async (req, res) => {
 
 exports.uploadOrdersToLocalDatabaseFromExcel = async (req, res) => {
   try {
+    logIncomingRequest(log, {
+      method: req.method,
+      path: req.originalUrl || req.url,
+      functionName: 'uploadOrdersToLocalDatabaseFromExcel',
+      accountKey: req.body?.account_key,
+      body: req.body,
+      query: req.query,
+    });
     const reqBody = JSON.parse(JSON.stringify(req.body));
     if (!reqBody?.orders) {
+      log('uploadOrdersToLocalDatabaseFromExcel rejected: missing orders');
       res.status(400).json({
         statusCode: 400,
         status: false,
@@ -792,8 +830,17 @@ exports.uploadOrdersToLocalDatabaseFromExcel = async (req, res) => {
 
 exports.uploadOrdersToLocalDatabase = async (req, res) => {
   try {
+    logIncomingRequest(log, {
+      method: req.method,
+      path: req.originalUrl || req.url,
+      functionName: 'uploadOrdersToLocalDatabase',
+      accountKey: req.body?.account_key,
+      body: req.body,
+      query: req.query,
+    });
     const reqBody = JSON.parse(JSON.stringify(req.body));
     if (!reqBody?.orders) {
+      log('uploadOrdersToLocalDatabase rejected: missing orders');
       res.status(400).json({
         statusCode: 400,
         status: false,
@@ -869,8 +916,17 @@ exports.uploadOrdersToLocalDatabase = async (req, res) => {
 
 exports.uploadOrdersToLocalDatabaseShopify = async (req, res) => {
   try {
+    logIncomingRequest(log, {
+      method: req.method,
+      path: req.originalUrl || req.url,
+      functionName: 'uploadOrdersToLocalDatabaseShopify',
+      accountKey: req.body?.account_key,
+      body: req.body,
+      query: req.query,
+    });
     const reqBody = JSON.parse(JSON.stringify(req.body));
     if (!reqBody?.orders) {
+      log('uploadOrdersToLocalDatabaseShopify rejected: missing orders');
       res.status(400).json({
         statusCode: 400,
         status: false,

@@ -2,6 +2,7 @@
 const debug = require('debug');
 const log = debug('app:getCompanyInformation');
 const finerworksService = require('../helpers/finerworks-service');
+const { logIncomingRequest } = require('../helpers/request-log');
 log('get company information api');
 /**
  * Retrieves company information.
@@ -12,6 +13,14 @@ log('get company information api');
  */
 exports.getCompanyInformation = async (req, res) => {
     try {
+        logIncomingRequest(log, {
+            method: req.method,
+            path: req.originalUrl || req.url,
+            functionName: 'getCompanyInformation',
+            accountKey: req.query?.account_key,
+            body: req.body,
+            query: req.query,
+        });
         const reqBody = JSON.parse(JSON.stringify(req.query));
         log('reqBody', JSON.stringify(reqBody));
         const getInformation = await finerworksService.GET_INFO(reqBody);

@@ -4,6 +4,7 @@ const finerworksService = require("../helpers/finerworks-service");
 const debug = require('debug');
 const log = debug('app:shopifyAuth');
 const { sendApiError } = require('../helpers/api-error');
+const { logIncomingRequest, redactAndTruncate } = require('../helpers/request-log');
 
 require('dotenv').config();
 
@@ -64,7 +65,7 @@ const handleShopifyAuth = async (req, res) => {
       code: code
     });
 
-    console.log('Shopify Access Token:', response.data.access_token);
+    log('handleShopifyAuth: Shopify access token received for shop=%s', shop);
     const successLog = JSON.stringify({
       level: 'INFO',
       platform: 'shopify',
@@ -107,6 +108,14 @@ const handleShopifyAuth = async (req, res) => {
 
 const handleShopifyCallback = async (req, res) => {
   try {
+    logIncomingRequest(log, {
+      method: req.method,
+      path: req.originalUrl || req.url,
+      functionName: 'handleShopifyCallback',
+      accountKey: req.body?.account_key,
+      body: req.body,
+      query: req.query,
+    });
     // Get all query parameters
     const queryParams = req.body;
     const account_key = queryParams.account_key;
@@ -114,10 +123,10 @@ const handleShopifyCallback = async (req, res) => {
     delete queryParams.account_key;
     delete queryParams.timestamp;
     // delete queryParams.shop_info;
-    console.log("queryParams=======", queryParams);
+    log('handleShopifyCallback queryParams: %s', redactAndTruncate(queryParams));
 
     const getInformation = await finerworksService.GET_INFO({ account_key: account_key });
-    console.log("getInformation=======", getInformation.user_account.connections);
+    log('handleShopifyCallback existing connections: %s', redactAndTruncate(getInformation.user_account.connections));
     const connections = getInformation.user_account.connections;
     if (connections === null) {
       const payloadForCompanyInformation = {
@@ -133,7 +142,7 @@ const handleShopifyCallback = async (req, res) => {
         account_key: account_key,
         connections: connections2
       };
-      console.log("payloadForCompanyInformation=======>>>>", payloadForCompanyInformationv2);
+      log('handleShopifyCallback payloadForCompanyInformation: %s', redactAndTruncate(payloadForCompanyInformationv2));
       await finerworksService.UPDATE_INFO(payloadForCompanyInformationv2);
       const newConnSuccessLog = JSON.stringify({
         level: 'INFO',
@@ -154,12 +163,12 @@ const handleShopifyCallback = async (req, res) => {
       });
     }
     const filteredConnections = connections.filter(conn => conn.name === 'Shopify');
-    console.log("filteredConnections=======", filteredConnections);
+    log('handleShopifyCallback existing Shopify connections found: %d', filteredConnections.length);
     if (filteredConnections.length > 0) {
       const shopifyIndex = connections.findIndex(conn => conn.name === 'Shopify');
       if (shopifyIndex !== -1) {
         connections.splice(shopifyIndex, 1);
-        console.log("Removed Shopify connection:", connections);
+        log('handleShopifyCallback: removed existing Shopify connection, %d connections remain', connections.length);
         await finerworksService.UPDATE_INFO({ account_key: account_key, connections: connections });
         const payloadForCompanyInformation = {
 
@@ -174,7 +183,7 @@ const handleShopifyCallback = async (req, res) => {
           account_key: account_key,
           connections: connections
         };
-        console.log("payloadForCompanyInformation=======>>>>", payloadForCompanyInformationv2);
+        log('handleShopifyCallback payloadForCompanyInformation: %s', redactAndTruncate(payloadForCompanyInformationv2));
         await finerworksService.UPDATE_INFO(payloadForCompanyInformationv2);
 
 
@@ -211,7 +220,7 @@ const handleShopifyCallback = async (req, res) => {
         account_key: account_key,
         connections: connections
       };
-      console.log("payloadForCompanyInformation=======>>>>", payloadForCompanyInformationv2);
+      log('handleShopifyCallback payloadForCompanyInformation: %s', redactAndTruncate(payloadForCompanyInformationv2));
       await finerworksService.UPDATE_INFO(payloadForCompanyInformationv2);
       const addedConnSuccessLog = JSON.stringify({
         level: 'INFO',
@@ -357,8 +366,17 @@ const handleShopifyInstall = async (req, res) => {
  */
 const handleShopifyDisconnect = async (req, res) => {
   try {
+    logIncomingRequest(log, {
+      method: req.method,
+      path: req.originalUrl || req.url,
+      functionName: 'handleShopifyDisconnect',
+      accountKey: req.body?.account_key,
+      body: req.body,
+      query: req.query,
+    });
     const account_key = req.body?.account_key;
     if (!account_key) {
+      log('handleShopifyDisconnect rejected: missing account_key');
       return sendApiError(res, 400, 'Missing required parameter: account_key');
     }
 
@@ -450,14 +468,23 @@ const handleShopifyDisconnect = async (req, res) => {
  */
 const disconnectShopifyFromOfa = async (req, res) => {
   try {
+    logIncomingRequest(log, {
+      method: req.method,
+      path: req.originalUrl || req.url,
+      functionName: 'disconnectShopifyFromOfa',
+      accountKey: req.body?.account_key,
+      body: req.body,
+      query: req.query,
+    });
     const { storeName, account_key } = req.body || {};
     if (!storeName) {
+      log('disconnectShopifyFromOfa rejected: missing storeName');
       return sendApiError(res, 400, 'Missing required parameters: shop and secret');
     }
     if (!account_key) {
+      log('disconnectShopifyFromOfa rejected: missing account_key');
       return sendApiError(res, 400, 'Missing required parameter: account_key');
     }
-    console.log('hello');
 
     let disconnectResponse;
     try {
