@@ -6943,7 +6943,10 @@ const shopifyOrdersCreateWebhook = async (req, res) => {
     const finalPayload = {
       orders: [transformedOrder],
       validate_only: false,
-      payment_token: 'xxxx',
+      // No live checkout is happening for a webhook-triggered submission, so there's no real
+      // payment_token to forward — same placeholder pattern used by the Wix/Square equivalents
+      // (wix-order-create-webhook.js, platform-order-sync.js), overridable per-deployment via env.
+      payment_token: process.env.SHOPIFY_WEBHOOK_PAYMENT_TOKEN || 'xxxx',
       account_key: accountKey,
     };
 
@@ -6999,9 +7002,43 @@ const shopifyOrdersCreateWebhook = async (req, res) => {
         log('appendOrderNote failed: %s', noteErr?.message);
       }
     } catch (submitErr) {
-      log('SUBMIT_ORDERS failed: %s', submitErr?.message);
-      console.log(JSON.stringify(submitErr));
-      return sendApiError(res, 502, "Order submitted to FinerWorks failed");
+      // JSON.stringify(Error) prints "{}" — Error properties aren't enumerable — so this used to
+      // discard the actual reason FinerWorks rejected the order. Pull it from the axios error's
+      // response body instead, same as every other FinerWorks call in this codebase does.
+      const httpStatus = submitErr?.response?.status || null;
+      const rawData = submitErr?.response?.data;
+      // Don't assume FinerWorks' error body has a `.message`/`.error` field — capture whatever
+      // shape it actually is (object, array, string) so nothing gets silently dropped the way
+      // JSON.stringify(Error) did before. Only fall back to axios's generic message if there's
+      // truly no response body at all.
+      const detailForLog =
+        rawData && typeof rawData === 'object'
+          ? rawData
+          : typeof rawData === 'string' && rawData.trim()
+            ? rawData.slice(0, 1000)
+            : submitErr?.message || 'Unknown error';
+      // sendApiError's sanitizer re-applies its field-name allowlist recursively into nested
+      // objects — an object `detail` would likely come back as {} again unless FinerWorks
+      // happens to use our exact field names. A string survives that allowlist untouched (it's
+      // only object values that get recursively filtered), so stringify before it goes to the
+      // caller; the structured object above is what's actually logged server-side.
+      const detailForResponse =
+        typeof detailForLog === 'string' ? detailForLog : JSON.stringify(detailForLog).slice(0, 1000);
+      console.error(JSON.stringify({
+        level: 'ERROR',
+        platform: 'finerworks',
+        source: 'finerworks_api',
+        function: 'shopifyOrdersCreateWebhook',
+        shop: shopDomain,
+        orderId,
+        httpStatus,
+        message: 'SUBMIT_ORDERS failed',
+        detail: detailForLog,
+        payloadSent: finalPayload,
+        timestamp: new Date().toISOString(),
+      }));
+      log('SUBMIT_ORDERS failed: httpStatus=%s detail=%s', httpStatus, JSON.stringify(detailForLog));
+      return sendApiError(res, 502, "Order submission to FinerWorks failed", { httpStatus, detail: detailForResponse });
     }
 
     return res.status(200).json({
