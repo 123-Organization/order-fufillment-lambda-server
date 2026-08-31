@@ -396,38 +396,43 @@ exports.updateOrderByProductSkuCode = async (req, res) => {
         message: "Sku code or Product Guid is required",
       });
     }
+    if (!reqBody.account_key) {
+      return res.status(400).json({
+        statusCode: 400,
+        status: false,
+        message: "Account key is missing or invalid.",
+      });
+    }
 
     // Fetch first if order is exist
     log(
       "Request comes to get order details to update product details",
       JSON.stringify(reqBody)
     );
-    const selectPayload = {
-      query: `SELECT * FROM ${process.env.FINER_fwAPI_FULFILLMENTS_TABLE} WHERE  FulfillmentID=${reqBody.orderFullFillmentId}`,
-    };
-    console.log("selectPayload=====>>>>>", selectPayload);
-    log("Select query to fetch the orders", JSON.stringify(selectPayload));
-    const selectData = await finerworksService.SELECT_QUERY_FINERWORKS(
-      selectPayload
+    // Live FinerWorks pending order instead of the local raw-SQL row — list_pending_orders
+    // returns the order already decoded, so no FulfillmentData/urlDecodeJSON step is needed.
+    const listPendingData = await finerworksService.LIST_PENDING_ORDERS({
+      account_key: reqBody.account_key,
+    });
+    const pendingOrders = Array.isArray(listPendingData?.orders) ? listPendingData.orders : [];
+    const orderDetails = pendingOrders.find(
+      (o) => String(o.fulfillment_id) === String(reqBody.orderFullFillmentId)
     );
-    // console.log("selectData=====>>>>>", selectData);
-
-    log("Order Data", JSON.stringify(selectData));
-    if (selectData?.data.length === 0) {
-      res.status(400).json({
+    log("Order Data", JSON.stringify(orderDetails));
+    if (!orderDetails) {
+      return res.status(400).json({
         statusCode: 400,
         status: false,
         message: "Invalid order. Please try with valid order.",
       });
     }
-    const orderDetails = selectData.data[0];
     // If order exist then find the product details
     const { skuCode, productCode, fromTheInventory, account_key, product_guid } = reqBody;
     const searchListVirtualInventoryParams = {};
-    if (skuCode !== "") {
+    if (skuCode) {
       searchListVirtualInventoryParams.sku_filter = [skuCode];
     }
-    if (productCode !== "") {
+    if (productCode) {
       searchListVirtualInventoryParams.product_code_filter = [productCode];
     }
     if (account_key) {
@@ -439,10 +444,7 @@ exports.updateOrderByProductSkuCode = async (req, res) => {
     );
     console.log("okkkkkkkkkkkkkkkkkkkkkkkkkk")
     if (skuCode || fromTheInventory) {
-      console.log("selectData============", selectData);
-      const orderDetail = urlDecodeJSON(selectData.data[0].FulfillmentData);
-      console.log("orderDetail", orderDetail);
-      const orderFound = orderDetail.order_items.filter((item) => {
+      const orderFound = orderDetails.order_items.filter((item) => {
         return item.product_sku === skuCode
       })
       console.log("orderFound======>>>>", orderFound);
@@ -469,7 +471,7 @@ exports.updateOrderByProductSkuCode = async (req, res) => {
       if (getProductDetails?.status?.success) {
         const product = getProductDetails.products;
         console.log("product====", product)
-        const previousOrder = urlDecodeJSON(orderDetails.FulfillmentData);
+        const previousOrder = JSON.parse(JSON.stringify(orderDetails));
         const orderData = {
           product_qty: product?.[0]?.quantity ?? null,
           product_sku: product?.[0]?.sku ? product?.[0]?.sku : product?.[0]?.product_code,
@@ -485,15 +487,16 @@ exports.updateOrderByProductSkuCode = async (req, res) => {
         console.log("orderData====>>>>", orderData);
         previousOrder.order_items.push(orderData);
         console.log(previousOrder, "previousOrder")
-        const urlEncodedData = urlEncodeJSON(previousOrder);
-        const updatePayload = {
-          tablename: process.env.FINER_fwAPI_FULFILLMENTS_TABLE,
-          fieldupdates: `FulfillmentData='${urlEncodedData}'`,
-          where: `FulfillmentID=${reqBody.orderFullFillmentId}`,
+        previousOrder.fulfillment_id = reqBody.orderFullFillmentId;
+        const savePayload = {
+          orders: [previousOrder],
+          source: previousOrder.source || "web",
+          account_key: reqBody.account_key ?? null,
         };
-        const updateQueryExecute =
-          await finerworksService.UPDATE_QUERY_FINERWORKS(updatePayload);
-        if (updateQueryExecute) {
+        log("save_pending_orders payload", JSON.stringify(savePayload));
+        const saveData = await finerworksService.SAVE_PENDING_ORDERS(savePayload);
+        log("save_pending_orders response", JSON.stringify(saveData));
+        if (saveData?.status?.success) {
           res.status(200).json({
             statusCode: 200,
             status: true,
@@ -535,7 +538,7 @@ exports.updateOrderByProductSkuCode = async (req, res) => {
         const products = skuCode
           ? getProductDetails.products
           : getProductDetails.product_list;
-        const previousOrder = urlDecodeJSON(orderDetails.FulfillmentData);
+        const previousOrder = JSON.parse(JSON.stringify(orderDetails));
         const orderData = reqBody.product_url_file.map((url, index) =>
           buildUpdatedOrderItem({
             products,
@@ -552,17 +555,16 @@ exports.updateOrderByProductSkuCode = async (req, res) => {
           })
         }
         log("Previous order is", JSON.stringify(previousOrder));
-        // update order
-        const urlEncodedData = urlEncodeJSON(previousOrder);
-        const updatePayload = {
-          tablename: process.env.FINER_fwAPI_FULFILLMENTS_TABLE,
-          fieldupdates: `FulfillmentData='${urlEncodedData}'`,
-          where: `FulfillmentID=${reqBody.orderFullFillmentId}`,
+        // save order back to FinerWorks
+        previousOrder.fulfillment_id = reqBody.orderFullFillmentId;
+        const savePayload = {
+          orders: [previousOrder],
+          source: previousOrder.source || "web",
+          account_key: reqBody.account_key ?? null,
         };
-        console.log("updatePayload=====", updatePayload);
-        const updateQueryExecute =
-          await finerworksService.UPDATE_QUERY_FINERWORKS(updatePayload);
-        if (updateQueryExecute) {
+        console.log("savePayload=====", savePayload);
+        const saveData = await finerworksService.SAVE_PENDING_ORDERS(savePayload);
+        if (saveData?.status?.success) {
           res.status(200).json({
             statusCode: 200,
             status: true,
@@ -580,7 +582,7 @@ exports.updateOrderByProductSkuCode = async (req, res) => {
     }
 
   } catch (err) {
-    const errorMessage = err.response.data;
+    const errorMessage = err.response?.data || err.message || "Unknown error";
     res.status(400).json({
       statusCode: 400,
       status: false,
@@ -617,37 +619,43 @@ exports.updateOrderByValidProductSkuCode = async (req, res) => {
         message: "Sku code or Product Guid is required",
       });
     }
+    if (!reqBody.account_key) {
+      return res.status(400).json({
+        statusCode: 400,
+        status: false,
+        message: "Account key is missing or invalid.",
+      });
+    }
 
     // Fetch first if order is exist
     log(
       "Request comes to get order details to update product details",
       JSON.stringify(reqBody)
     );
-    const selectPayload = {
-      query: `SELECT * FROM ${process.env.FINER_fwAPI_FULFILLMENTS_TABLE} WHERE  FulfillmentID=${reqBody.orderFullFillmentId} AND FulfillmentAccountID=${reqBody.accountId}`,
-    };
-    console.log("selectPayload=====>>>>>", selectPayload);
-    log("Select query to fetch the orders", JSON.stringify(selectPayload));
-    const selectData = await finerworksService.SELECT_QUERY_FINERWORKS(
-      selectPayload
+    // Live FinerWorks pending order instead of the local raw-SQL row — list_pending_orders
+    // returns the order already decoded, so no FulfillmentData/urlDecodeJSON step is needed.
+    const listPendingData = await finerworksService.LIST_PENDING_ORDERS({
+      account_key: reqBody.account_key,
+    });
+    const pendingOrders = Array.isArray(listPendingData?.orders) ? listPendingData.orders : [];
+    const orderDetails = pendingOrders.find(
+      (o) => String(o.fulfillment_id) === String(reqBody.orderFullFillmentId)
     );
-
-    log("Order Data", JSON.stringify(selectData));
-    if (selectData?.data.length === 0) {
-      res.status(400).json({
+    log("Order Data", JSON.stringify(orderDetails));
+    if (!orderDetails) {
+      return res.status(400).json({
         statusCode: 400,
         status: false,
         message: "Invalid order. Please try with valid order.",
       });
     }
-    const orderDetails = selectData.data[0];
     // If order exist then find the product details
     const { skuCode, productCode, fromTheInventory, account_key, toReplace } = reqBody;
     const searchListVirtualInventoryParams = {};
-    if (skuCode !== "") {
+    if (skuCode) {
       searchListVirtualInventoryParams.sku_filter = [skuCode];
     }
-    if (productCode !== "") {
+    if (productCode) {
       searchListVirtualInventoryParams.product_code_filter = [productCode];
     }
     if (account_key) {
@@ -674,7 +682,7 @@ exports.updateOrderByValidProductSkuCode = async (req, res) => {
       if (getProductDetails?.status?.success) {
         const product = getProductDetails.products;
         console.log("product====", product)
-        const previousOrder = urlDecodeJSON(orderDetails.FulfillmentData);
+        const previousOrder = JSON.parse(JSON.stringify(orderDetails));
         const orderData = {
           product_qty: product?.[0]?.quantity ?? null,
           product_sku: product?.[0]?.sku ? product?.[0]?.sku : product?.[0]?.product_code,
@@ -692,21 +700,21 @@ exports.updateOrderByValidProductSkuCode = async (req, res) => {
         const updatedOrder = updateOrderItems(previousOrder, orderData, toReplace);
 
         console.log("updatedOrder", updatedOrder);
-        // previousOrder.order_items.push(orderData);
-        const urlEncodedData = urlEncodeJSON(updatedOrder);
-        const updatePayload = {
-          tablename: process.env.FINER_fwAPI_FULFILLMENTS_TABLE,
-          fieldupdates: `FulfillmentData='${urlEncodedData}'`,
-          where: `FulfillmentID=${reqBody.orderFullFillmentId}`,
+        updatedOrder.fulfillment_id = reqBody.orderFullFillmentId;
+        const savePayload = {
+          orders: [updatedOrder],
+          source: updatedOrder.source || "web",
+          account_key: reqBody.account_key ?? null,
         };
-        const updateQueryExecute =
-          await finerworksService.UPDATE_QUERY_FINERWORKS(updatePayload);
-        if (updateQueryExecute) {
+        log("save_pending_orders payload", JSON.stringify(savePayload));
+        const saveData = await finerworksService.SAVE_PENDING_ORDERS(savePayload);
+        log("save_pending_orders response", JSON.stringify(saveData));
+        if (saveData?.status?.success) {
           res.status(200).json({
             statusCode: 200,
             status: true,
             message: "Orders have been successfully updated",
-            data: previousOrder,
+            data: updatedOrder,
           });
         } else {
           res.status(400).json({
@@ -744,7 +752,7 @@ exports.updateOrderByValidProductSkuCode = async (req, res) => {
         const products = skuCode
           ? getProductDetails.products
           : getProductDetails.product_list;
-        const previousOrder = urlDecodeJSON(orderDetails.FulfillmentData);
+        const previousOrder = JSON.parse(JSON.stringify(orderDetails));
         const orderData = reqBody.product_url_file.map((url, index) =>
           buildUpdatedOrderItem({
             products,
@@ -786,7 +794,7 @@ exports.updateOrderByValidProductSkuCode = async (req, res) => {
     }
 
   } catch (err) {
-    const errorMessage = err.response.data;
+    const errorMessage = err.response?.data || err.message || "Unknown error";
     res.status(400).json({
       statusCode: 400,
       status: false,
@@ -969,7 +977,7 @@ exports.deleteOrder = async (req, res) => {
       query: req.query,
     });
     const reqBody = JSON.parse(JSON.stringify(req.body));
-    const { accountId, orderFullFillmentId } = reqBody;
+    const { accountId, orderFullFillmentId, account_key } = reqBody;
 
     // Check if accountId and orderFullFillmentIds are provided
     if (!accountId || !Array.isArray(orderFullFillmentId) || orderFullFillmentId.length === 0) {
@@ -979,50 +987,45 @@ exports.deleteOrder = async (req, res) => {
         message: "Account Id and order fullfillment IDs are required, and IDs must be an array.",
       });
     }
+    if (!account_key) {
+      return res.status(400).json({
+        statusCode: 400,
+        status: false,
+        message: "Account key is missing or invalid.",
+      });
+    }
 
     // Log the request body
     log("Request comes to delete orders for", JSON.stringify(reqBody));
 
-    // Build the query with multiple IDs
     const orderFullFillmentIdsStr = orderFullFillmentId.join(",");  // Convert array to a comma-separated string
-    const selectPayload = {
-      query: `SELECT * FROM ${process.env.FINER_fwAPI_FULFILLMENTS_TABLE} WHERE FulfillmentID IN (${orderFullFillmentIdsStr}) AND FulfillmentAccountID = ${accountId} AND FulfillmentDeleted=0`,
-    };
 
-    // Fetch orders
-    const selectData = await finerworksService.SELECT_QUERY_FINERWORKS(selectPayload);
+    // Live FinerWorks pending orders for this account, instead of the local raw-SQL rows.
+    const listPendingData = await finerworksService.LIST_PENDING_ORDERS({ account_key });
+    const pendingOrders = Array.isArray(listPendingData?.orders) ? listPendingData.orders : [];
+    const matchedOrders = pendingOrders.filter((order) =>
+      orderFullFillmentId.some((id) => String(id) === String(order.fulfillment_id))
+    );
 
-    if (selectData?.data.length === 0) {
+    if (matchedOrders.length === 0) {
       return res.status(404).json({
         statusCode: 404,
         status: false,
         message: "No orders found with the provided IDs.",
       });
     }
-    console.log("selectData===", selectData);
+    console.log("matchedOrders===", matchedOrders);
 
-
-    // Collect promises for deletion
-    const deletionPromises = selectData.data.map(async (orderDetails) => {
-      if (orderDetails.FulfillmentDeleted) {
-        throw new Error(`Order with Fulfillment ID ${orderDetails.FulfillmentID} has already been deleted.`);
-      } else {
-        const updatePayload = {
-          tablename: process.env.FINER_fwAPI_FULFILLMENTS_TABLE,
-          fieldupdates: `FulfillmentDeleted=1`,
-          where: `FulfillmentID=${orderDetails.FulfillmentID}`,
-        };
-
-        const updateQueryExecute = await finerworksService.UPDATE_QUERY_FINERWORKS(updatePayload);
-
-        if (!updateQueryExecute) {
-          throw new Error(`Something went wrong while deleting the order with Fulfillment ID ${orderDetails.FulfillmentID}`);
-        }
-      }
+    // save_pending_orders has no delete/soft-delete concept — FinerWorks' own delete_pending_orders
+    // endpoint (ids + account_key) is the structured replacement for the old FulfillmentDeleted=1 flag.
+    const deleteData = await finerworksService.DELETE_PENDING_ORDER({
+      ids: matchedOrders.map((order) => order.fulfillment_id),
+      account_key,
     });
 
-    // Execute all deletion promises concurrently
-    await Promise.all(deletionPromises);
+    if (!deleteData?.status?.success) {
+      throw new Error(deleteData?.status?.message || "Something went wrong while deleting the orders.");
+    }
 
     // Success response after deleting all valid orders
     log("Orders have been successfully deleted for", JSON.stringify(reqBody));
