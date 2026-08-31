@@ -26,6 +26,7 @@ const { setPlatformOrderSync, squarespaceOrderCreateWebhook, squareOrderCreateWe
 const { connectShippo, getShippoStatus, validateShippoKey } = require('./shippo-auth');
 const { fetchShippoOrders, fetchShippoOrdersByOrderNumber } = require('./shippo-orders');
 const { checkLinkForExternalSource, relinkExternalSource, checkSkuExists } = require('./check-link-for-external-source');
+const { syncProductsAllPlatforms } = require('./unified-product-sync');
 const healthCheck = require('./health-check');
 const app = Router();
 
@@ -124,6 +125,7 @@ app.post('/shopify/update-fulfillment-status', asyncHandler(updateOrderFulfillme
 app.post('/shopify/sync-products', asyncHandler(syncShopifyProducts));
 app.post('/squarespace/sync-products', asyncHandler(syncSquarespaceProducts));
 app.post('/squarespace/sync-products-v2', asyncHandler(syncSquarespaceProductsV2));
+app.post('/sync-products', asyncHandler(syncProductsAllPlatforms));
 app.post('/shopify/carrier-service', asyncHandler(createShopifyCarrierService));
 app.get('/shopify/carrier-services', asyncHandler(listShopifyCarrierServices));
 app.delete('/shopify/carrier-service', asyncHandler(deleteShopifyCarrierService));
