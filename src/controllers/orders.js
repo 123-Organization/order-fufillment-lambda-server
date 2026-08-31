@@ -173,7 +173,7 @@ exports.viewAllOrders = async (req, res) => {
     log("Request to get order details for", JSON.stringify(req.body));
 
     const pendingOrdersData = await finerworksService.LIST_PENDING_ORDERS({ account_key });
-    console.log("pendingOrdersData=========>>>",pendingOrdersData.orders.length);
+    console.log("pendingOrdersData=========>>>", pendingOrdersData.orders.length);
 
     if (!pendingOrdersData?.status?.success || !Array.isArray(pendingOrdersData.orders)) {
       log("No orders found for account key:", account_key);
@@ -288,60 +288,85 @@ exports.viewOrderDetails = async (req, res) => {
         status: false,
         message: "Bad Request",
       });
+    } else if (!reqBody.account_key && !req.query?.account_key) {
+      res.status(400).json({
+        statusCode: 400,
+        status: false,
+        message: "Account key is missing or invalid.",
+      });
     } else {
       log("Request comes to get order details for", JSON.stringify(reqBody));
-      const selectPayload = {
-        query: `SELECT * FROM ${process.env.FINER_fwAPI_FULFILLMENTS_TABLE} WHERE  FulfillmentID=${reqBody.orderFullFillmentId}`,
-      };
-      log("select payload is", JSON.stringify(selectPayload));
-      const selectData = await finerworksService.SELECT_QUERY_FINERWORKS(
-        selectPayload
+      // No local lookup at all now — list_pending_orders returns FinerWorks' own staging id as
+      // `fulfillment_id` on each order, so the requested orderFullFillmentId is matched directly
+      // against that instead of first resolving it via a local SELECT.
+      const accountKeyForLookup = reqBody.account_key || req.query?.account_key;
+      const listPendingData = await finerworksService.LIST_PENDING_ORDERS({
+        account_key: accountKeyForLookup,
+      });
+      const pendingOrders = Array.isArray(listPendingData?.orders) ? listPendingData.orders : [];
+      const liveOrder = pendingOrders.find(
+        (o) => String(o.fulfillment_id) === String(reqBody.orderFullFillmentId)
       );
-      log("selectData", JSON.stringify(selectData));
-      if (selectData) {
-        const allOrders = [];
-        selectData.data.forEach((order) => {
-          const latestOrderToBePushed = urlDecodeJSON(order.FulfillmentData);
-          latestOrderToBePushed.orderFullFillmentId = order.FulfillmentID;
-          allOrders.push(latestOrderToBePushed);
-        });
-        const successLog = JSON.stringify({
-          level: 'INFO',
-          platform: 'finerworks',
-          method: req.method,
-          api: req.originalUrl || req.url,
-          function: 'viewOrderDetails',
-          operation: 'Order details fetched successfully',
-          account_key: req.body?.account_key || req.query?.account_key || 'unknown',
-          result: { count: allOrders.length, orderFullFillmentId: reqBody.orderFullFillmentId },
-          timestamp: new Date().toISOString()
-        });
-        console.log(successLog);
-        log('Success in viewOrderDetails: %s', successLog);
-        res.status(200).json({
-          statusCode: 200,
-          status: true,
-          message: "Orders Found",
-          data: allOrders,
-        });
-      }
+
+      const allOrders = liveOrder
+        ? [(() => {
+          const { fulfillment_id, ...rest } = liveOrder;
+          return { ...rest, orderFullFillmentId: fulfillment_id };
+        })()]
+        : [{
+          orderFullFillmentId: reqBody.orderFullFillmentId,
+          error: "Order not found among FinerWorks pending orders.",
+        }];
+
+      const successLog = JSON.stringify({
+        level: 'INFO',
+        platform: 'finerworks',
+        method: req.method,
+        api: req.originalUrl || req.url,
+        function: 'viewOrderDetails',
+        operation: 'Order details fetched successfully',
+        account_key: req.body?.account_key || req.query?.account_key || 'unknown',
+        result: { count: allOrders.length, orderFullFillmentId: reqBody.orderFullFillmentId },
+        timestamp: new Date().toISOString()
+      });
+      console.log(successLog);
+      log('Success in viewOrderDetails: %s', successLog);
+      res.status(200).json({
+        statusCode: 200,
+        status: true,
+        message: "Orders Found",
+        data: allOrders,
+      });
     }
   } catch (err) {
     log("Error while fetching order details:", err?.message || JSON.stringify(err));
     const isFinerworksError = err?.response?.config?.url?.includes('finerworks.com') || err?.config?.url?.includes('finerworks.com');
+    const rawDetail = err?.response?.data;
+    const detail = rawDetail && typeof rawDetail === 'object'
+      ? (rawDetail.message || rawDetail.error || JSON.stringify(rawDetail).slice(0, 1000))
+      : (typeof rawDetail === 'string' && rawDetail.trim() ? rawDetail.slice(0, 1000) : null);
+    const httpStatus = err?.response?.status || null;
     const errorJson = JSON.stringify({
       level: 'ERROR',
       platform: 'finerworks',
       source: isFinerworksError ? 'finerworks_api' : 'lambda',
       function: 'viewOrderDetails',
       account_key: req.body?.account_key || req.query?.account_key || 'unknown',
-      httpStatus: err?.response?.status || null,
+      httpStatus,
       message: `Failed to fetch order details: ${err?.message || 'Unknown error'}`,
-      detail: err?.response?.data?.message || err?.response?.data?.error || null,
+      detail,
       timestamp: new Date().toISOString()
     });
     console.error(errorJson);
     log('Formatted error in viewOrderDetails: %s', errorJson);
+    if (!res.headersSent) {
+      res.status(502).json({
+        statusCode: 502,
+        status: false,
+        message: "Failed to fetch order details from FinerWorks",
+        detail,
+      });
+    }
   }
 };
 exports.updateOrderByProductSkuCode = async (req, res) => {
@@ -708,13 +733,13 @@ exports.updateOrderByValidProductSkuCode = async (req, res) => {
         }],
         account_key: reqBody.account_key
       };
-      console.log("payload===>>>",payload);
+      console.log("payload===>>>", payload);
 
       log("Product details from API", JSON.stringify(getProductDetails));
       getProductDetails = await finerworksService.GET_PRODUCTS_DETAILS(payload);
       log("Get product details", JSON.stringify(getProductDetails));
       console.log("getProductDetails", getProductDetails);
-    
+
       if (getProductDetails?.status?.success) {
         const products = skuCode
           ? getProductDetails.products
@@ -1561,12 +1586,12 @@ exports.getOrderDetailsById = async (req, res) => {
     console.log("hererererere");
     const reqBody = JSON.parse(JSON.stringify(req.body));
 
-    // Check if orderIds and platformName are provided in the request body
+    // Check if orderIds are provided in the request body
     if (!reqBody || !reqBody.orderIds || !Array.isArray(reqBody.orderIds) || !reqBody.orderIds.length) {
       return res.status(400).json({
         statusCode: 400,
         status: false,
-        message: "Bad Request, missing orderIds or PlatformName",
+        message: "Bad Request, missing orderIds",
       });
     }
 
@@ -1581,26 +1606,33 @@ exports.getOrderDetailsById = async (req, res) => {
       });
     }
 
+    const accountKeyForLookup = reqBody.account_key || req.query?.account_key;
+    if (!accountKeyForLookup) {
+      return res.status(400).json({
+        statusCode: 400,
+        status: false,
+        message: "Account key is missing or invalid.",
+      });
+    }
+
     console.log("orderIds===========>>>>", orderIds);
     console.log("platformName===========>>>>", platformName);
     console.log("accountId===========>>>>", accountId);
 
-    const selectPayload = {
-      query: `SELECT * FROM ${process.env.FINER_fwAPI_FULFILLMENTS_TABLE} WHERE FulfillmentAccountID=${accountId} AND FulfillmentDeleted=0 AND FulfillmentSubmitted=0 ORDER BY FulfillmentID DESC`,
-    };
+    // list_pending_orders only filters by `ids` (FinerWorks' own numeric pending-order id) or
+    // `skus` — it has no order_po/order_number filter (see FinerWorks API docs), and we don't have
+    // FinerWorks' internal ids up front, only the platform's order numbers. So this fetches every
+    // pending order for the account and matches order_po client-side, same as the old local SELECT
+    // did — only the data source changed.
+    const listPendingData = await finerworksService.LIST_PENDING_ORDERS({
+      account_key: accountKeyForLookup,
+    });
+    const pendingOrders = Array.isArray(listPendingData?.orders) ? listPendingData.orders : [];
+    console.log("pendingOrders===>", pendingOrders.length);
 
-    const selectData = await finerworksService.SELECT_QUERY_FINERWORKS(selectPayload);
-    console.log(selectData);
-
-    // // If selectData.data is empty, skip checking and directly call the API with the orderIds
-    // if (!selectData || !selectData.data || selectData.data.length === 0) {
-    //   return callApiWithMissingOrders(orderIds, platformName, res);
-    // }
-
-    // Parse FulfillmentData and collect order_po values
-    const orderPos = selectData.data.map((row) => {
-      const fulfillmentData = urlDecodeJSON(row.FulfillmentData);
-      const orderPo = fulfillmentData.order_po;
+    // Collect order_po values from the live pending orders
+    const orderPos = pendingOrders.map((row) => {
+      const orderPo = row.order_po;
       console.log("orderPo", orderPo)
 
       const orderPoNumber = typeof orderPo === 'string' && orderPo.startsWith('WC_')
@@ -1616,7 +1648,6 @@ exports.getOrderDetailsById = async (req, res) => {
     const missingOrders = orderIds.filter(orderId => !orderPos.includes(orderId.replace('WC_', '')));
 
     console.log("Missing order numbers:", missingOrders);
-    // return
 
     // If no missing orders, return a message saying they are already present
     if (missingOrders.length === 0) {
