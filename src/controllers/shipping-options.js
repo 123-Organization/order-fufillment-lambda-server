@@ -1,13 +1,22 @@
 const debug = require("debug");
 const finerworksService = require("../helpers/finerworks-service");
 const log = debug("app:shippingOptions");
+const { logIncomingRequest } = require("../helpers/request-log");
 log("Shipping options");
 
 exports.listShippingOptions = async (req, res) => {
   try {
-    console.log("List shipping options for", JSON.stringify(req.body));
+    logIncomingRequest(log, {
+      method: req.method,
+      path: req.originalUrl || req.url,
+      functionName: 'listShippingOptions',
+      accountKey: req.body?.account_key,
+      body: req.body,
+      query: req.query,
+    });
 
     if (!req.body || Object.keys(req.body).length === 0) {
+      log('listShippingOptions rejected: empty body');
       return res.status(400).json({
         statusCode: 400,
         status: false,
@@ -80,9 +89,17 @@ exports.listShippingOptions = async (req, res) => {
 
 exports.listShippingOptionsV2 = async (req, res) => {
   try {
-    console.log("List shipping options for", JSON.stringify(req.body));
+    logIncomingRequest(log, {
+      method: req.method,
+      path: req.originalUrl || req.url,
+      functionName: 'listShippingOptionsV2',
+      accountKey: req.body?.account_key,
+      body: req.body,
+      query: req.query,
+    });
 
     if (!req.body || Object.keys(req.body).length === 0) {
+      log('listShippingOptionsV2 rejected: empty body');
       return res.status(400).json({
         statusCode: 400,
         status: false,
@@ -155,6 +172,14 @@ exports.listShippingOptionsV2 = async (req, res) => {
 
 exports.listShippingOptionsV3 = async (req, res) => {
   try {
+    logIncomingRequest(log, {
+      method: req.method,
+      path: req.originalUrl || req.url,
+      functionName: 'listShippingOptionsV3',
+      accountKey: req.query?.account_key,
+      body: req.body,
+      query: req.query,
+    });
     // Pass the modified orders array to the shipping service
     const shippingOptions = await finerworksService.SHIPPING_OPTIONS_LIST();
     if (!shippingOptions) {

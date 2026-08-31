@@ -4,6 +4,7 @@ const debug = require("debug");
 const log = debug("app:uploadOrders");
 const { validateOrderPayload } = require("./validate-order");
 const { randomUUID: uuidv4 } = require('crypto'); // Use Node's built-in crypto.randomUUID for UUID generation
+const { logIncomingRequest, redactAndTruncate } = require("../helpers/request-log");
 
 log("Orders");
 const axios = require('axios'); // Import axios for making HTTP requests
@@ -138,6 +139,14 @@ const axios = require('axios'); // Import axios for making HTTP requests
 
 exports.viewAllOrders = async (req, res) => {
   try {
+    logIncomingRequest(log, {
+      method: req.method,
+      path: req.originalUrl || req.url,
+      functionName: 'viewAllOrders',
+      accountKey: req.body?.account_key || req.query?.account_key,
+      body: req.body,
+      query: req.query,
+    });
     // Validate request body format
     if (!req.body || typeof req.body !== "object") {
       return res.status(400).json({
@@ -263,6 +272,14 @@ exports.viewAllOrders = async (req, res) => {
 
 exports.viewOrderDetails = async (req, res) => {
   try {
+    logIncomingRequest(log, {
+      method: req.method,
+      path: req.originalUrl || req.url,
+      functionName: 'viewOrderDetails',
+      accountKey: req.body?.account_key || req.query?.account_key,
+      body: req.body,
+      query: req.query,
+    });
     const reqBody = JSON.parse(JSON.stringify(req.body));
 
     if (!reqBody || !reqBody.accountId || !reqBody.orderFullFillmentId) {
@@ -329,8 +346,15 @@ exports.viewOrderDetails = async (req, res) => {
 };
 exports.updateOrderByProductSkuCode = async (req, res) => {
   try {
+    logIncomingRequest(log, {
+      method: req.method,
+      path: req.originalUrl || req.url,
+      functionName: 'updateOrderByProductSkuCode',
+      accountKey: req.body?.account_key || req.query?.account_key,
+      body: req.body,
+      query: req.query,
+    });
     const reqBody = JSON.parse(JSON.stringify(req.body));
-    console.log("testinggggggggg", req.body);
     let getProductDetails
 
     if (!reqBody.orderFullFillmentId) {
@@ -487,20 +511,15 @@ exports.updateOrderByProductSkuCode = async (req, res) => {
           ? getProductDetails.products
           : getProductDetails.product_list;
         const previousOrder = urlDecodeJSON(orderDetails.FulfillmentData);
-        const orderData = reqBody.product_url_file.map((url, index) => ({
-          product_qty: products?.[0]?.quantity ?? null,
-          product_sku: products?.[0]?.sku ? products?.[0]?.sku : products?.[0]?.product_code,
-          product_title: products?.[0]?.name ?? null,
-          product_guid: product_guid ? product_guid : generateGUID(),
-          template: null,
-          custom_data_1: null,
-          custom_data_2: null,
-          custom_data_3: null,
-          product_url_file: url,
-          product_url_thumbnail: reqBody.product_url_thumbnail[index],
-          pixel_width: reqBody.pixel_width ?? "",
-          pixel_height: reqBody.pixel_height ?? "",
-        }));
+        const orderData = reqBody.product_url_file.map((url, index) =>
+          buildUpdatedOrderItem({
+            products,
+            url,
+            thumbnailUrl: reqBody.product_url_thumbnail[index],
+            reqBody,
+            product_guid: product_guid ? product_guid : generateGUID(),
+          })
+        );
 
         if (previousOrder?.order_items) {
           orderData.forEach((item) => {
@@ -548,6 +567,14 @@ exports.updateOrderByProductSkuCode = async (req, res) => {
 
 exports.updateOrderByValidProductSkuCode = async (req, res) => {
   try {
+    logIncomingRequest(log, {
+      method: req.method,
+      path: req.originalUrl || req.url,
+      functionName: 'updateOrderByValidProductSkuCode',
+      accountKey: req.body?.account_key || req.query?.account_key,
+      body: req.body,
+      query: req.query,
+    });
     const reqBody = JSON.parse(JSON.stringify(req.body));
     let getProductDetails
 
@@ -667,6 +694,7 @@ exports.updateOrderByValidProductSkuCode = async (req, res) => {
 
       }
     } else if (productCode) {
+      console.log("enter hererererere")
       const payload = {
         products: [{
           product_qty: 1,
@@ -680,49 +708,47 @@ exports.updateOrderByValidProductSkuCode = async (req, res) => {
         }],
         account_key: reqBody.account_key
       };
+      console.log("payload===>>>",payload);
 
       log("Product details from API", JSON.stringify(getProductDetails));
       getProductDetails = await finerworksService.GET_PRODUCTS_DETAILS(payload);
       log("Get product details", JSON.stringify(getProductDetails));
       console.log("getProductDetails", getProductDetails);
+    
       if (getProductDetails?.status?.success) {
         const products = skuCode
           ? getProductDetails.products
           : getProductDetails.product_list;
         const previousOrder = urlDecodeJSON(orderDetails.FulfillmentData);
-        const orderData = reqBody.product_url_file.map((url, index) => ({
-          product_qty: products?.[0]?.quantity ?? null,
-          product_sku: products?.[0]?.sku ? products?.[0]?.sku : products?.[0]?.product_code,
-          product_title: products?.[0]?.name ?? null,
-          product_guid: generateGUID(),
-          template: null,
-          custom_data_1: null,
-          custom_data_2: null,
-          custom_data_3: null,
-          product_url_file: url,
-          product_url_thumbnail: reqBody.product_url_thumbnail[index],
-          pixel_width: reqBody.pixel_width ?? "",
-          pixel_height: reqBody.pixel_height ?? "",
-        }));
+        const orderData = reqBody.product_url_file.map((url, index) =>
+          buildUpdatedOrderItem({
+            products,
+            url,
+            thumbnailUrl: reqBody.product_url_thumbnail[index],
+            reqBody,
+            product_guid: generateGUID(),
+          })
+        );
 
         console.log("orderData====>>>>", orderData);
         console.log(previousOrder, "previousOrder");
         const updatedOrder = updateOrderItemsV2(previousOrder, orderData, toReplace);
         console.log("updatedOrder======>>>>>>", updatedOrder);
-        const urlEncodedData = urlEncodeJSON(updatedOrder);
-        const updatePayload = {
-          tablename: process.env.FINER_fwAPI_FULFILLMENTS_TABLE,
-          fieldupdates: `FulfillmentData='${urlEncodedData}'`,
-          where: `FulfillmentID=${reqBody.orderFullFillmentId}`,
+        updatedOrder.fulfillment_id = reqBody.orderFullFillmentId;
+        const savePayload = {
+          orders: [updatedOrder],
+          source: updatedOrder.source || "web",
+          account_key: reqBody.account_key ?? null,
         };
-        const updateQueryExecute =
-          await finerworksService.UPDATE_QUERY_FINERWORKS(updatePayload);
-        if (updateQueryExecute) {
+        log("save_pending_orders payload", JSON.stringify(savePayload));
+        const saveData = await finerworksService.SAVE_PENDING_ORDERS(savePayload);
+        log("save_pending_orders response", JSON.stringify(saveData));
+        if (saveData?.status?.success) {
           res.status(200).json({
             statusCode: 200,
             status: true,
             message: "Orders have been successfully updated",
-            data: previousOrder,
+            data: updatedOrder,
           });
         } else {
           res.status(400).json({
@@ -754,6 +780,14 @@ function generateGUID() {
 }
 exports.createNewOrder = async (req, res) => {
   try {
+    logIncomingRequest(log, {
+      method: req.method,
+      path: req.originalUrl || req.url,
+      functionName: 'createNewOrder',
+      accountKey: req.body?.account_key || req.query?.account_key,
+      body: req.body,
+      query: req.query,
+    });
     const reqBody = JSON.parse(JSON.stringify(req.body));
     if (
       !reqBody.accountId ||
@@ -901,6 +935,14 @@ exports.createNewOrder = async (req, res) => {
 
 exports.deleteOrder = async (req, res) => {
   try {
+    logIncomingRequest(log, {
+      method: req.method,
+      path: req.originalUrl || req.url,
+      functionName: 'deleteOrder',
+      accountKey: req.body?.account_key || req.query?.account_key,
+      body: req.body,
+      query: req.query,
+    });
     const reqBody = JSON.parse(JSON.stringify(req.body));
     const { accountId, orderFullFillmentId } = reqBody;
 
@@ -1004,6 +1046,14 @@ exports.deleteOrder = async (req, res) => {
 
 exports.submitOrders = async (req, res) => {
   try {
+    logIncomingRequest(log, {
+      method: req.method,
+      path: req.originalUrl || req.url,
+      functionName: 'submitOrders',
+      accountKey: req.body?.account_key || req.query?.account_key,
+      body: req.body,
+      query: req.query,
+    });
     const reqBody = JSON.parse(JSON.stringify(req.body));
     if (!reqBody?.orders || !reqBody?.payment_token || !reqBody?.accountId || !reqBody?.account_key) {
       res.status(400).json({
@@ -1109,6 +1159,14 @@ exports.submitOrders = async (req, res) => {
 
 exports.submitOrdersV2 = async (req, res) => {
   try {
+    logIncomingRequest(log, {
+      method: req.method,
+      path: req.originalUrl || req.url,
+      functionName: 'submitOrdersV2',
+      accountKey: req.body?.account_key || req.query?.account_key,
+      body: req.body,
+      query: req.query,
+    });
     const reqBody = JSON.parse(JSON.stringify(req.body));
     if (!reqBody?.orders || !reqBody?.accountId || !reqBody?.account_key) {
       res.status(400).json({
@@ -1270,6 +1328,14 @@ exports.submitOrdersV2 = async (req, res) => {
 
 exports.orderSubmitStatus = async (req, res) => {
   try {
+    logIncomingRequest(log, {
+      method: req.method,
+      path: req.originalUrl || req.url,
+      functionName: 'orderSubmitStatus',
+      accountKey: req.body?.account_key || req.query?.account_key,
+      body: req.body,
+      query: req.query,
+    });
     const reqBody = JSON.parse(JSON.stringify(req.body));
     if (!reqBody.accountId || !reqBody.account_key || !reqBody.orderId) {
       res.status(400).json({
@@ -1339,6 +1405,14 @@ exports.orderSubmitStatus = async (req, res) => {
 
 exports.orderSubmitStatusBulk = async (req, res) => {
   try {
+    logIncomingRequest(log, {
+      method: req.method,
+      path: req.originalUrl || req.url,
+      functionName: 'orderSubmitStatusBulk',
+      accountKey: req.body?.account_key || req.query?.account_key,
+      body: req.body,
+      query: req.query,
+    });
     const reqBody = JSON.parse(JSON.stringify(req.body));
     const { account_key, orderIds } = reqBody;
 
@@ -1405,6 +1479,14 @@ exports.orderSubmitStatusBulk = async (req, res) => {
 
 exports.getOrderPrice = async (req, res) => {
   try {
+    logIncomingRequest(log, {
+      method: req.method,
+      path: req.originalUrl || req.url,
+      functionName: 'getOrderPrice',
+      accountKey: req.body?.account_key || req.query?.account_key,
+      body: req.body,
+      query: req.query,
+    });
     const reqBody = JSON.parse(JSON.stringify(req.body));
     if (!reqBody?.orderId) {
       res.status(400).json({
@@ -1468,6 +1550,14 @@ exports.getOrderPrice = async (req, res) => {
 
 exports.getOrderDetailsById = async (req, res) => {
   try {
+    logIncomingRequest(log, {
+      method: req.method,
+      path: req.originalUrl || req.url,
+      functionName: 'getOrderDetailsById',
+      accountKey: req.body?.account_key || req.query?.account_key,
+      body: req.body,
+      query: req.query,
+    });
     console.log("hererererere");
     const reqBody = JSON.parse(JSON.stringify(req.body));
 
@@ -1616,6 +1706,14 @@ const callApiWithMissingOrders = async (missingOrders, platformName, res, domain
 
 exports.softDeleteOrders = async (req, res) => {
   try {
+    logIncomingRequest(log, {
+      method: req.method,
+      path: req.originalUrl || req.url,
+      functionName: 'softDeleteOrders',
+      accountKey: req.body?.account_key || req.query?.account_key,
+      body: req.body,
+      query: req.query,
+    });
     // Validate request body format
     if (!req.body || typeof req.body !== "object") {
       return res.status(400).json({
@@ -1693,6 +1791,14 @@ exports.softDeleteOrders = async (req, res) => {
 
 exports.disconnectAndProcess = async (req, res) => {
   try {
+    logIncomingRequest(log, {
+      method: req.method,
+      path: req.originalUrl || req.url,
+      functionName: 'disconnectAndProcess',
+      accountKey: req.body?.account_key || req.query?.account_key,
+      body: req.body,
+      query: req.query,
+    });
     const { client_id, platformName, domainName } = req.body;
 
     // Validate client_id
@@ -1810,8 +1916,15 @@ exports.disconnectAndProcess = async (req, res) => {
 
 exports.connectAndProcess = async (req, res) => {
   try {
+    logIncomingRequest(log, {
+      method: req.method,
+      path: req.originalUrl || req.url,
+      functionName: 'connectAndProcess',
+      accountKey: req.body?.account_key || req.query?.account_key,
+      body: req.body,
+      query: req.query,
+    });
     const { clientId, account_key } = req.body;
-    console.log("Received body:", req.body, clientId);
 
     // Validate client_id
     if (!clientId) {
@@ -1951,8 +2064,15 @@ exports.connectAndProcess = async (req, res) => {
 
 exports.connectAndProcessOfa = async (req, res) => {
   try {
+    logIncomingRequest(log, {
+      method: req.method,
+      path: req.originalUrl || req.url,
+      functionName: 'connectAndProcessOfa',
+      accountKey: req.body?.account_key || req.query?.account_key,
+      body: req.body,
+      query: req.query,
+    });
     const { domainName, account_key } = req.body;
-    console.log("Received body:", req.body);
 
     // Validate domainName and account_key
     if (!domainName || !account_key) {
@@ -2069,8 +2189,15 @@ exports.connectAndProcessOfa = async (req, res) => {
 
 exports.checkDomain = async (req, res) => {
   try {
+    logIncomingRequest(log, {
+      method: req.method,
+      path: req.originalUrl || req.url,
+      functionName: 'checkDomain',
+      accountKey: req.body?.account_key || req.query?.account_key,
+      body: req.body,
+      query: req.query,
+    });
     const { domainName } = req.body;
-    console.log("Received body:", req.body);
 
     // Validate domainName and account_key
     if (!domainName) {
@@ -2125,8 +2252,15 @@ exports.checkDomain = async (req, res) => {
 
 exports.sendOrderDetails = async (req, res) => {
   try {
+    logIncomingRequest(log, {
+      method: req.method,
+      path: req.originalUrl || req.url,
+      functionName: 'sendOrderDetails',
+      accountKey: req.body?.account_key || req.query?.account_key,
+      body: req.body,
+      query: req.query,
+    });
     const { account_key, orders, domainName } = req.body;
-    console.log("Received body:", req.body);
 
     // Validate domainName and account_key
     if (!account_key) {
@@ -2184,6 +2318,14 @@ exports.sendOrderDetails = async (req, res) => {
 
 exports.updateOrderItemImage = async (req, res) => {
   try {
+    logIncomingRequest(log, {
+      method: req.method,
+      path: req.originalUrl || req.url,
+      functionName: 'updateOrderItemImage',
+      accountKey: req.body?.account_key || req.query?.account_key,
+      body: req.body,
+      query: req.query,
+    });
     const reqBody = JSON.parse(JSON.stringify(req.body));
 
     if (!reqBody.orderFullFillmentId) {
@@ -2258,8 +2400,15 @@ exports.updateOrderItemImage = async (req, res) => {
 
 exports.testAccountKey = async (req, res) => {
   try {
+    logIncomingRequest(log, {
+      method: req.method,
+      path: req.originalUrl || req.url,
+      functionName: 'testAccountKey',
+      accountKey: req.body?.account_key || req.query?.account_key,
+      body: req.body,
+      query: req.query,
+    });
     const { account_key, domainName } = req.body;
-    console.log("Received body:", req.body);
 
     // Validate client_id
     if (!account_key && domainName) {
@@ -2342,6 +2491,14 @@ exports.testAccountKey = async (req, res) => {
 
 exports.disconnectProductsFromInventory = async (req, res) => {
   try {
+    logIncomingRequest(log, {
+      method: req.method,
+      path: req.originalUrl || req.url,
+      functionName: 'disconnectProductsFromInventory',
+      accountKey: req.body?.account_key || req.query?.account_key,
+      body: req.body,
+      query: req.query,
+    });
     const { platform, account_key } = req.body;
 
     // Validate input
@@ -2455,55 +2612,122 @@ function urlEncodeJSON(data) {
   return encodedString;
 }
 
-function updateOrderItems(previousOrder, orderData, toReplace) {
-  // Make a copy of previousOrder to ensure it remains unchanged
-  const updatedOrder = JSON.parse(JSON.stringify(previousOrder));
+function buildOrderItemProductImage({
+  pixel_width,
+  pixel_height,
+  product_url_file,
+  product_url_thumbnail,
+  library_file = null,
+}) {
+  return {
+    pixel_width: pixel_width ?? 600,
+    pixel_height: pixel_height ?? 600,
+    product_url_file:
+      product_url_file ?? "https://via.placeholder.com/600",
+    product_url_thumbnail:
+      product_url_thumbnail ?? "https://via.placeholder.com/150",
+    library_file,
+  };
+}
 
-  // Flag to check if a match is found
+function buildUpdatedOrderItem({
+  products,
+  url,
+  thumbnailUrl,
+  reqBody,
+  product_guid,
+}) {
+  const product = products?.[0];
+  return {
+    product_qty: product?.quantity ?? 1,
+    product_sku: product?.sku ? product.sku : product?.product_code,
+    product_title: product?.name ?? null,
+    product_guid,
+    template: null,
+    custom_data_1: null,
+    custom_data_2: null,
+    custom_data_3: null,
+    coa: null,
+    product_image: buildOrderItemProductImage({
+      pixel_width: reqBody.pixel_width,
+      pixel_height: reqBody.pixel_height,
+      product_url_file: url,
+      product_url_thumbnail: thumbnailUrl,
+    }),
+  };
+}
+
+function normalizeOrderItemIdentifier(value) {
+  if (value == null) return "";
+  return String(value).trim().toLowerCase().replace(/-/g, "");
+}
+
+function orderItemMatchesReplace(item, toReplace) {
+  if (!toReplace || !item) return false;
+
+  const target = normalizeOrderItemIdentifier(toReplace);
+  if (!target) return false;
+
+  const identifiers = [
+    item.product_sku,
+    item.product_guid,
+    item.product_order_po,
+    item.custom_data_1,
+    item.custom_data_2,
+    item.custom_data_3,
+  ];
+
+  return identifiers.some(
+    (identifier) =>
+      identifier != null && normalizeOrderItemIdentifier(identifier) === target
+  );
+}
+
+function replaceMatchedOrderItems(updatedOrder, orderData, toReplace) {
   let matchFound = false;
+  let preservedProductOrderPo = null;
 
-  // Loop through the order items to find and replace the matched SKU with toReplace
-  updatedOrder.order_items = updatedOrder.order_items.filter(item => {
-    if (item.product_sku === toReplace) {
-      matchFound = true; // Set flag to true if match is found
-      return false; // Remove the matched item from the array
+  updatedOrder.order_items = updatedOrder.order_items.filter((item) => {
+    if (orderItemMatchesReplace(item, toReplace)) {
+      matchFound = true;
+      if (item.product_order_po != null && preservedProductOrderPo == null) {
+        preservedProductOrderPo = item.product_order_po;
+      }
+      return false;
     }
     return true;
   });
 
-  // If a match was found, add the new orderData to the order_items array
+  if (!matchFound && toReplace && updatedOrder.order_items.length === 1) {
+    const [onlyItem] = updatedOrder.order_items;
+    if (onlyItem?.product_order_po != null) {
+      preservedProductOrderPo = onlyItem.product_order_po;
+    }
+    updatedOrder.order_items = [];
+    matchFound = true;
+  }
+
   if (matchFound) {
-    updatedOrder.order_items.push(orderData);
+    const itemsToAdd = Array.isArray(orderData) ? orderData : [orderData];
+    const enrichedItems = itemsToAdd.map((item) => ({
+      ...item,
+      ...(preservedProductOrderPo != null && item.product_order_po == null
+        ? { product_order_po: preservedProductOrderPo }
+        : {}),
+    }));
+
+    updatedOrder.order_items.push(...enrichedItems);
   }
 
   return updatedOrder;
 }
 
-function updateOrderItemsV2(previousOrder, orderData, toReplace) {
-  // Make a copy of previousOrder to ensure it remains unchanged
+function updateOrderItems(previousOrder, orderData, toReplace) {
   const updatedOrder = JSON.parse(JSON.stringify(previousOrder));
+  return replaceMatchedOrderItems(updatedOrder, orderData, toReplace);
+}
 
-  // Flag to check if a match is found
-  let matchFound = false;
-
-  // Loop through the order items to find and replace the matched SKU with toReplace
-  updatedOrder.order_items = updatedOrder.order_items.filter(item => {
-    if (item.product_sku === toReplace) {
-      matchFound = true; // Set flag to true if match is found
-      return false; // Remove the matched item from the array
-    }
-    return true;
-  });
-
-  // If a match was found, add the new orderData to the order_items array
-  if (matchFound) {
-    // Check if orderData is an array, and add all its items to order_items
-    if (Array.isArray(orderData)) {
-      updatedOrder.order_items.push(...orderData);
-    } else {
-      updatedOrder.order_items.push(orderData);
-    }
-  }
-
-  return updatedOrder;
+function updateOrderItemsV2(previousOrder, orderData, toReplace) {
+  const updatedOrder = JSON.parse(JSON.stringify(previousOrder));
+  return replaceMatchedOrderItems(updatedOrder, orderData, toReplace);
 }

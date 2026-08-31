@@ -10,6 +10,7 @@ const { sendApiError } = require('../helpers/api-error');
 const log = debug('app:squarespaceAuth');
 require('dotenv').config();
 const { validateAccountKey } = require('../validators/accountKey.validator');
+const { logIncomingRequest, redactAndTruncate } = require('../helpers/request-log');
 
 const base64UrlEncode = (input) => {
   const b64 = Buffer.from(input, 'utf8').toString('base64');
@@ -43,6 +44,14 @@ const buildRedirectUri = (req) => {
  */
 const handleSquarespaceAuth = async (req, res) => {
   try {
+    logIncomingRequest(log, {
+      method: req.method,
+      path: req.originalUrl || req.url,
+      functionName: 'handleSquarespaceAuth',
+      accountKey: req.query?.account_key || req.body?.account_key,
+      body: req.body,
+      query: req.query,
+    });
     const account_key = req.query?.account_key || req.body?.account_key || req.query?.accountKey;
 
     const { valid, error } = validateAccountKey(account_key);
@@ -135,12 +144,24 @@ const handleSquarespaceAuth = async (req, res) => {
  */
 const handleSquarespaceCallback = async (req, res) => {
   try {
+    // code/state are one-time OAuth secrets — never pass the raw query through to the generic
+    // payload logger (its redaction list doesn't cover "code"/"state", which are too generic a
+    // name to blanket-redact elsewhere without also hiding legitimate fields like country_code).
+    logIncomingRequest(log, {
+      method: req.method,
+      path: req.originalUrl || req.url,
+      functionName: 'handleSquarespaceCallback',
+      accountKey: null,
+      body: req.body,
+      query: { hasCode: !!req.query?.code, hasState: !!req.query?.state, error: req.query?.error || null },
+    });
     const code = req.query?.code;
     const state = req.query?.state;
     const error = req.query?.error;
     const access_denied = req.query?.access_denied;
     let return_url = req.query?.return_url;
-    log('handleSquarespaceCallback', { code, state, error, access_denied, return_url });
+    // code/state are one-time OAuth secrets — log only that they're present, never the values.
+    log('handleSquarespaceCallback: hasCode=%s hasState=%s error=%s access_denied=%s return_url=%s', !!code, !!state, error || null, access_denied || null, return_url || null);
     if (error || access_denied) {
       return sendApiError(res, 400, access_denied ? 'access_denied' : error || 'oauth_error');
     }

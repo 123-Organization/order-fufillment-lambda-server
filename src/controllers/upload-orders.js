@@ -3,6 +3,7 @@ const finerworksService = require("../helpers/finerworks-service");
 const debug = require("debug");
 const log = debug("app:uploadOrders");
 const Joi = require("joi");
+const { logIncomingRequest, redactAndTruncate } = require("../helpers/request-log");
 log("Upload order");
 
 
@@ -359,8 +360,17 @@ const ordersSchema = Joi.object({
 
 // Middleware for validation
 exports.validateSubmitOrders = async (req, res, next) => {
+  logIncomingRequest(log, {
+    method: req.method,
+    path: req.originalUrl || req.url,
+    functionName: 'validateSubmitOrders',
+    accountKey: req.body?.account_key,
+    body: req.body,
+    query: req.query,
+  });
   const { error, value } = ordersSchema.validate(req.body);
   if (error) {
+    log('validateSubmitOrders rejected: %s', error.details[0].message);
     return res.status(400).json({
       statusCode: 400,
       status: false,
@@ -374,10 +384,19 @@ exports.validateSubmitOrders = async (req, res, next) => {
 
 exports.updateOrder = async (req, res) => {
   try {
+    logIncomingRequest(log, {
+      method: req.method,
+      path: req.originalUrl || req.url,
+      functionName: 'updateOrder',
+      accountKey: req.body?.account_key,
+      body: req.body,
+      query: req.query,
+    });
     const reqBody = JSON.parse(JSON.stringify(req.body));
 
     const { error } = recipientSchema.validate(reqBody?.orders?.[0]?.recipient);
     if (error) {
+      log('updateOrder rejected: %s', error.details[0].message);
       return res.status(400).json({
         statusCode: 400,
         status: false,
@@ -385,65 +404,104 @@ exports.updateOrder = async (req, res) => {
       });
     }
     if (!reqBody || !reqBody?.accountId) {
-      res.status(400).json({
+      log('updateOrder rejected: missing accountId');
+      return res.status(400).json({
         statusCode: 400,
         status: false,
         message: "Bad request. This request should contain account ID",
       });
-    } else {
-      const orders = reqBody.orders;
-      if (orders?.length) {
-        for (const order of orders) {
-          log('Order come to update', order.orderFullFillmentId);
-          const selectPayload = {
-            query: `SELECT * FROM ${process.env.FINER_fwAPI_FULFILLMENTS_TABLE} WHERE FulfillmentAccountID=${reqBody.accountId} AND FulfillmentID=${order.orderFullFillmentId} limit 1`,
-          };
-          const selectDataQueryExecute = await finerworksService.SELECT_QUERY_FINERWORKS(
-            selectPayload
-          );
-          log('selectDataQueryExecute', selectDataQueryExecute);
-          if (!selectDataQueryExecute) {
-            res.status(400).json({
-              statusCode: 400,
-              status: false,
-              message: "Bad request. Request does't contain valid fullfillment app ID",
-            });
-          }
-          const urlEncodedData = urlEncodeJSON(order);
-          const updatePayload = {
-            tablename: process.env.FINER_fwAPI_FULFILLMENTS_TABLE,
-            fieldupdates: `FulfillmentData='${urlEncodedData}'`,
-            where: `FulfillmentID=${order.orderFullFillmentId}`,
-          };
-          const updateQueryExecute = await finerworksService.UPDATE_QUERY_FINERWORKS(
-            updatePayload
-          );
+    }
 
-          if (updateQueryExecute) {
-            log(`Order with ${order.orderFullFillmentId} has been successfully updated`);
-          }
-        }
-        const successLog = JSON.stringify({
-          level: 'INFO',
-          platform: 'finerworks',
-          method: req.method,
-          api: req.originalUrl || req.url,
-          function: 'updateOrder',
-          operation: 'Orders updated successfully',
-          account_key: req.body?.account_key || 'unknown',
-          result: { count: orders?.length || 0 },
-          timestamp: new Date().toISOString()
-        });
-        console.log(successLog);
-        log('Success in updateOrder: %s', successLog);
-        res.status(200).json({
-          statusCode: 200,
-          status: true,
-          message: "Orders have been successfully updated",
-          data: orders,
+    const account_key = reqBody.account_key || reqBody.payment_token || null;
+    if (!account_key) {
+      log('updateOrder rejected: missing account_key');
+      return res.status(400).json({
+        statusCode: 400,
+        status: false,
+        message: "Bad request. This request should contain account_key",
+      });
+    }
+
+    const orders = reqBody.orders;
+    if (!orders?.length) {
+      return res.status(400).json({
+        statusCode: 400,
+        status: false,
+        message: "Bad request. This request should contain orders",
+      });
+    }
+
+    for (const order of orders) {
+      log('Order come to update', order.orderFullFillmentId);
+      if (!order.orderFullFillmentId) {
+        return res.status(400).json({
+          statusCode: 400,
+          status: false,
+          message: "Bad request. Each order must include orderFullFillmentId",
         });
       }
+
+      const selectOrderIds = {
+        ids: [order.orderFullFillmentId],
+        account_key,
+      };
+      console.log("selectOrderIds=================>>>>>>>>>>>", selectOrderIds);
+      const orderStatusData = await finerworksService.LIST_PENDING_ORDERS(
+        selectOrderIds
+      );
+      console.log("orderStatusData===============", orderStatusData);
+      log('list_pending_orders for updateOrder', JSON.stringify(orderStatusData));
+
+      const pendingOrders = Array.isArray(orderStatusData?.orders)
+        ? orderStatusData.orders
+        : [];
+      if (!orderStatusData?.status?.success || pendingOrders.length === 0) {
+        return res.status(400).json({
+          statusCode: 400,
+          status: false,
+          message: "Bad request. Request does't contain valid fullfillment app ID",
+        });
+      }
+
+      const orderToSave = prepareOrderForPendingSave(order);
+      const savePayload = {
+        orders: [sanitizeOrderStringsForFinerWorks(orderToSave)],
+        source: orderToSave.source || "web",
+        account_key,
+      };
+      console.log("savePayload======", JSON.stringify(savePayload));
+      log("save_pending_orders payload for updateOrder %s", JSON.stringify(savePayload));
+      const saveData = await finerworksService.SAVE_PENDING_ORDERS(savePayload);
+      log("save_pending_orders response for updateOrder %s", JSON.stringify(saveData));
+      if (!saveData?.status?.success) {
+        return res.status(400).json({
+          statusCode: 400,
+          status: false,
+          message: "Something went wrong!",
+        });
+      }
+      log(`Order with ${order.orderFullFillmentId} has been successfully updated`);
     }
+
+    const successLog = JSON.stringify({
+      level: 'INFO',
+      platform: 'finerworks',
+      method: req.method,
+      api: req.originalUrl || req.url,
+      function: 'updateOrder',
+      operation: 'Orders updated successfully',
+      account_key: account_key || 'unknown',
+      result: { count: orders?.length || 0 },
+      timestamp: new Date().toISOString()
+    });
+    console.log(successLog);
+    log('Success in updateOrder: %s', successLog);
+    res.status(200).json({
+      statusCode: 200,
+      status: true,
+      message: "Orders have been successfully updated",
+      data: orders,
+    });
   } catch (err) {
     log('error is', JSON.stringify(err), err);
     const isFinerworksError = err?.response?.config?.url?.includes('finerworks.com') || err?.config?.url?.includes('finerworks.com');
@@ -477,8 +535,17 @@ exports.updateOrder = async (req, res) => {
  */
 exports.validateOrders = async (req, res) => {
   try {
+    logIncomingRequest(log, {
+      method: req.method,
+      path: req.originalUrl || req.url,
+      functionName: 'validateOrders',
+      accountKey: req.body?.account_key,
+      body: req.body,
+      query: req.query,
+    });
     const reqBody = JSON.parse(JSON.stringify(req.body));
     if (!reqBody || !reqBody.orders) {
+      log('validateOrders rejected: missing orders');
       res.status(400).json({
         statusCode: 400,
         status: false,
@@ -493,7 +560,7 @@ exports.validateOrders = async (req, res) => {
         validate_only: true,
         account_key: reqBody.account_key
       };
-      console.log("payloadToBeSubmitted=====", payloadToBeSubmitted);
+      log('validateOrders payload to FinerWorks: %s', redactAndTruncate(payloadToBeSubmitted));
       const submitOrders = await finerworksService.SUBMIT_ORDERS(
         payloadToBeSubmitted
       );
@@ -548,8 +615,17 @@ exports.validateOrders = async (req, res) => {
 
 exports.uploadOrdersToLocalDatabaseFromExcel = async (req, res) => {
   try {
+    logIncomingRequest(log, {
+      method: req.method,
+      path: req.originalUrl || req.url,
+      functionName: 'uploadOrdersToLocalDatabaseFromExcel',
+      accountKey: req.body?.account_key,
+      body: req.body,
+      query: req.query,
+    });
     const reqBody = JSON.parse(JSON.stringify(req.body));
     if (!reqBody?.orders) {
+      log('uploadOrdersToLocalDatabaseFromExcel rejected: missing orders');
       res.status(400).json({
         statusCode: 400,
         status: false,
@@ -792,8 +868,17 @@ exports.uploadOrdersToLocalDatabaseFromExcel = async (req, res) => {
 
 exports.uploadOrdersToLocalDatabase = async (req, res) => {
   try {
+    logIncomingRequest(log, {
+      method: req.method,
+      path: req.originalUrl || req.url,
+      functionName: 'uploadOrdersToLocalDatabase',
+      accountKey: req.body?.account_key,
+      body: req.body,
+      query: req.query,
+    });
     const reqBody = JSON.parse(JSON.stringify(req.body));
     if (!reqBody?.orders) {
+      log('uploadOrdersToLocalDatabase rejected: missing orders');
       res.status(400).json({
         statusCode: 400,
         status: false,
@@ -869,8 +954,17 @@ exports.uploadOrdersToLocalDatabase = async (req, res) => {
 
 exports.uploadOrdersToLocalDatabaseShopify = async (req, res) => {
   try {
+    logIncomingRequest(log, {
+      method: req.method,
+      path: req.originalUrl || req.url,
+      functionName: 'uploadOrdersToLocalDatabaseShopify',
+      accountKey: req.body?.account_key,
+      body: req.body,
+      query: req.query,
+    });
     const reqBody = JSON.parse(JSON.stringify(req.body));
     if (!reqBody?.orders) {
+      log('uploadOrdersToLocalDatabaseShopify rejected: missing orders');
       res.status(400).json({
         statusCode: 400,
         status: false,
@@ -1021,6 +1115,40 @@ function urlEncodeJSON(data) {
   const jsonString = JSON.stringify(data);
   const encodedString = encodeURIComponent(jsonString);
   return encodedString;
+}
+
+function prepareOrderForPendingSave(order) {
+  const orderToSave = JSON.parse(JSON.stringify(order));
+  if (orderToSave.orderFullFillmentId != null && orderToSave.fulfillment_id == null) {
+    orderToSave.fulfillment_id = orderToSave.orderFullFillmentId;
+  }
+  if (Array.isArray(orderToSave.order_items)) {
+    orderToSave.order_items = orderToSave.order_items.map((item) => {
+      const img = item.product_image && typeof item.product_image === "object"
+        ? item.product_image
+        : {};
+      const {
+        pixel_width: _flatWidth,
+        pixel_height: _flatHeight,
+        product_url_file: _flatFile,
+        product_url_thumbnail: _flatThumb,
+        ...rest
+      } = item;
+      return {
+        ...rest,
+        product_image: {
+          pixel_width: img.pixel_width ?? _flatWidth ?? 600,
+          pixel_height: img.pixel_height ?? _flatHeight ?? 600,
+          product_url_file: img.product_url_file ?? _flatFile ?? "https://via.placeholder.com/600",
+          product_url_thumbnail: img.product_url_thumbnail ?? _flatThumb ?? "https://via.placeholder.com/150",
+          library_file: img.library_file ?? null,
+        },
+      };
+    });
+  }
+  ensureValidOrderKey(orderToSave);
+  ensureOrderItemsValidForSave(orderToSave);
+  return orderToSave;
 }
 
 /**
