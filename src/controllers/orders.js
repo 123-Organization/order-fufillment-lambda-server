@@ -5,6 +5,7 @@ const log = debug("app:uploadOrders");
 const { validateOrderPayload } = require("./validate-order");
 const { randomUUID: uuidv4 } = require('crypto'); // Use Node's built-in crypto.randomUUID for UUID generation
 const { logIncomingRequest, redactAndTruncate } = require("../helpers/request-log");
+const { updateOrder: updateOrderFullReplace } = require("./upload-orders");
 
 log("Orders");
 const axios = require('axios'); // Import axios for making HTTP requests
@@ -803,7 +804,19 @@ exports.updateOrderByValidProductSkuCode = async (req, res) => {
   }
 };
 
-
+/**
+ * Combines /update-order-by-valid-product-sku (add/replace a single order item by SKU or
+ * product code) and /update-orders (replace a whole order's data) behind one endpoint. Each
+ * payload keeps its own original shape — nothing is merged — since toReplace only ever appears
+ * in the single-item payload, its presence is what picks which of the two original handlers runs.
+ */
+exports.updateOrderMerged = async (req, res) => {
+  const body = req.body || {};
+  if (Object.prototype.hasOwnProperty.call(body, 'toReplace')) {
+    return exports.updateOrderByValidProductSkuCode(req, res);
+  }
+  return updateOrderFullReplace(req, res);
+};
 
 function generateGUID() {
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
