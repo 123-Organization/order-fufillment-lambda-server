@@ -6,7 +6,7 @@ const { getClientToken, addPaymentCard, createCustomer, getFullCustomerDetails, 
 const { validateOrders, validateSubmitOrders, uploadOrdersToLocalDatabase, uploadOrdersToLocalDatabaseShopify, updateOrder, uploadOrdersToLocalDatabaseFromExcel } = require('./upload-orders');
 const { listVirtualInventory, listVirtualInventoryV2, validateListVirtualInventory, validateUpdateVirtualInventory, updateVirtualInventory, validateSkus, deleteVirtualInventory, getProductBySku, validateUpdateWoocommerceProductId, updateWoocommerceProductId } = require('./virtual-inventory');
 const { validateAddProduct, addProduct, getProductDetails, increaseProductQuantity, exportToWoocomercev1, productTrashed, productRestored, productSkuUpdated } = require('./products-management');
-const { viewOrderDetails, viewAllOrders, updateOrderByProductSkuCode, createNewOrder, deleteOrder, orderSubmitStatus, orderSubmitStatusBulk, getOrderPrice, submitOrders, submitOrdersV2, getOrderDetailsById, softDeleteOrders, disconnectAndProcess, connectAndProcess, connectAndProcessOfa, disconnectProductsFromInventory, updateOrderByValidProductSkuCode, testAccountKey, checkDomain, sendOrderDetails } = require('./orders');
+const { viewOrderDetails, viewAllOrders, updateOrderByProductSkuCode, createNewOrder, deleteOrder, orderSubmitStatus, orderSubmitStatusBulk, getOrderPrice, submitOrders, submitOrdersV2, getOrderDetailsById, softDeleteOrders, disconnectAndProcess, connectAndProcess, connectAndProcessOfa, disconnectProductsFromInventory, updateOrderByValidProductSkuCode, testAccountKey, checkDomain, sendOrderDetails, updateOrderMerged } = require('./orders');
 const { listShippingOptions, listShippingOptionsV2, listShippingOptionsV3 } = require('./shipping-options');
 const { getUserPaymentToken, getCompanyInfo } = require('./payment-token');
 const { updateUserInformation } = require('./userInformation');
@@ -73,6 +73,9 @@ app.post('/disconnect-products-virtualInventory', disconnectProductsFromInventor
 app.get('/get-company-info', getCompanyInfo);
 app.post('/upload-orders-from-excel', uploadOrdersToLocalDatabaseFromExcel);
 app.post('/update-order-by-valid-product-sku', updateOrderByValidProductSkuCode);
+// Combined endpoint: routes to updateOrderByValidProductSkuCode when the payload has `toReplace`,
+// otherwise to the full-order-replace handler behind /update-orders. Payload shapes are unchanged.
+app.post('/update-order-v2', updateOrderMerged)
 app.post('/submit-orders-v2', submitOrdersV2);
 app.post('/connection-establishment', connectAndProcess);
 app.post('/product-trashed', productTrashed);
