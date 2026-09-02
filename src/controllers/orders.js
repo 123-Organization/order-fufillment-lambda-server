@@ -993,7 +993,8 @@ exports.deleteOrder = async (req, res) => {
       query: req.query,
     });
     const reqBody = JSON.parse(JSON.stringify(req.body));
-    const { accountId, orderFullFillmentId, account_key } = reqBody;
+    const { accountId, orderFullFillmentId } = reqBody;
+    const account_key = reqBody.account_key || req.query?.account_key || req.validatedAccountKey;
 
     // Check if accountId and orderFullFillmentIds are provided
     if (!accountId || !Array.isArray(orderFullFillmentId) || orderFullFillmentId.length === 0) {
@@ -1014,32 +1015,22 @@ exports.deleteOrder = async (req, res) => {
     // Log the request body
     log("Request comes to delete orders for", JSON.stringify(reqBody));
 
-    const orderFullFillmentIdsStr = orderFullFillmentId.join(",");  // Convert array to a comma-separated string
-
-    // Live FinerWorks pending orders for this account, filtered server-side by `ids` instead of
-    // fetching every pending order for the account and matching client-side.
-    const listPendingData = await finerworksService.LIST_PENDING_ORDERS({
-      ids: orderFullFillmentId,
-      account_key,
-    });
-    const pendingOrders = Array.isArray(listPendingData?.orders) ? listPendingData.orders : [];
-    const matchedOrders = pendingOrders.filter((order) =>
-      orderFullFillmentId.some((id) => String(id) === String(order.fulfillment_id))
-    );
-
-    if (matchedOrders.length === 0) {
-      return res.status(404).json({
-        statusCode: 404,
+    const pendingOrderIds = orderFullFillmentId
+      .map((id) => Number(id))
+      .filter((id) => Number.isFinite(id));
+    if (pendingOrderIds.length === 0) {
+      return res.status(400).json({
+        statusCode: 400,
         status: false,
-        message: "No orders found with the provided IDs.",
+        message: "Account Id and order fullfillment IDs are required, and IDs must be an array.",
       });
     }
-    console.log("matchedOrders===", matchedOrders);
+    const orderFullFillmentIdsStr = pendingOrderIds.join(",");
 
-    // save_pending_orders has no delete/soft-delete concept — FinerWorks' own delete_pending_orders
-    // endpoint (ids + account_key) is the structured replacement for the old FulfillmentDeleted=1 flag.
+    // orderFullFillmentId values are FinerWorks pending-order ids — pass them straight to
+    // POST /v3/delete_pending_orders ({ ids, account_key }).
     const deleteData = await finerworksService.DELETE_PENDING_ORDER({
-      ids: matchedOrders.map((order) => order.fulfillment_id),
+      ids: pendingOrderIds,
       account_key,
     });
 

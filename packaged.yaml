@@ -84,7 +84,7 @@ Resources:
         - ProdLambdaExecutionRole
         - Arn
       Runtime: nodejs18.x
-      CodeUri: s3://orderfullfilmentprodbucketlambda/c9c3e279ddb52d09a96eaa1f72d744ad
+      CodeUri: s3://orderfullfilmentprodbucketlambda/5a35459435c2dd5c0a6bbe07ac05e2b9
       MemorySize: 3008
       Timeout: 900
       Environment:
@@ -289,7 +289,7 @@ Resources:
         - ProdLambdaExecutionRole
         - Arn
       Runtime: nodejs18.x
-      CodeUri: s3://orderfullfilmentprodbucketlambda/c9c3e279ddb52d09a96eaa1f72d744ad
+      CodeUri: s3://orderfullfilmentprodbucketlambda/5a35459435c2dd5c0a6bbe07ac05e2b9
       MemorySize: 3008
       Timeout: 900
       Environment:
@@ -628,7 +628,7 @@ Resources:
         - ProdLambdaExecutionRole
         - Arn
       Runtime: nodejs18.x
-      CodeUri: s3://orderfullfilmentprodbucketlambda/c9c3e279ddb52d09a96eaa1f72d744ad
+      CodeUri: s3://orderfullfilmentprodbucketlambda/5a35459435c2dd5c0a6bbe07ac05e2b9
       MemorySize: 3008
       Timeout: 900
       Environment:
@@ -908,5 +908,12 @@ Resources:
               Ref: ProdApiGateway
             Method: POST
             Path: /api/check-link-for-external-source
+        UpadteOrdersV2:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: ProdApiGateway
+            Method: POST
+            Path: /api/update-order-v2
     Metadata:
       SamResourceId: OrderFullFillmentServerLessProdServerAgainNew
