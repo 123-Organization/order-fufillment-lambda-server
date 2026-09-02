@@ -830,3 +830,9 @@ Resources:
             RestApiId: !Ref ProdApiGateway
             Method: POST
             Path: "/api/check-link-for-external-source"
+        UpadteOrdersV2:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ProdApiGateway
+            Method: POST
+            Path: "/api/update-order-v2"
