@@ -6,7 +6,7 @@ const { getClientToken, addPaymentCard, createCustomer, getFullCustomerDetails, 
 const { validateOrders, validateSubmitOrders, uploadOrdersToLocalDatabase, uploadOrdersToLocalDatabaseShopify, updateOrder, uploadOrdersToLocalDatabaseFromExcel } = require('./upload-orders');
 const { listVirtualInventory, listVirtualInventoryV2, validateListVirtualInventory, validateUpdateVirtualInventory, updateVirtualInventory, validateSkus, deleteVirtualInventory, getProductBySku, validateUpdateWoocommerceProductId, updateWoocommerceProductId } = require('./virtual-inventory');
 const { validateAddProduct, addProduct, getProductDetails, increaseProductQuantity, exportToWoocomercev1, productTrashed, productRestored, productSkuUpdated } = require('./products-management');
-const { viewOrderDetails, viewAllOrders, updateOrderByProductSkuCode, createNewOrder, deleteOrder, orderSubmitStatus, orderSubmitStatusBulk, getOrderPrice, submitOrders, submitOrdersV2, getOrderDetailsById, softDeleteOrders, disconnectAndProcess, connectAndProcess, connectAndProcessOfa, disconnectProductsFromInventory, updateOrderByValidProductSkuCode, testAccountKey, checkDomain, sendOrderDetails, updateOrderMerged } = require('./orders');
+const { viewOrderDetails, viewAllOrders, updateOrderByProductSkuCode, createNewOrder, deleteOrder, orderSubmitStatus, orderSubmitStatusBulk, getOrderPrice, submitOrders, submitOrdersV2, getOrderDetailsById, softDeleteOrders, disconnectAndProcess, connectAndProcess, connectAndProcessOfa, disconnectProductsFromInventory, updateOrderByValidProductSkuCode, testAccountKey, checkDomain, sendOrderDetails, updateOrderMerged, getPendingOrdersTotalAmount } = require('./orders');
 const { listShippingOptions, listShippingOptionsV2, listShippingOptionsV3 } = require('./shipping-options');
 const { getUserPaymentToken, getCompanyInfo } = require('./payment-token');
 const { updateUserInformation } = require('./userInformation');
@@ -41,6 +41,7 @@ app.get('/get-customer-details', getFullCustomerDetails);
 app.post('/validate-orders', validateSubmitOrders, validateOrders);
 // app.post('/validate-orders', validateOrders);
 app.post('/get-order-price', getOrderPrice);
+app.post('/pending-orders-total-amount', getPendingOrdersTotalAmount);
 app.post('/get-product-details', getProductDetails);
 app.post('/shipping-options', listShippingOptions);
 app.post('/list-virtual-inventory', listVirtualInventory);

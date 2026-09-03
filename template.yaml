@@ -836,3 +836,9 @@ Resources:
             RestApiId: !Ref ProdApiGateway
             Method: POST
             Path: "/api/update-order-v2"
+        PendingOrdersTotalAmount:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ProdApiGateway
+            Method: POST
+            Path: "/api/pending-orders-total-amount"
