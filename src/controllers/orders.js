@@ -1584,6 +1584,208 @@ exports.getOrderPrice = async (req, res) => {
   }
 };
 
+/**
+ * Calls get_product_details for one pending order's items and reports whether every returned
+ * product is active. Mirrors getProductDetails' isActiveSKU check (products-management.js): a
+ * product is inactive only when description_short is explicitly "Not Available". An order with
+ * no items, or whose lookup fails outright, is treated as not valid.
+ */
+async function isPendingOrderValid(order, account_key) {
+  const items = Array.isArray(order.order_items) ? order.order_items : [];
+  if (items.length === 0) return false;
+
+  const payload = {
+    products: items.map((item) => ({
+      product_qty: item.product_qty,
+      product_sku: item.product_sku,
+      product_image: item.product_image,
+    })),
+    account_key,
+  };
+
+  let productDetails;
+  try {
+    productDetails = await finerworksService.GET_PRODUCTS_DETAILS(payload);
+  } catch (err) {
+    log("get_product_details failed for order_po %s: %s", order.order_po, err?.message);
+    return false;
+  }
+
+  const productList = Array.isArray(productDetails?.product_list) ? productDetails.product_list : [];
+  return productList.length > 0 && productList.every((product) => product.description_short !== "Not Available");
+}
+
+/**
+ * Returns the total amount across every valid pending order for an account_key. An order is
+ * "valid" only when a live get_product_details call for its items comes back with every product
+ * active (see isPendingOrderValid above). Each valid order's contribution is
+ * calculated_total.order_grand_total (product price + shipping + tax) from the first
+ * list_shipping_options_multiple option whose shipping_code matches the order's own requested
+ * shipping_code — summed across all valid orders.
+ */
+exports.getPendingOrdersTotalAmount = async (req, res) => {
+  try {
+    logIncomingRequest(log, {
+      method: req.method,
+      path: req.originalUrl || req.url,
+      functionName: 'getPendingOrdersTotalAmount',
+      accountKey: req.body?.account_key || req.query?.account_key,
+      body: req.body,
+      query: req.query,
+    });
+
+    if (!req.body || typeof req.body !== "object" || Array.isArray(req.body)) {
+      return res.status(400).json({
+        statusCode: 400,
+        status: false,
+        message: "Invalid request format. Expected a JSON object.",
+      });
+    }
+
+    const { account_key } = req.body;
+    if (!account_key) {
+      return res.status(400).json({
+        statusCode: 400,
+        status: false,
+        message: "Account key is missing or invalid.",
+      });
+    }
+
+    const listPendingData = await finerworksService.LIST_PENDING_ORDERS({ account_key });
+    const pendingOrders = Array.isArray(listPendingData?.orders) ? listPendingData.orders : [];
+
+    if (!listPendingData?.status?.success || pendingOrders.length === 0) {
+      log("No pending orders found for account_key:", account_key);
+      return res.status(200).json({
+        statusCode: 200,
+        status: false,
+        message: listPendingData?.status?.message || "No pending orders found for the provided account key.",
+        data: { totalAmount: 0, validOrderCount: 0, orderCount: 0 },
+      });
+    }
+    console.log("pendingOrders=================>>>>>>>>>>>", pendingOrders.length);
+
+    // Validate every pending order live against get_product_details (sequential — this hits
+    // FinerWorks once per order, and account totals aren't latency-sensitive enough to justify
+    // the added complexity of batching/parallelizing this).
+    const validOrders = [];
+    for (const order of pendingOrders) {
+      if (await isPendingOrderValid(order, account_key)) {
+        validOrders.push(order);
+      }
+    }
+    console.log("validOrders=================>>>>>>>>>>>", validOrders.length);
+
+    if (validOrders.length === 0) {
+      log("No valid pending orders found for account_key:", account_key);
+      return res.status(200).json({
+        statusCode: 200,
+        status: false,
+        message: "No valid pending orders found for the provided account key.",
+        data: { totalAmount: 0, validOrderCount: 0, orderCount: pendingOrders.length },
+      });
+    }
+
+    // Send all valid orders to list_shipping_options_multiple in one batch call.
+    const shippingOptionsData = await finerworksService.SHIPPING_OPTIONS_MULTIPLE({
+      orders: validOrders,
+      account_key,
+    });
+    const shippingOrders = Array.isArray(shippingOptionsData?.orders) ? shippingOptionsData.orders : [];
+    console.log("shippingOrders=================>>>>>>>>>>>", shippingOrders.length);
+
+    // Match each valid order back to its response entry — by order_po when the response echoes
+    // it, falling back to positional index otherwise — then pick the FIRST option whose
+    // shipping_code equals the order's own requested shipping_code (multiple carriers can share
+    // the same shipping_code, e.g. USPS and UPS both under "SD" — first match wins, no cost
+    // comparison) and add its calculated_total.order_grand_total (product + shipping + tax) to
+    // the running total.
+    let totalAmount = 0;
+    let matchedOrderCount = 0;
+    validOrders.forEach((order, index) => {
+      const responseOrder =
+        shippingOrders.find(
+          (o) => o?.order_po != null && String(o.order_po) === String(order.order_po)
+        ) || shippingOrders[index];
+      const options = Array.isArray(responseOrder?.options) ? responseOrder.options : [];
+      const matchedOption = options.find(
+        (opt) => String(opt?.shipping_code || "").trim() === String(order.shipping_code || "").trim()
+      );
+      if (!matchedOption) {
+        log(
+          "No matching shipping option for order_po %s (shipping_code %s)",
+          order.order_po,
+          order.shipping_code
+        );
+        return;
+      }
+      const grandTotal = Number(matchedOption?.calculated_total?.order_grand_total);
+      if (Number.isFinite(grandTotal)) {
+        totalAmount += grandTotal;
+        matchedOrderCount += 1;
+      }
+    });
+    totalAmount = Math.round(totalAmount * 100) / 100;
+
+    const successLog = JSON.stringify({
+      level: 'INFO',
+      platform: 'finerworks',
+      method: req.method,
+      api: req.originalUrl || req.url,
+      function: 'getPendingOrdersTotalAmount',
+      operation: 'Pending orders total amount calculated successfully',
+      account_key: account_key || 'unknown',
+      result: {
+        totalAmount,
+        validOrderCount: validOrders.length,
+        matchedShippingOrderCount: matchedOrderCount,
+        orderCount: pendingOrders.length,
+      },
+      timestamp: new Date().toISOString()
+    });
+    console.log(successLog);
+    log('Success in getPendingOrdersTotalAmount: %s', successLog);
+
+    return res.status(200).json({
+      statusCode: 200,
+      status: true,
+      message: "Total amount calculated successfully",
+      data: {
+        totalAmount,
+        validOrderCount: validOrders.length,
+        matchedShippingOrderCount: matchedOrderCount,
+        orderCount: pendingOrders.length,
+      },
+    });
+  } catch (err) {
+    log("Error while calculating pending orders total amount:", err?.message || JSON.stringify(err));
+    const isFinerworksError = err?.response?.config?.url?.includes('finerworks.com') || err?.config?.url?.includes('finerworks.com');
+    const rawDetail = err?.response?.data;
+    const detail = rawDetail && typeof rawDetail === 'object'
+      ? (rawDetail.message || rawDetail.error || JSON.stringify(rawDetail).slice(0, 1000))
+      : (typeof rawDetail === 'string' && rawDetail.trim() ? rawDetail.slice(0, 1000) : null);
+    const errorJson = JSON.stringify({
+      level: 'ERROR',
+      platform: 'finerworks',
+      source: isFinerworksError ? 'finerworks_api' : 'lambda',
+      function: 'getPendingOrdersTotalAmount',
+      account_key: req.body?.account_key || req.query?.account_key || 'unknown',
+      httpStatus: err?.response?.status || null,
+      message: `Failed to calculate pending orders total amount: ${err?.message || 'Unknown error'}`,
+      detail,
+      timestamp: new Date().toISOString()
+    });
+    console.error(errorJson);
+    log('Formatted error in getPendingOrdersTotalAmount: %s', errorJson);
+    return res.status(502).json({
+      statusCode: 502,
+      status: false,
+      message: "Failed to calculate pending orders total amount",
+      detail,
+    });
+  }
+};
+
 exports.getOrderDetailsById = async (req, res) => {
   try {
     logIncomingRequest(log, {
