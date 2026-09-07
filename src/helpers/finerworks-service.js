@@ -11,6 +11,33 @@ const getHeaders = () => {
   };
 };
 
+const RETRYABLE_STATUS_CODES = new Set([408, 429, 500, 502, 503, 504]);
+const RETRYABLE_ERROR_CODES = new Set(['ECONNABORTED', 'ETIMEDOUT', 'ECONNRESET']);
+
+/**
+ * axios wrapper with a bounded timeout and a small retry-with-backoff for transient failures
+ * (429/5xx/timeout/connection reset). Without an explicit timeout these calls can hang until the
+ * API Gateway's hard 29s integration ceiling kills them — well before our Lambda's own much
+ * longer configured timeout — which is what turns a slow FinerWorks response under concurrent
+ * load into an outright failure. Only use this for idempotent calls (safe to repeat).
+ */
+const requestWithRetry = async (config, { retries = 2, baseDelayMs = 500, timeout = 25000 } = {}) => {
+  let attempt = 0;
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    try {
+      return await axios({ timeout, ...config });
+    } catch (err) {
+      const status = err?.response?.status;
+      const isRetryable = RETRYABLE_STATUS_CODES.has(status) || RETRYABLE_ERROR_CODES.has(err?.code) || !err?.response;
+      if (!isRetryable || attempt >= retries) throw err;
+      const delay = baseDelayMs * 2 ** attempt + Math.floor(Math.random() * 200);
+      await new Promise((resolve) => setTimeout(resolve, delay));
+      attempt += 1;
+    }
+  }
+};
+
 /**
  * Updates the user information.
  * @param {Object} payload - The payload containing the user information to be updated.
@@ -198,6 +225,42 @@ exports.LIST_VIRTUAL_INVENTORY = async (payload) => {
  */
 exports.UPDATE_VIRTUAL_INVENTORY = async (payload) => {
   const postData = await axios({
+    method: 'PUT',
+    url: process.env.FINER_WORKS_URL + 'update_virtual_inventory',
+    headers: getHeaders(),
+    data: payload
+  });
+  return postData.data;
+};
+
+/**
+ * Same as LIST_VIRTUAL_INVENTORY, but with a bounded timeout and retry-with-backoff for
+ * transient failures (see requestWithRetry). Split out as its own function rather than changing
+ * LIST_VIRTUAL_INVENTORY itself, since that one is called from other places too and this
+ * behavior change (timeout + retries) shouldn't silently apply to all of them.
+ * @param {Object} payload - The payload containing the inventory details.
+ * @returns {Promise<Object>} - The response data from the API.
+ */
+exports.LIST_VIRTUAL_INVENTORY_WITH_RETRY = async (payload) => {
+  const postData = await requestWithRetry({
+    method: 'POST',
+    url: process.env.FINER_WORKS_URL + 'list_virtual_inventory',
+    headers: getHeaders(),
+    data: payload
+  });
+  return postData.data;
+};
+
+/**
+ * Same as UPDATE_VIRTUAL_INVENTORY, but with a bounded timeout and retry-with-backoff for
+ * transient failures (see requestWithRetry). Split out as its own function rather than changing
+ * UPDATE_VIRTUAL_INVENTORY itself, since that one is called from other places too and this
+ * behavior change (timeout + retries) shouldn't silently apply to all of them.
+ * @param {Object} payload - The payload containing the data to update the virtual inventory.
+ * @returns {Promise<Object>} - The response data from the API.
+ */
+exports.UPDATE_VIRTUAL_INVENTORY_WITH_RETRY = async (payload) => {
+  const postData = await requestWithRetry({
     method: 'PUT',
     url: process.env.FINER_WORKS_URL + 'update_virtual_inventory',
     headers: getHeaders(),

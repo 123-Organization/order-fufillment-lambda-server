@@ -414,7 +414,7 @@ exports.updateWoocommerceProductId = async (req, res) => {
         }, {});
         const skuList = Object.keys(skuToWoocommerceId);
 
-        const listInformation = await finerworksService.LIST_VIRTUAL_INVENTORY({ sku_filter: skuList, account_key });
+        const listInformation = await finerworksService.LIST_VIRTUAL_INVENTORY_WITH_RETRY({ sku_filter: skuList, account_key });
         if (!(listInformation && listInformation.status && listInformation.status.success)) {
             return res.status(400).json({
                 statusCode: 400,
@@ -450,7 +450,7 @@ exports.updateWoocommerceProductId = async (req, res) => {
             }
         }));
 
-        const updateInformation = await finerworksService.UPDATE_VIRTUAL_INVENTORY({ virtual_inventory: virtualInventoryPayload, account_key });
+        const updateInformation = await finerworksService.UPDATE_VIRTUAL_INVENTORY_WITH_RETRY({ virtual_inventory: virtualInventoryPayload, account_key });
         if (updateInformation && updateInformation.status && updateInformation.status.success) {
             const successLog = JSON.stringify({
                 level: 'INFO',
@@ -484,23 +484,32 @@ exports.updateWoocommerceProductId = async (req, res) => {
     } catch (error) {
         log('Error while updating woocommerce product id mapping : ', error);
         const isFinerworksError = error?.response?.config?.url?.includes('finerworks.com') || error?.config?.url?.includes('finerworks.com');
+        const httpStatus = error?.response?.status || null;
+        const rawDetail = error?.response?.data;
+        const detail = rawDetail && typeof rawDetail === 'object'
+            ? (rawDetail.message || rawDetail.error || JSON.stringify(rawDetail).slice(0, 1000))
+            : (typeof rawDetail === 'string' && rawDetail.trim() ? rawDetail.slice(0, 1000) : null);
         const errorJson = JSON.stringify({
             level: 'ERROR',
             platform: 'finerworks',
             source: isFinerworksError ? 'finerworks_api' : 'lambda',
             function: 'updateWoocommerceProductId',
             account_key: req.body?.account_key || req.query?.account_key || 'unknown',
-            httpStatus: error?.response?.status || null,
+            httpStatus,
             message: `Failed to update woocommerce product id mapping: ${error?.message || 'Unknown error'}`,
-            detail: error?.response?.data?.message || error?.response?.data?.error || null,
+            detail,
+            code: error?.code || null,
             timestamp: new Date().toISOString()
         });
         console.error(errorJson);
         log('Formatted error in updateWoocommerceProductId: %s', errorJson);
-        res.status(400).json({
-            statusCode: 400,
+        // Surface the real upstream status where we have one (e.g. 429 from FinerWorks under
+        // load) instead of always answering 400, so a caller's own retry logic can react to it.
+        res.status(httpStatus && httpStatus >= 400 && httpStatus < 600 ? httpStatus : 502).json({
+            statusCode: httpStatus || 502,
             status: false,
-            message: JSON.stringify(error),
+            message: detail || error?.message || 'Failed to update woocommerce product id mapping',
+            code: error?.code || null,
         });
     }
 };
