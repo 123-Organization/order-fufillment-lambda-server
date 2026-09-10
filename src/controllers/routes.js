@@ -26,6 +26,8 @@ const { setPlatformOrderSync, squarespaceOrderCreateWebhook, squareOrderCreateWe
 const { connectShippo, getShippoStatus, validateShippoKey } = require('./shippo-auth');
 const { fetchShippoOrders, fetchShippoOrdersByOrderNumber } = require('./shippo-orders');
 const { checkLinkForExternalSource, relinkExternalSource, checkSkuExists } = require('./check-link-for-external-source');
+const { handleBigcommerceAuthStart, handleBigcommerceAuthCallback, handleBigcommerceLoadCallback, handleBigcommerceUninstallCallback, handleBigcommerceDisconnect } = require('./bigcommerce-auth');
+const { registerBigcommerceOrderCreateWebhook, listBigcommerceWebhooks, deleteBigcommerceWebhook, bigcommerceOrderCreateWebhook } = require('./bigcommerce-webhooks');
 const healthCheck = require('./health-check');
 const app = Router();
 
@@ -149,10 +151,22 @@ app.post('/check-link-for-external-source', asyncHandler(checkLinkForExternalSou
 app.post('/relink-external-source', asyncHandler(relinkExternalSource));
 app.post('/check-sku-exists', asyncHandler(checkSkuExists));
 
+// BigCommerce OAuth (called from inside OFA to start a connection, and by BigCommerce itself
+// for the Auth/Load/Uninstall callbacks registered in the Dev Portal)
+app.get('/bigcommerce/auth', asyncHandler(handleBigcommerceAuthStart));
+app.get('/bigcommerce/auth-callback', asyncHandler(handleBigcommerceAuthCallback));
+app.get('/bigcommerce/load-callback', asyncHandler(handleBigcommerceLoadCallback));
+app.get('/bigcommerce/uninstall-callback', asyncHandler(handleBigcommerceUninstallCallback));
+app.post('/bigcommerce/disconnect', asyncHandler(handleBigcommerceDisconnect));
+app.post('/bigcommerce/register-webhook', asyncHandler(registerBigcommerceOrderCreateWebhook));
+app.post('/bigcommerce/list-webhooks', asyncHandler(listBigcommerceWebhooks));
+app.delete('/bigcommerce/delete-webhook', asyncHandler(deleteBigcommerceWebhook));
+
 // Shopify webhooks (called by Shopify)
 app.post('/webhooks/product-delete', asyncHandler(shopifyProductDeleteWebhook));
 app.post('/webhooks/orders-create', asyncHandler(shopifyOrdersCreateWebhook));
 app.post('/webhooks/squarespace/order-create', asyncHandler(squarespaceOrderCreateWebhook));
 app.post('/webhooks/square/order-create', asyncHandler(squareOrderCreateWebhook));
+app.post('/webhooks/bigcommerce/order-create', asyncHandler(bigcommerceOrderCreateWebhook));
 
 module.exports = app;
