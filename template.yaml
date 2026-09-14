@@ -836,3 +836,57 @@ Resources:
             RestApiId: !Ref ProdApiGateway
             Method: POST
             Path: "/api/update-order-v2"
+        BigcommerceAuthStart:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ProdApiGateway
+            Method: GET
+            Path: "/api/bigcommerce/auth"
+        BigcommerceAuthCallback:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ProdApiGateway
+            Method: GET
+            Path: "/api/bigcommerce/auth-callback"
+        BigcommerceLoadCallback:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ProdApiGateway
+            Method: GET
+            Path: "/api/bigcommerce/load-callback"
+        BigcommerceUninstallCallback:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ProdApiGateway
+            Method: GET
+            Path: "/api/bigcommerce/uninstall-callback"
+        BigcommerceDisconnect:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ProdApiGateway
+            Method: POST
+            Path: "/api/bigcommerce/disconnect"
+        BigcommerceRegisterWebhook:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ProdApiGateway
+            Method: POST
+            Path: "/api/bigcommerce/register-webhook"
+        BigcommerceListWebhooks:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ProdApiGateway
+            Method: POST
+            Path: "/api/bigcommerce/list-webhooks"
+        BigcommerceDeleteWebhook:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ProdApiGateway
+            Method: DELETE
+            Path: "/api/bigcommerce/delete-webhook"
+        BigcommerceOrderCreateWebhook:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ProdApiGateway
+            Method: POST
+            Path: "/api/webhooks/bigcommerce/order-create"
