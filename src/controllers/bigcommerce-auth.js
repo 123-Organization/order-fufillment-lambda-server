@@ -4,6 +4,7 @@ const jwt = require('jsonwebtoken');
 const finerworksService = require('../helpers/finerworks-service');
 const debug = require('debug');
 const { sendApiError } = require('../helpers/api-error');
+const { logIncomingRequest, redactAndTruncate } = require('../helpers/request-log');
 const log = debug('app:bigcommerceAuth');
 require('dotenv').config();
 
@@ -70,17 +71,29 @@ const bigcommerceErrorDetail = (err) => {
  */
 const handleBigcommerceAuthStart = async (req, res) => {
   try {
+    logIncomingRequest(log, {
+      method: req.method,
+      path: req.originalUrl || req.url,
+      functionName: 'handleBigcommerceAuthStart',
+      accountKey: req.query?.account_key || req.body?.account_key,
+      body: req.body,
+      query: req.query,
+    });
+
     const account_key = req.query?.account_key || req.body?.account_key;
     if (!account_key || !String(account_key).trim()) {
+      log('handleBigcommerceAuthStart rejected: missing account_key');
       return sendApiError(res, 400, 'Missing required parameter: account_key');
     }
 
     const clientId = getBigcommerceClientId();
     if (!clientId) {
+      log('handleBigcommerceAuthStart rejected: BIGCOMMERCE_CLIENT_ID not configured');
       return sendApiError(res, 500, 'BIGCOMMERCE_CLIENT_ID not configured');
     }
     const ctxSecret = getInstallCtxSecret();
     if (!ctxSecret) {
+      log('handleBigcommerceAuthStart rejected: no install-context secret configured');
       return sendApiError(
         res,
         500,
@@ -90,6 +103,12 @@ const handleBigcommerceAuthStart = async (req, res) => {
 
     const nonce = crypto.randomBytes(16).toString('hex');
     const return_url = req.query?.return_url || req.body?.return_url || 'https://fa.finerworks.com/';
+    log(
+      'handleBigcommerceAuthStart: building install context account_key=%s nonce=%s return_url=%s',
+      String(account_key).trim(),
+      nonce,
+      return_url
+    );
 
     const ctx = jwt.sign(
       {
@@ -101,10 +120,13 @@ const handleBigcommerceAuthStart = async (req, res) => {
       ctxSecret,
       { expiresIn: '15m' }
     );
+    log('handleBigcommerceAuthStart: install-context JWT signed (expires in 15m)');
 
     res.setHeader('Set-Cookie', serializeCookie(INSTALL_CTX_COOKIE, ctx, { maxAgeSeconds: 900 }));
+    log('handleBigcommerceAuthStart: set %s cookie (Max-Age=900s)', INSTALL_CTX_COOKIE);
 
     const installUrl = `${BIGCOMMERCE_LOGIN_BASE}/app/${encodeURIComponent(clientId)}/install`;
+    log('handleBigcommerceAuthStart: redirecting to %s', installUrl);
 
     const successLog = JSON.stringify({
       level: 'INFO',
@@ -114,6 +136,7 @@ const handleBigcommerceAuthStart = async (req, res) => {
       function: 'handleBigcommerceAuthStart',
       operation: 'BigCommerce install redirect sent successfully',
       account_key: String(account_key).trim(),
+      result: { installUrl, nonce },
       timestamp: new Date().toISOString(),
     });
     console.log(successLog);
@@ -121,17 +144,18 @@ const handleBigcommerceAuthStart = async (req, res) => {
 
     return res.redirect(installUrl);
   } catch (err) {
-    console.error(
-      JSON.stringify({
-        level: 'ERROR',
-        platform: 'bigcommerce',
-        source: 'lambda',
-        function: 'handleBigcommerceAuthStart',
-        account_key: req.query?.account_key || req.body?.account_key || 'unknown',
-        message: `BigCommerce install initiation failed: ${err?.message || 'Unknown error'}`,
-        timestamp: new Date().toISOString(),
-      })
-    );
+    const errorJson = JSON.stringify({
+      level: 'ERROR',
+      platform: 'bigcommerce',
+      source: 'lambda',
+      function: 'handleBigcommerceAuthStart',
+      account_key: req.query?.account_key || req.body?.account_key || 'unknown',
+      message: `BigCommerce install initiation failed: ${err?.message || 'Unknown error'}`,
+      stack: err?.stack ? String(err.stack).split('\n').slice(0, 5).join(' | ') : null,
+      timestamp: new Date().toISOString(),
+    });
+    console.error(errorJson);
+    log('Formatted error in handleBigcommerceAuthStart: %s', errorJson);
     return sendApiError(res, err);
   }
 };
@@ -143,15 +167,34 @@ const handleBigcommerceAuthStart = async (req, res) => {
  * and saves the connection under whichever OFA account the install-context cookie identifies.
  */
 const handleBigcommerceAuthCallback = async (req, res) => {
+  let account_key = null;
   try {
-    const { code, scope, context, account_uuid } = req.query || {};
+    logIncomingRequest(log, {
+      method: req.method,
+      path: req.originalUrl || req.url,
+      functionName: 'handleBigcommerceAuthCallback',
+      accountKey: null, // not known yet — recovered from the install-context cookie below
+      body: req.body,
+      query: req.query,
+    });
+
+    const { code, scope, context, account_uuid, external_install } = req.query || {};
+    log(
+      'handleBigcommerceAuthCallback: received code_present=%s scope=%s context=%s account_uuid=%s external_install=%s',
+      Boolean(code),
+      scope || 'none',
+      context || 'none',
+      account_uuid || 'none',
+      external_install || 'none'
+    );
     if (!code || !context) {
+      log('handleBigcommerceAuthCallback rejected: missing code or context');
       return sendApiError(res, 400, 'Missing required parameters: code, context');
     }
 
     const ctxSecret = getInstallCtxSecret();
     const rawCtx = readCookie(req, INSTALL_CTX_COOKIE);
-    let account_key = null;
+    log('handleBigcommerceAuthCallback: install-context cookie present=%s', Boolean(rawCtx));
     let return_url = null;
     if (rawCtx && ctxSecret) {
       try {
@@ -159,13 +202,22 @@ const handleBigcommerceAuthCallback = async (req, res) => {
         if (payload?.purpose === 'bigcommerce_install' && payload?.account_key) {
           account_key = String(payload.account_key).trim();
           return_url = payload.return_url || null;
+          log(
+            'handleBigcommerceAuthCallback: install-context verified account_key=%s nonce=%s',
+            account_key,
+            payload.nonce || 'unknown'
+          );
+        } else {
+          log('handleBigcommerceAuthCallback: install-context verified but missing purpose/account_key claim');
         }
-      } catch (_e) {
+      } catch (verifyErr) {
+        log('handleBigcommerceAuthCallback: install-context verification failed: %s', verifyErr?.message);
         // Falls through to the missing-context error below.
       }
     }
 
     if (!account_key) {
+      log('handleBigcommerceAuthCallback rejected: no account_key recovered from install context');
       return sendApiError(
         res,
         400,
@@ -176,10 +228,17 @@ const handleBigcommerceAuthCallback = async (req, res) => {
     const clientId = getBigcommerceClientId();
     const clientSecret = getBigcommerceClientSecret();
     if (!clientId || !clientSecret) {
+      log('handleBigcommerceAuthCallback rejected: BigCommerce OAuth credentials not configured');
       return sendApiError(res, 500, 'BigCommerce OAuth credentials not configured');
     }
 
     const redirectUri = buildRedirectUri(req);
+    log(
+      'handleBigcommerceAuthCallback: exchanging code for token account_key=%s context=%s redirect_uri=%s',
+      account_key,
+      context,
+      redirectUri
+    );
     const tokenResp = await axios.post(
       `${BIGCOMMERCE_LOGIN_BASE}/oauth2/token`,
       {
@@ -193,19 +252,33 @@ const handleBigcommerceAuthCallback = async (req, res) => {
       },
       { headers: { 'Content-Type': 'application/json' }, timeout: 20000 }
     );
+    log(
+      'handleBigcommerceAuthCallback: token exchange responded status=%s access_token_present=%s scope=%s',
+      tokenResp?.status,
+      Boolean(tokenResp?.data?.access_token),
+      tokenResp?.data?.scope || 'none'
+    );
 
     const tokenData = tokenResp?.data;
     if (!tokenData?.access_token) {
+      log('handleBigcommerceAuthCallback rejected: token exchange succeeded but access_token missing account_key=%s', account_key);
       return sendApiError(res, 400, 'Token exchange succeeded but access_token missing');
     }
 
     const store_hash = String(context).replace(/^stores\//, '');
+    log('handleBigcommerceAuthCallback: resolved store_hash=%s account_key=%s', store_hash, account_key);
 
+    log('handleBigcommerceAuthCallback: fetching existing FinerWorks connections for account_key=%s', account_key);
     const getInformation = await finerworksService.GET_INFO({ account_key });
     const connections = Array.isArray(getInformation?.user_account?.connections)
       ? JSON.parse(JSON.stringify(getInformation.user_account.connections))
       : [];
     const idx = connections.findIndex((c) => c && c.name === 'BigCommerce');
+    log(
+      'handleBigcommerceAuthCallback: existing connections=%d, %s BigCommerce entry',
+      connections.length,
+      idx !== -1 ? 'replacing' : 'adding'
+    );
     const nextConnection = {
       name: 'BigCommerce',
       // Keep the same pattern as Square/Shopify/Squarespace: id stores the access token.
@@ -223,10 +296,13 @@ const handleBigcommerceAuthCallback = async (req, res) => {
     if (idx !== -1) connections[idx] = nextConnection;
     else connections.push(nextConnection);
 
+    log('handleBigcommerceAuthCallback: saving connection to FinerWorks account_key=%s store_hash=%s', account_key, store_hash);
     await finerworksService.UPDATE_INFO({ account_key, connections });
+    log('handleBigcommerceAuthCallback: FinerWorks connection saved successfully account_key=%s', account_key);
 
     // Consumed — clear it so a retry doesn't reuse a stale context.
     res.setHeader('Set-Cookie', serializeCookie(INSTALL_CTX_COOKIE, '', { maxAgeSeconds: 0 }));
+    log('handleBigcommerceAuthCallback: cleared %s cookie', INSTALL_CTX_COOKIE);
 
     const successLog = JSON.stringify({
       level: 'INFO',
@@ -236,7 +312,7 @@ const handleBigcommerceAuthCallback = async (req, res) => {
       function: 'handleBigcommerceAuthCallback',
       operation: 'BigCommerce OAuth callback handled and connection saved successfully',
       account_key,
-      result: { store_hash },
+      result: { store_hash, scope: tokenData.scope || scope || null, redirected: Boolean(return_url) },
       timestamp: new Date().toISOString(),
     });
     console.log(successLog);
@@ -244,6 +320,7 @@ const handleBigcommerceAuthCallback = async (req, res) => {
 
     if (return_url) {
       const sep = String(return_url).includes('?') ? '&' : '?';
+      log('handleBigcommerceAuthCallback: redirecting to return_url=%s', return_url);
       return res.redirect(`${return_url}${sep}success=1`);
     }
     return res.status(200).json({
@@ -259,9 +336,12 @@ const handleBigcommerceAuthCallback = async (req, res) => {
       platform: 'bigcommerce',
       source: isBigcommerceError ? 'bigcommerce_api' : 'lambda',
       function: 'handleBigcommerceAuthCallback',
+      account_key: account_key || 'unknown',
       httpStatus: err?.response?.status || null,
       message: `BigCommerce OAuth callback failed: ${err?.message || 'Unknown error'}`,
       detail: bigcommerceErrorDetail(err),
+      responseBody: err?.response?.data ? redactAndTruncate(err.response.data, 1000) : null,
+      stack: err?.stack ? String(err.stack).split('\n').slice(0, 5).join(' | ') : null,
       timestamp: new Date().toISOString(),
     });
     console.error(errorJson);
