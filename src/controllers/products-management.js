@@ -236,42 +236,49 @@ exports.increaseProductQuantity = async (req, res) => {
         message: "Missing required fields: orderFullFillmentId, product_guid, new_quantity",
       });
     }
+    if (!reqBody.account_key) {
+      return res.status(400).json({
+        statusCode: 400,
+        status: false,
+        message: "Missing required field: account_key",
+      });
+    }
 
-    // Select payload for database query
-    const selectPayload = {
-      query: `SELECT * FROM ${process.env.FINER_fwAPI_FULFILLMENTS_TABLE} WHERE FulfillmentID=${reqBody.orderFullFillmentId}`,
-    };
+    // Live FinerWorks pending order instead of the local raw-SQL row — list_pending_orders is
+    // filtered server-side by `ids` instead of fetching every pending order for the account.
+    const listPendingData = await finerworksService.LIST_PENDING_ORDERS({
+      ids: [reqBody.orderFullFillmentId],
+      account_key: reqBody.account_key,
+    });
+    const pendingOrders = Array.isArray(listPendingData?.orders) ? listPendingData.orders : [];
+    const fulfillmentOrder = pendingOrders.find(
+      (o) => String(o.fulfillment_id) === String(reqBody.orderFullFillmentId)
+    );
 
-    // Fetch fulfillment data
-    const selectData = await finerworksService.SELECT_QUERY_FINERWORKS(selectPayload);
-
-    if (!selectData || !selectData.data || selectData.data.length === 0) {
+    if (!fulfillmentOrder) {
       return res.status(404).json({
         statusCode: 404,
         status: false,
         message: "Fulfillment data not found",
       });
     }
-    // Decode and parse FulfillmentData
-    const decodedFulfillmentData = decodeURIComponent(selectData.data[0].FulfillmentData);
-    const fulfillmentJSON = JSON.parse(decodedFulfillmentData);
 
-    // Function to update product quantity in order_items
-    fulfillmentJSON.order_items = fulfillmentJSON.order_items.map(item => {
+    // Update product quantity in order_items
+    const updatedOrder = JSON.parse(JSON.stringify(fulfillmentOrder));
+    updatedOrder.order_items = updatedOrder.order_items.map(item => {
       if (item.product_guid === reqBody.product_guid) {
         return { ...item, product_qty: reqBody.new_quantity };
       }
       return item;
     });
-    const urlEncodedData = urlEncodeJSON(fulfillmentJSON);
-    const updatePayload = {
-      tablename: process.env.FINER_fwAPI_FULFILLMENTS_TABLE,
-      fieldupdates: `FulfillmentData='${urlEncodedData}'`,
-      where: `FulfillmentID=${reqBody.orderFullFillmentId}`,
+    updatedOrder.fulfillment_id = reqBody.orderFullFillmentId;
+
+    const savePayload = {
+      orders: [updatedOrder],
+      source: updatedOrder.source || "web",
+      account_key: reqBody.account_key,
     };
-    const updateQueryExecute = await finerworksService.UPDATE_QUERY_FINERWORKS(
-      updatePayload
-    );
+    const saveData = await finerworksService.SAVE_PENDING_ORDERS(savePayload);
     const successLog = JSON.stringify({
       level: 'INFO',
       platform: 'finerworks',
@@ -289,7 +296,7 @@ exports.increaseProductQuantity = async (req, res) => {
       statusCode: 200,
       status: true,
       message: "Product quantity updated successfully",
-      updatedData: updateQueryExecute,
+      updatedData: saveData,
     });
 
   } catch (error) {

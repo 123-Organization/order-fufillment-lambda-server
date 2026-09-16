@@ -297,11 +297,12 @@ exports.viewOrderDetails = async (req, res) => {
       });
     } else {
       log("Request comes to get order details for", JSON.stringify(reqBody));
-      // No local lookup at all now — list_pending_orders returns FinerWorks' own staging id as
-      // `fulfillment_id` on each order, so the requested orderFullFillmentId is matched directly
-      // against that instead of first resolving it via a local SELECT.
+      // No local lookup at all now — list_pending_orders is filtered server-side by `ids`
+      // (FinerWorks' own staging id, same value as orderFullFillmentId) instead of fetching
+      // every pending order for the account and matching client-side.
       const accountKeyForLookup = reqBody.account_key || req.query?.account_key;
       const listPendingData = await finerworksService.LIST_PENDING_ORDERS({
+        ids: [reqBody.orderFullFillmentId],
         account_key: accountKeyForLookup,
       });
       const pendingOrders = Array.isArray(listPendingData?.orders) ? listPendingData.orders : [];
@@ -410,9 +411,10 @@ exports.updateOrderByProductSkuCode = async (req, res) => {
       "Request comes to get order details to update product details",
       JSON.stringify(reqBody)
     );
-    // Live FinerWorks pending order instead of the local raw-SQL row — list_pending_orders
-    // returns the order already decoded, so no FulfillmentData/urlDecodeJSON step is needed.
+    // Live FinerWorks pending order instead of the local raw-SQL row — list_pending_orders is
+    // filtered server-side by `ids` instead of fetching every pending order for the account.
     const listPendingData = await finerworksService.LIST_PENDING_ORDERS({
+      ids: [reqBody.orderFullFillmentId],
       account_key: reqBody.account_key,
     });
     const pendingOrders = Array.isArray(listPendingData?.orders) ? listPendingData.orders : [];
@@ -633,9 +635,10 @@ exports.updateOrderByValidProductSkuCode = async (req, res) => {
       "Request comes to get order details to update product details",
       JSON.stringify(reqBody)
     );
-    // Live FinerWorks pending order instead of the local raw-SQL row — list_pending_orders
-    // returns the order already decoded, so no FulfillmentData/urlDecodeJSON step is needed.
+    // Live FinerWorks pending order instead of the local raw-SQL row — list_pending_orders is
+    // filtered server-side by `ids` instead of fetching every pending order for the account.
     const listPendingData = await finerworksService.LIST_PENDING_ORDERS({
+      ids: [reqBody.orderFullFillmentId],
       account_key: reqBody.account_key,
     });
     const pendingOrders = Array.isArray(listPendingData?.orders) ? listPendingData.orders : [];
@@ -1263,30 +1266,37 @@ exports.submitOrdersV2 = async (req, res) => {
       // once it gets submitted Now update each order fulfillment Id with submitted status & submitted at time
       if (orderFulfillmentIds.length > 0) {
         console.log(" enter the iffffffff")
+        // Live FinerWorks pending orders for this account, filtered server-side by `ids` instead
+        // of fetching every pending order for the account. Orders that were just submitted above
+        // via SUBMIT_ORDERS may no longer show up here (they've moved into FinerWorks'
+        // real/submitted orders) — for those this step is a no-op below, same as the old code's
+        // silent `return` when the local row wasn't found.
+        const listPendingData = await finerworksService.LIST_PENDING_ORDERS({
+          ids: orderFulfillmentIds,
+          account_key,
+        });
+        const pendingOrders = Array.isArray(listPendingData?.orders) ? listPendingData.orders : [];
+
         await Promise.all(
           orderFulfillmentIds.map(async (fulfillmentId) => {
             log("Fetch details for the order fulfillment Id", fulfillmentId);
-            const selectPayload = {
-              query: `SELECT * FROM ${process.env.FINER_fwAPI_FULFILLMENTS_TABLE} WHERE FulfillmentID=${fulfillmentId} AND FulfillmentAccountID=${accountId}`,
-            };
+            const orderDetail = pendingOrders.find(
+              (o) => String(o.fulfillment_id) === String(fulfillmentId)
+            );
+            if (!orderDetail) return;
 
-            const selectData = await finerworksService.SELECT_QUERY_FINERWORKS(selectPayload);
-            if (!selectData?.data.length) return;
-
-            const orderDetails = selectData.data[0];
-            const orderDetail = urlDecodeJSON(orderDetails.FulfillmentData);
             orderDetail.submittedAt = new Date();
             orderDetail.payment_token = payment_token;
+            orderDetail.fulfillment_id = fulfillmentId;
 
-            const urlEncodedData = urlEncodeJSON(orderDetail);
-            const updatePayload = {
-              tablename: process.env.FINER_fwAPI_FULFILLMENTS_TABLE,
-              fieldupdates: `FulfillmentSubmitted=1, FulfillmentData='${urlEncodedData}'`,
-              where: `FulfillmentID=${fulfillmentId}`,
+            const savePayload = {
+              orders: [orderDetail],
+              source: orderDetail.source || "web",
+              account_key,
             };
-            console.log("updatePayload================", updatePayload);
+            console.log("savePayload================", savePayload);
 
-            const finalResultv2 = await finerworksService.UPDATE_QUERY_FINERWORKS(updatePayload);
+            const finalResultv2 = await finerworksService.SAVE_PENDING_ORDERS(savePayload);
             finalResults.push(finalResultv2);
           })
         );
@@ -1353,7 +1363,7 @@ exports.submitOrdersV2 = async (req, res) => {
     });
     console.error(errorJson);
     log('Formatted error in submitOrdersV2: %s', errorJson);
-    const errorMessage = err.response.data;
+    const errorMessage = err.response?.data || err.message || "Unknown error";
     res.status(400).json({
       statusCode: 400,
       status: false,
