@@ -28,6 +28,7 @@ const { fetchShippoOrders, fetchShippoOrdersByOrderNumber } = require('./shippo-
 const { checkLinkForExternalSource, relinkExternalSource, checkSkuExists } = require('./check-link-for-external-source');
 const { handleBigcommerceAuthStart, handleBigcommerceAuthCallback, handleBigcommerceLoadCallback, handleBigcommerceUninstallCallback, handleBigcommerceDisconnect } = require('./bigcommerce-auth');
 const { registerBigcommerceOrderCreateWebhook, listBigcommerceWebhooks, deleteBigcommerceWebhook, bigcommerceOrderCreateWebhook } = require('./bigcommerce-webhooks');
+const { syncBigcommerceProducts } = require('./bigcommerce-products');
 const healthCheck = require('./health-check');
 const app = Router();
 
@@ -161,6 +162,7 @@ app.post('/bigcommerce/disconnect', asyncHandler(handleBigcommerceDisconnect));
 app.post('/bigcommerce/register-webhook', asyncHandler(registerBigcommerceOrderCreateWebhook));
 app.post('/bigcommerce/list-webhooks', asyncHandler(listBigcommerceWebhooks));
 app.delete('/bigcommerce/delete-webhook', asyncHandler(deleteBigcommerceWebhook));
+app.post('/bigcommerce/sync-products', asyncHandler(syncBigcommerceProducts));
 
 // Shopify webhooks (called by Shopify)
 app.post('/webhooks/product-delete', asyncHandler(shopifyProductDeleteWebhook));

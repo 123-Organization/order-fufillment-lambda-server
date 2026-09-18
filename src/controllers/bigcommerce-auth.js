@@ -166,6 +166,72 @@ const handleBigcommerceAuthStart = async (req, res) => {
  * `context` (stores/{store_hash}), and `account_uuid`. Exchanges the code for an access token
  * and saves the connection under whichever OFA account the install-context cookie identifies.
  */
+/**
+ * Saves (or replaces) the BigCommerce connection entry for an OFA account_key in FinerWorks.
+ * Same shape as the Square/Squarespace connection save — pulled into its own function just to
+ * keep the Auth Callback below readable.
+ */
+async function saveBigcommerceConnection({ account_key, store_hash, access_token, scope, account_uuid, user, owner }) {
+  log('saveBigcommerceConnection: fetching existing FinerWorks connections for account_key=%s', account_key);
+  const getInformation = await finerworksService.GET_INFO({ account_key });
+  const connections = Array.isArray(getInformation?.user_account?.connections)
+    ? JSON.parse(JSON.stringify(getInformation.user_account.connections))
+    : [];
+  const idx = connections.findIndex((c) => c && c.name === 'BigCommerce');
+  log('saveBigcommerceConnection: existing connections=%d, %s BigCommerce entry', connections.length, idx !== -1 ? 'replacing' : 'adding');
+  const nextConnection = {
+    name: 'BigCommerce',
+    // Keep the same pattern as Square/Shopify/Squarespace: id stores the access token.
+    id: access_token,
+    data: JSON.stringify({
+      access_token,
+      store_hash,
+      scope: scope || null,
+      account_uuid: account_uuid || null,
+      user: user || null,
+      owner: owner || null,
+      connected_at: new Date().toISOString(),
+    }),
+  };
+  if (idx !== -1) connections[idx] = nextConnection;
+  else connections.push(nextConnection);
+
+  log('saveBigcommerceConnection: saving connection to FinerWorks account_key=%s store_hash=%s', account_key, store_hash);
+  await finerworksService.UPDATE_INFO({ account_key, connections });
+  log('saveBigcommerceConnection: FinerWorks connection saved successfully account_key=%s', account_key);
+}
+
+/** POST https://login.bigcommerce.com/oauth2/token — exchanges an install code for a token. */
+async function exchangeBigcommerceCode({ code, scope, context, redirectUri }) {
+  const clientId = getBigcommerceClientId();
+  const clientSecret = getBigcommerceClientSecret();
+  if (!clientId || !clientSecret) {
+    const err = new Error('BigCommerce OAuth credentials not configured');
+    err.statusCode = 500;
+    throw err;
+  }
+  const tokenResp = await axios.post(
+    `${BIGCOMMERCE_LOGIN_BASE}/oauth2/token`,
+    {
+      client_id: clientId,
+      client_secret: clientSecret,
+      code,
+      context,
+      scope,
+      grant_type: 'authorization_code',
+      redirect_uri: redirectUri,
+    },
+    { headers: { 'Content-Type': 'application/json' }, timeout: 20000 }
+  );
+  log(
+    'exchangeBigcommerceCode: token exchange responded status=%s access_token_present=%s scope=%s',
+    tokenResp?.status,
+    Boolean(tokenResp?.data?.access_token),
+    tokenResp?.data?.scope || 'none'
+  );
+  return tokenResp?.data;
+}
+
 const handleBigcommerceAuthCallback = async (req, res) => {
   let account_key = null;
   try {
@@ -225,13 +291,6 @@ const handleBigcommerceAuthCallback = async (req, res) => {
       );
     }
 
-    const clientId = getBigcommerceClientId();
-    const clientSecret = getBigcommerceClientSecret();
-    if (!clientId || !clientSecret) {
-      log('handleBigcommerceAuthCallback rejected: BigCommerce OAuth credentials not configured');
-      return sendApiError(res, 500, 'BigCommerce OAuth credentials not configured');
-    }
-
     const redirectUri = buildRedirectUri(req);
     log(
       'handleBigcommerceAuthCallback: exchanging code for token account_key=%s context=%s redirect_uri=%s',
@@ -239,27 +298,7 @@ const handleBigcommerceAuthCallback = async (req, res) => {
       context,
       redirectUri
     );
-    const tokenResp = await axios.post(
-      `${BIGCOMMERCE_LOGIN_BASE}/oauth2/token`,
-      {
-        client_id: clientId,
-        client_secret: clientSecret,
-        code,
-        context,
-        scope,
-        grant_type: 'authorization_code',
-        redirect_uri: redirectUri,
-      },
-      { headers: { 'Content-Type': 'application/json' }, timeout: 20000 }
-    );
-    log(
-      'handleBigcommerceAuthCallback: token exchange responded status=%s access_token_present=%s scope=%s',
-      tokenResp?.status,
-      Boolean(tokenResp?.data?.access_token),
-      tokenResp?.data?.scope || 'none'
-    );
-
-    const tokenData = tokenResp?.data;
+    const tokenData = await exchangeBigcommerceCode({ code, scope, context, redirectUri });
     if (!tokenData?.access_token) {
       log('handleBigcommerceAuthCallback rejected: token exchange succeeded but access_token missing account_key=%s', account_key);
       return sendApiError(res, 400, 'Token exchange succeeded but access_token missing');
@@ -268,37 +307,15 @@ const handleBigcommerceAuthCallback = async (req, res) => {
     const store_hash = String(context).replace(/^stores\//, '');
     log('handleBigcommerceAuthCallback: resolved store_hash=%s account_key=%s', store_hash, account_key);
 
-    log('handleBigcommerceAuthCallback: fetching existing FinerWorks connections for account_key=%s', account_key);
-    const getInformation = await finerworksService.GET_INFO({ account_key });
-    const connections = Array.isArray(getInformation?.user_account?.connections)
-      ? JSON.parse(JSON.stringify(getInformation.user_account.connections))
-      : [];
-    const idx = connections.findIndex((c) => c && c.name === 'BigCommerce');
-    log(
-      'handleBigcommerceAuthCallback: existing connections=%d, %s BigCommerce entry',
-      connections.length,
-      idx !== -1 ? 'replacing' : 'adding'
-    );
-    const nextConnection = {
-      name: 'BigCommerce',
-      // Keep the same pattern as Square/Shopify/Squarespace: id stores the access token.
-      id: tokenData.access_token,
-      data: JSON.stringify({
-        access_token: tokenData.access_token,
-        store_hash,
-        scope: tokenData.scope || scope || null,
-        account_uuid: tokenData.account_uuid || account_uuid || null,
-        user: tokenData.user || null,
-        owner: tokenData.owner || null,
-        connected_at: new Date().toISOString(),
-      }),
-    };
-    if (idx !== -1) connections[idx] = nextConnection;
-    else connections.push(nextConnection);
-
-    log('handleBigcommerceAuthCallback: saving connection to FinerWorks account_key=%s store_hash=%s', account_key, store_hash);
-    await finerworksService.UPDATE_INFO({ account_key, connections });
-    log('handleBigcommerceAuthCallback: FinerWorks connection saved successfully account_key=%s', account_key);
+    await saveBigcommerceConnection({
+      account_key,
+      store_hash,
+      access_token: tokenData.access_token,
+      scope: tokenData.scope || scope || null,
+      account_uuid: tokenData.account_uuid || account_uuid || null,
+      user: tokenData.user || null,
+      owner: tokenData.owner || null,
+    });
 
     // Consumed — clear it so a retry doesn't reuse a stale context.
     res.setHeader('Set-Cookie', serializeCookie(INSTALL_CTX_COOKIE, '', { maxAgeSeconds: 0 }));
