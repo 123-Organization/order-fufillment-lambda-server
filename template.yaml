@@ -897,3 +897,10 @@ Resources:
             RestApiId: !Ref ProdApiGateway
             Method: POST
             Path: "/api/webhooks/bigcommerce/order-create"
+        # Grouped here to match where Square/Squarespace/Wix's own sync-products routes live.
+        BigcommerceSyncProducts:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ProdApiGateway
+            Method: POST
+            Path: "/api/bigcommerce/sync-products"
