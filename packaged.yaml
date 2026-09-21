@@ -84,7 +84,7 @@ Resources:
         - ProdLambdaExecutionRole
         - Arn
       Runtime: nodejs18.x
-      CodeUri: s3://orderfullfilmentprodbucketlambda/5a35459435c2dd5c0a6bbe07ac05e2b9
+      CodeUri: s3://orderfullfilmentprodbucketlambda/b47f70b9882db60549a4d81a84ff35b1
       MemorySize: 3008
       Timeout: 900
       Environment:
@@ -277,6 +277,20 @@ Resources:
               Ref: ProdApiGateway
             Method: POST
             Path: /api/add-token-to-user
+        BigcommerceAuthStart:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: ProdApiGateway
+            Method: GET
+            Path: /api/bigcommerce/auth
+        BigcommerceAuthCallback:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: ProdApiGateway
+            Method: GET
+            Path: /api/bigcommerce/auth-callback
     Metadata:
       SamResourceId: OrderFullFillmentServerLessProdServer
   OrderFullFillmentServerLessProdServerV2:
@@ -289,7 +303,7 @@ Resources:
         - ProdLambdaExecutionRole
         - Arn
       Runtime: nodejs18.x
-      CodeUri: s3://orderfullfilmentprodbucketlambda/5a35459435c2dd5c0a6bbe07ac05e2b9
+      CodeUri: s3://orderfullfilmentprodbucketlambda/b47f70b9882db60549a4d81a84ff35b1
       MemorySize: 3008
       Timeout: 900
       Environment:
@@ -628,7 +642,7 @@ Resources:
         - ProdLambdaExecutionRole
         - Arn
       Runtime: nodejs18.x
-      CodeUri: s3://orderfullfilmentprodbucketlambda/5a35459435c2dd5c0a6bbe07ac05e2b9
+      CodeUri: s3://orderfullfilmentprodbucketlambda/b47f70b9882db60549a4d81a84ff35b1
       MemorySize: 3008
       Timeout: 900
       Environment:

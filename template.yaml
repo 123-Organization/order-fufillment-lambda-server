@@ -281,24 +281,24 @@ Resources:
             RestApiId: !Ref ProdApiGateway
             Method: GET
             Path: "/api/bigcommerce/auth-callback"
-        BigcommerceLoadCallback:
-          Type: Api
-          Properties:
-            RestApiId: !Ref ProdApiGateway
-            Method: GET
-            Path: "/api/bigcommerce/load-callback"
-        BigcommerceUninstallCallback:
-          Type: Api
-          Properties:
-            RestApiId: !Ref ProdApiGateway
-            Method: GET
-            Path: "/api/bigcommerce/uninstall-callback"
-        BigcommerceDisconnect:
-          Type: Api
-          Properties:
-            RestApiId: !Ref ProdApiGateway
-            Method: POST
-            Path: "/api/bigcommerce/disconnect"
+        # BigcommerceLoadCallback:
+        #   Type: Api
+        #   Properties:
+        #     RestApiId: !Ref ProdApiGateway
+        #     Method: GET
+        #     Path: "/api/bigcommerce/load-callback"
+        # BigcommerceUninstallCallback:
+        #   Type: Api
+        #   Properties:
+        #     RestApiId: !Ref ProdApiGateway
+        #     Method: GET
+        #     Path: "/api/bigcommerce/uninstall-callback"
+        # BigcommerceDisconnect:
+        #   Type: Api
+        #   Properties:
+        #     RestApiId: !Ref ProdApiGateway
+        #     Method: POST
+        #     Path: "/api/bigcommerce/disconnect"
   OrderFullFillmentServerLessProdServerV2:
     Type: AWS::Serverless::Function
     Properties:
@@ -610,24 +610,24 @@ Resources:
             Path: "/api/squarespace/auth"
         # BigCommerce webhook management (admin-triggered, low-frequency) — kept separate
         # from the OAuth/connect lifecycle (Server) and the webhook receiver (AgainNew).
-        BigcommerceRegisterWebhook:
-          Type: Api
-          Properties:
-            RestApiId: !Ref ProdApiGateway
-            Method: POST
-            Path: "/api/bigcommerce/register-webhook"
-        BigcommerceListWebhooks:
-          Type: Api
-          Properties:
-            RestApiId: !Ref ProdApiGateway
-            Method: POST
-            Path: "/api/bigcommerce/list-webhooks"
-        BigcommerceDeleteWebhook:
-          Type: Api
-          Properties:
-            RestApiId: !Ref ProdApiGateway
-            Method: DELETE
-            Path: "/api/bigcommerce/delete-webhook"
+        # BigcommerceRegisterWebhook:
+        #   Type: Api
+        #   Properties:
+        #     RestApiId: !Ref ProdApiGateway
+        #     Method: POST
+        #     Path: "/api/bigcommerce/register-webhook"
+        # BigcommerceListWebhooks:
+        #   Type: Api
+        #   Properties:
+        #     RestApiId: !Ref ProdApiGateway
+        #     Method: POST
+        #     Path: "/api/bigcommerce/list-webhooks"
+        # BigcommerceDeleteWebhook:
+        #   Type: Api
+        #   Properties:
+        #     RestApiId: !Ref ProdApiGateway
+        #     Method: DELETE
+        #     Path: "/api/bigcommerce/delete-webhook"
   OrderFullFillmentServerLessDevServerLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
@@ -891,9 +891,9 @@ Resources:
         # BigCommerce webhook receiver — kept on its own function, isolated from the OAuth/
         # connect lifecycle (Server) and webhook management (V2), since this one is hit
         # automatically by BigCommerce on every order, not admin-triggered.
-        BigcommerceOrderCreateWebhook:
-          Type: Api
-          Properties:
-            RestApiId: !Ref ProdApiGateway
-            Method: POST
-            Path: "/api/webhooks/bigcommerce/order-create"
+        # BigcommerceOrderCreateWebhook:
+        #   Type: Api
+        #   Properties:
+        #     RestApiId: !Ref ProdApiGateway
+        #     Method: POST
+        #     Path: "/api/webhooks/bigcommerce/order-create"
