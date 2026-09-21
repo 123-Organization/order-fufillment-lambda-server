@@ -828,3 +828,33 @@ Resources:
           Properties:
             Schedule: rate(6 hours)
             Input: '{"squareTokenRenewal": true}'
+        BigcommerceAuthStart:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Method: GET
+            Path: "/api/bigcommerce/auth"
+        BigcommerceAuthCallback:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Method: GET
+            Path: "/api/bigcommerce/auth-callback"
+        BigcommerceLoadCallback:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Method: GET
+            Path: "/api/bigcommerce/load-callback"
+        BigcommerceUninstallCallback:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Method: GET
+            Path: "/api/bigcommerce/uninstall-callback"
+        BigcommerceDisconnect:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Method: POST
+            Path: "/api/bigcommerce/disconnect"
