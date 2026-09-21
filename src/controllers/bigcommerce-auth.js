@@ -8,9 +8,9 @@ const { logIncomingRequest, redactAndTruncate } = require('../helpers/request-lo
 const log = debug('app:bigcommerceAuth');
 require('dotenv').config();
 
-const BIGCOMMERCE_LOGIN_BASE = 'https://login.bigcommerce.com';
-const BIGCOMMERCE_API_BASE = 'https://api.bigcommerce.com';
-const INSTALL_CTX_COOKIE = 'bc_install_ctx';
+const BIGCOMMERCE_LOGIN_BASE = process.env.BIGCOMMERCE_LOGIN_BASE || 'https://login.bigcommerce.com';
+const BIGCOMMERCE_API_BASE = process.env.BIGCOMMERCE_API_BASE || 'https://api.bigcommerce.com';
+const INSTALL_CTX_COOKIE = process.env.BIGCOMMERCE_INSTALL_CTX_COOKIE || 'bc_install_ctx';
 
 const getBigcommerceClientId = () => process.env.BIGCOMMERCE_CLIENT_ID;
 const getBigcommerceClientSecret = () => process.env.BIGCOMMERCE_CLIENT_SECRET;
