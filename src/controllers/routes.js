@@ -25,7 +25,7 @@ const { syncSquarespaceProducts } = require('./squarespace-products');
 const { setPlatformOrderSync, squarespaceOrderCreateWebhook, squareOrderCreateWebhook } = require('./platform-order-sync');
 const { connectShippo, getShippoStatus } = require('./shippo-auth');
 const { fetchShippoOrders } = require('./shippo-orders');
-const { handleBigcommerceAuthStart, handleBigcommerceAuthCallback, handleBigcommerceLoadCallback, handleBigcommerceUninstallCallback, handleBigcommerceDisconnect } = require('./bigcommerce-auth');
+const { handleBigcommerceAuthStart, handleBigcommerceAuthCallback, handleBigcommerceLoadCallback, handleBigcommerceUninstallCallback, handleBigcommerceDisconnect, handleBigcommerceClaim } = require('./bigcommerce-auth');
 const healthCheck = require('./health-check');
 const app = Router();
 
@@ -141,6 +141,7 @@ app.get('/bigcommerce/auth-callback', asyncHandler(handleBigcommerceAuthCallback
 app.get('/bigcommerce/load-callback', asyncHandler(handleBigcommerceLoadCallback));
 app.get('/bigcommerce/uninstall-callback', asyncHandler(handleBigcommerceUninstallCallback));
 app.post('/bigcommerce/disconnect', asyncHandler(handleBigcommerceDisconnect));
+app.post('/bigcommerce/claim', asyncHandler(handleBigcommerceClaim));
 
 // Shopify webhooks (called by Shopify)
 app.post('/webhooks/product-delete', asyncHandler(shopifyProductDeleteWebhook));

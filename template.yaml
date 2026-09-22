@@ -858,3 +858,9 @@ Resources:
             RestApiId: !Ref MyApiGateway
             Method: POST
             Path: "/api/bigcommerce/disconnect"
+        BigcommerceClaim:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Method: POST
+            Path: "/api/bigcommerce/claim"
