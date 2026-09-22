@@ -18,6 +18,9 @@ const getInstallCtxSecret = () => process.env.BIGCOMMERCE_INSTALL_CTX_SECRET || 
 
 const getApiBaseUrl = (req) => (req.baseUrl ? req.baseUrl : '/api');
 
+/** Where an unclaimed (store-initiated) install redirects to once a claim_token is issued. */
+const getUnclaimedRedirectUrl = () => process.env.BIGCOMMERCE_UNCLAIMED_REDIRECT_URL || 'https://fa.finerworks.com/';
+
 /** Auth Callback URL — must match exactly what's registered for this app in the BigCommerce Dev Portal. */
 const buildRedirectUri = (req) =>
   process.env.BIGCOMMERCE_REDIRECT_URI ||
@@ -52,6 +55,39 @@ const bigcommerceErrorDetail = (err) => {
   if (typeof data === 'string') return data.trim().slice(0, 500) || null;
   return (data.title || data.message || data.error || null);
 };
+
+/**
+ * Upserts the BigCommerce connection (access token + store_hash) into an OFA account's
+ * FinerWorks connections list. Shared by the normal Auth Callback save path and
+ * handleBigcommerceClaim (the store-initiated-install fallback below).
+ */
+async function saveBigcommerceConnection({ account_key, store_hash, access_token, scope, account_uuid, user, owner }) {
+  const trimmedKey = String(account_key).trim();
+  const getInformation = await finerworksService.GET_INFO({ account_key: trimmedKey });
+  const connections = Array.isArray(getInformation?.user_account?.connections)
+    ? JSON.parse(JSON.stringify(getInformation.user_account.connections))
+    : [];
+  const idx = connections.findIndex((c) => c && c.name === 'BigCommerce');
+  const nextConnection = {
+    name: 'BigCommerce',
+    // Keep the same pattern as Square/Shopify/Squarespace: id stores the access token.
+    id: access_token,
+    data: JSON.stringify({
+      access_token,
+      store_hash,
+      scope: scope || null,
+      account_uuid: account_uuid || null,
+      user: user || null,
+      owner: owner || null,
+      connected_at: new Date().toISOString(),
+    }),
+  };
+  if (idx !== -1) connections[idx] = nextConnection;
+  else connections.push(nextConnection);
+
+  await finerworksService.UPDATE_INFO({ account_key: trimmedKey, connections });
+  return connections;
+}
 
 /**
  * Initiates connecting a merchant's BigCommerce store to OFA.
@@ -165,6 +201,15 @@ const handleBigcommerceAuthStart = async (req, res) => {
  * BigCommerce GETs this after the merchant approves the install, with `code`, `scope`,
  * `context` (stores/{store_hash}), and `account_uuid`. Exchanges the code for an access token
  * and saves the connection under whichever OFA account the install-context cookie identifies.
+ *
+ * While this app is in Draft status, BigCommerce only allows installing it from the store's
+ * own control panel ("Apps -> My Apps -> My Draft Apps"), not from the external install link —
+ * and that store-initiated path lands here directly, skipping handleBigcommerceAuthStart
+ * entirely, so there's no install-context cookie and no account_key. The code is still
+ * exchanged for a token below either way (it's single-use), but with no account_key to save it
+ * under, a short-lived signed claim_token carrying the token is handed back via the redirect's
+ * URL fragment (fragments are never sent to any server — only readable by the landing page's
+ * own JS) for OFA to submit to POST /bigcommerce/claim once the merchant is logged in.
  */
 const handleBigcommerceAuthCallback = async (req, res) => {
   let account_key = null;
@@ -178,14 +223,13 @@ const handleBigcommerceAuthCallback = async (req, res) => {
       query: req.query,
     });
 
-    const { code, scope, context, account_uuid, external_install } = req.query || {};
+    const { code, scope, context, account_uuid } = req.query || {};
     log(
-      'handleBigcommerceAuthCallback: received code_present=%s scope=%s context=%s account_uuid=%s external_install=%s',
+      'handleBigcommerceAuthCallback: received code_present=%s scope=%s context=%s account_uuid=%s',
       Boolean(code),
       scope || 'none',
       context || 'none',
-      account_uuid || 'none',
-      external_install || 'none'
+      account_uuid || 'none'
     );
     if (!code || !context) {
       log('handleBigcommerceAuthCallback rejected: missing code or context');
@@ -216,14 +260,11 @@ const handleBigcommerceAuthCallback = async (req, res) => {
       }
     }
 
-    if (!account_key) {
-      log('handleBigcommerceAuthCallback rejected: no account_key recovered from install context');
-      return sendApiError(
-        res,
-        400,
-        'Missing install context. Start the connection from GET /bigcommerce/auth?account_key=... inside OFA rather than installing directly from BigCommerce.'
-      );
-    }
+    log(
+      'handleBigcommerceAuthCallback: account_key recovered=%s (install initiated %s)',
+      Boolean(account_key),
+      account_key ? 'from OFA' : 'directly from BigCommerce'
+    );
 
     const clientId = getBigcommerceClientId();
     const clientSecret = getBigcommerceClientSecret();
@@ -235,7 +276,7 @@ const handleBigcommerceAuthCallback = async (req, res) => {
     const redirectUri = buildRedirectUri(req);
     log(
       'handleBigcommerceAuthCallback: exchanging code for token account_key=%s context=%s redirect_uri=%s',
-      account_key,
+      account_key || 'unclaimed',
       context,
       redirectUri
     );
@@ -261,43 +302,65 @@ const handleBigcommerceAuthCallback = async (req, res) => {
 
     const tokenData = tokenResp?.data;
     if (!tokenData?.access_token) {
-      log('handleBigcommerceAuthCallback rejected: token exchange succeeded but access_token missing account_key=%s', account_key);
+      log('handleBigcommerceAuthCallback rejected: token exchange succeeded but access_token missing account_key=%s', account_key || 'unclaimed');
       return sendApiError(res, 400, 'Token exchange succeeded but access_token missing');
     }
 
     const store_hash = String(context).replace(/^stores\//, '');
-    log('handleBigcommerceAuthCallback: resolved store_hash=%s account_key=%s', store_hash, account_key);
+    log('handleBigcommerceAuthCallback: resolved store_hash=%s account_key=%s', store_hash, account_key || 'unclaimed');
 
-    log('handleBigcommerceAuthCallback: fetching existing FinerWorks connections for account_key=%s', account_key);
-    const getInformation = await finerworksService.GET_INFO({ account_key });
-    const connections = Array.isArray(getInformation?.user_account?.connections)
-      ? JSON.parse(JSON.stringify(getInformation.user_account.connections))
-      : [];
-    const idx = connections.findIndex((c) => c && c.name === 'BigCommerce');
-    log(
-      'handleBigcommerceAuthCallback: existing connections=%d, %s BigCommerce entry',
-      connections.length,
-      idx !== -1 ? 'replacing' : 'adding'
-    );
-    const nextConnection = {
-      name: 'BigCommerce',
-      // Keep the same pattern as Square/Shopify/Squarespace: id stores the access token.
-      id: tokenData.access_token,
-      data: JSON.stringify({
-        access_token: tokenData.access_token,
-        store_hash,
-        scope: tokenData.scope || scope || null,
-        account_uuid: tokenData.account_uuid || account_uuid || null,
-        user: tokenData.user || null,
-        owner: tokenData.owner || null,
-        connected_at: new Date().toISOString(),
-      }),
-    };
-    if (idx !== -1) connections[idx] = nextConnection;
-    else connections.push(nextConnection);
+    const resolvedScope = tokenData.scope || scope || null;
+    const resolvedAccountUuid = tokenData.account_uuid || account_uuid || null;
+
+    if (!account_key) {
+      // Store-initiated install (no install-context cookie) — hand the token back as a
+      // short-lived claim_token instead of saving it under nobody's account.
+      const claimToken = jwt.sign(
+        {
+          purpose: 'bigcommerce_claim',
+          access_token: tokenData.access_token,
+          store_hash,
+          scope: resolvedScope,
+          account_uuid: resolvedAccountUuid,
+          user: tokenData.user || null,
+          owner: tokenData.owner || null,
+        },
+        ctxSecret || clientSecret,
+        { expiresIn: '15m' }
+      );
+      log('handleBigcommerceAuthCallback: no install context — issued 15m claim_token for store_hash=%s', store_hash);
+
+      const unclaimedLog = JSON.stringify({
+        level: 'INFO',
+        platform: 'bigcommerce',
+        method: req.method,
+        api: req.originalUrl || req.url,
+        function: 'handleBigcommerceAuthCallback',
+        operation: 'BigCommerce install completed directly from BigCommerce; awaiting claim',
+        account_key: 'unclaimed',
+        result: { store_hash },
+        timestamp: new Date().toISOString(),
+      });
+      console.log(unclaimedLog);
+      log('Success (unclaimed) in handleBigcommerceAuthCallback: %s', unclaimedLog);
+
+      const target = getUnclaimedRedirectUrl();
+      const sep = target.includes('#') ? '&' : '#';
+      return res.redirect(
+        `${target}${sep}bigcommerce_claim_token=${encodeURIComponent(claimToken)}&store_hash=${encodeURIComponent(store_hash)}`
+      );
+    }
 
     log('handleBigcommerceAuthCallback: saving connection to FinerWorks account_key=%s store_hash=%s', account_key, store_hash);
-    await finerworksService.UPDATE_INFO({ account_key, connections });
+    await saveBigcommerceConnection({
+      account_key,
+      store_hash,
+      access_token: tokenData.access_token,
+      scope: resolvedScope,
+      account_uuid: resolvedAccountUuid,
+      user: tokenData.user || null,
+      owner: tokenData.owner || null,
+    });
     log('handleBigcommerceAuthCallback: FinerWorks connection saved successfully account_key=%s', account_key);
 
     // Consumed — clear it so a retry doesn't reuse a stale context.
@@ -312,7 +375,7 @@ const handleBigcommerceAuthCallback = async (req, res) => {
       function: 'handleBigcommerceAuthCallback',
       operation: 'BigCommerce OAuth callback handled and connection saved successfully',
       account_key,
-      result: { store_hash, scope: tokenData.scope || scope || null, redirected: Boolean(return_url) },
+      result: { store_hash, scope: resolvedScope, redirected: Boolean(return_url) },
       timestamp: new Date().toISOString(),
     });
     console.log(successLog);
@@ -522,12 +585,100 @@ const handleBigcommerceDisconnect = async (req, res) => {
   }
 };
 
+/**
+ * Claims a BigCommerce connection installed directly from BigCommerce's own UI — the path
+ * required while this app is in Draft status, since Draft apps can only be installed via the
+ * store's "My Apps" panel, which lands on the Auth Callback with no install-context cookie
+ * (see handleBigcommerceAuthCallback). That callback hands back a short-lived signed
+ * claim_token via the redirect's URL fragment instead of saving anything; this endpoint
+ * verifies it and finishes the save once OFA knows which account_key it belongs to.
+ * Expects body/query: { account_key, claim_token }.
+ */
+const handleBigcommerceClaim = async (req, res) => {
+  try {
+    const account_key = req.body?.account_key || req.query?.account_key;
+    const claim_token = req.body?.claim_token || req.query?.claim_token;
+    if (!account_key || !claim_token) {
+      return sendApiError(res, 400, 'Missing required parameter(s): account_key, claim_token');
+    }
+
+    const ctxSecret = getInstallCtxSecret();
+    if (!ctxSecret) {
+      return sendApiError(
+        res,
+        500,
+        'Set BIGCOMMERCE_CLIENT_SECRET or BIGCOMMERCE_INSTALL_CTX_SECRET to verify the claim_token.'
+      );
+    }
+
+    let payload;
+    try {
+      payload = jwt.verify(claim_token, ctxSecret);
+    } catch (verifyErr) {
+      log('handleBigcommerceClaim rejected: claim_token verification failed: %s', verifyErr?.message);
+      return sendApiError(
+        res,
+        400,
+        'Invalid or expired claim_token — reinstall the app from BigCommerce to get a new one.'
+      );
+    }
+    if (payload?.purpose !== 'bigcommerce_claim' || !payload?.access_token || !payload?.store_hash) {
+      return sendApiError(res, 400, 'Invalid claim_token');
+    }
+
+    const trimmedKey = String(account_key).trim();
+    await saveBigcommerceConnection({
+      account_key: trimmedKey,
+      store_hash: payload.store_hash,
+      access_token: payload.access_token,
+      scope: payload.scope || null,
+      account_uuid: payload.account_uuid || null,
+      user: payload.user || null,
+      owner: payload.owner || null,
+    });
+
+    const successLog = JSON.stringify({
+      level: 'INFO',
+      platform: 'bigcommerce',
+      method: req.method,
+      api: req.originalUrl || req.url,
+      function: 'handleBigcommerceClaim',
+      operation: 'Unclaimed BigCommerce install claimed successfully',
+      account_key: trimmedKey,
+      result: { store_hash: payload.store_hash },
+      timestamp: new Date().toISOString(),
+    });
+    console.log(successLog);
+    log('Success in handleBigcommerceClaim: %s', successLog);
+
+    return res.status(200).json({
+      success: true,
+      message: 'BigCommerce connection added successfully',
+      store_hash: payload.store_hash,
+    });
+  } catch (err) {
+    const errorJson = JSON.stringify({
+      level: 'ERROR',
+      platform: 'bigcommerce',
+      source: 'finerworks_api',
+      function: 'handleBigcommerceClaim',
+      account_key: req.body?.account_key || req.query?.account_key || 'unknown',
+      message: `BigCommerce claim failed: ${err?.message || 'Unknown error'}`,
+      timestamp: new Date().toISOString(),
+    });
+    console.error(errorJson);
+    log('Formatted error in handleBigcommerceClaim: %s', errorJson);
+    return sendApiError(res, err);
+  }
+};
+
 module.exports = {
   handleBigcommerceAuthStart,
   handleBigcommerceAuthCallback,
   handleBigcommerceLoadCallback,
   handleBigcommerceUninstallCallback,
   handleBigcommerceDisconnect,
+  handleBigcommerceClaim,
   getBigcommerceConnection,
   bigcommerceAuthHeaders,
   getBigcommerceClientId,
