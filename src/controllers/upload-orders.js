@@ -1098,6 +1098,10 @@ exports.uploadOrdersToLocalDatabaseShopify = async (req, res) => {
       httpStatus: err?.response?.status || null,
       message: `Failed to upload orders to local database: ${err?.message || 'Unknown error'}`,
       detail: err?.response?.data?.message || err?.response?.data?.error || null,
+      // FinerWorks returns ASP.NET-style model validation errors as { Message, ModelState:
+      // { "order.recipient.address_1": ["..."], ... } } — surface it so "The request is
+      // invalid." isn't the only thing a caller ever sees.
+      modelState: err?.response?.data?.ModelState || null,
       timestamp: new Date().toISOString()
     });
     console.error(errorJson);
@@ -1106,6 +1110,7 @@ exports.uploadOrdersToLocalDatabaseShopify = async (req, res) => {
       statusCode: 400,
       status: false,
       message: `Failed to upload orders to local database: ${err?.response?.data?.Message || err?.message || 'Unknown error'}`,
+      modelState: err?.response?.data?.ModelState || undefined,
     });
   }
 };

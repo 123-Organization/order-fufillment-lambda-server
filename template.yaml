@@ -774,6 +774,12 @@ Resources:
             RestApiId: !Ref ProdApiGateway
             Method: GET
             Path: "/api/wix/oauth/install-return"
+        WixRefreshToken:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ProdApiGateway
+            Method: POST
+            Path: "/api/wix/refresh-token"
         WixProductsSync:
           Type: Api
           Properties:
