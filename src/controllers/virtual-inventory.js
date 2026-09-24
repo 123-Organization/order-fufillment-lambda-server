@@ -508,7 +508,8 @@ exports.updateWoocommerceProductId = async (req, res) => {
 
 // # region Delete Virtual Inventory
 const skusSchema = Joi.object({
-    skus: Joi.array().items(Joi.string().required()).required()
+    skus: Joi.array().items(Joi.string().required()).required(),
+    account_key: Joi.string().allow('').allow(null)
 });
 // Middleware for validation
 exports.validateSkus = (req, res, next) => {
