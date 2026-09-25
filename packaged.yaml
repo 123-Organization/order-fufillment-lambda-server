@@ -84,7 +84,7 @@ Resources:
         - ProdLambdaExecutionRole
         - Arn
       Runtime: nodejs18.x
-      CodeUri: s3://orderfullfilmentprodbucketlambda/b47f70b9882db60549a4d81a84ff35b1
+      CodeUri: s3://orderfullfilmentprodbucketlambda/42e2c5f1b5249147df057dc81d66b55c
       MemorySize: 3008
       Timeout: 900
       Environment:
@@ -303,7 +303,7 @@ Resources:
         - ProdLambdaExecutionRole
         - Arn
       Runtime: nodejs18.x
-      CodeUri: s3://orderfullfilmentprodbucketlambda/b47f70b9882db60549a4d81a84ff35b1
+      CodeUri: s3://orderfullfilmentprodbucketlambda/42e2c5f1b5249147df057dc81d66b55c
       MemorySize: 3008
       Timeout: 900
       Environment:
@@ -642,7 +642,7 @@ Resources:
         - ProdLambdaExecutionRole
         - Arn
       Runtime: nodejs18.x
-      CodeUri: s3://orderfullfilmentprodbucketlambda/b47f70b9882db60549a4d81a84ff35b1
+      CodeUri: s3://orderfullfilmentprodbucketlambda/42e2c5f1b5249147df057dc81d66b55c
       MemorySize: 3008
       Timeout: 900
       Environment:
@@ -796,6 +796,13 @@ Resources:
               Ref: ProdApiGateway
             Method: GET
             Path: /api/wix/oauth/install-return
+        WixRefreshToken:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: ProdApiGateway
+            Method: POST
+            Path: /api/wix/refresh-token
         WixProductsSync:
           Type: Api
           Properties:
