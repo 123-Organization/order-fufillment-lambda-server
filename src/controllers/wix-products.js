@@ -415,6 +415,61 @@ function isExpired(expires_at) {
   return Date.now() + 60_000 >= t;
 }
 
+/**
+ * Wix's client_credentials grant has no refresh_token — a fresh access_token is minted from
+ * the same client_id/client_secret/instance_id, replacing the old one. Shared by
+ * resolveWixAuth's lazy on-request refresh and the explicit POST /wix/refresh-token endpoint.
+ * Returns null if Wix didn't return an access_token (bad/revoked instance_id or credentials).
+ */
+async function mintAndPersistWixAccessToken({
+  account_key,
+  connections,
+  wixConnIndex,
+  data,
+  instanceId,
+  siteIdStored,
+  mintCreds,
+}) {
+  const tokenData = await mintWixAppAccessTokenFromInstanceId(instanceId, mintCreds);
+  const nextAccess = tokenData?.access_token ? String(tokenData.access_token).trim() : '';
+  if (!nextAccess) return null;
+
+  const expires_in = tokenData?.expires_in;
+  const nextExpiresAt = Number.isFinite(Number(expires_in))
+    ? new Date(Date.now() + Number(expires_in) * 1000).toISOString()
+    : null;
+
+  const fromTok = parseWixOAuthAccessTokenContext(nextAccess);
+  const siteToStore = siteIdStored || data?.site_id || fromTok?.metaSiteId || null;
+
+  const nextData = {
+    ...data,
+    auth_type: 'oauth_client_credentials',
+    instance_id: instanceId,
+    site_id: siteToStore ? String(siteToStore).trim() : null,
+    access_token: nextAccess,
+    expires_in: expires_in ?? null,
+    expires_at: nextExpiresAt,
+    refreshed_at: new Date().toISOString(),
+  };
+
+  if (wixConnIndex !== -1 && Array.isArray(connections)) {
+    const copy = JSON.parse(JSON.stringify(connections));
+    copy[wixConnIndex] = { name: 'Wix', id: nextAccess, data: JSON.stringify(nextData) };
+    await finerworksService.UPDATE_INFO({
+      account_key: String(account_key).trim(),
+      connections: copy,
+    });
+  }
+
+  return {
+    accessToken: nextAccess,
+    siteId: oauthEffectiveSiteId(siteToStore, nextAccess),
+    expiresAt: nextExpiresAt,
+    expiresIn: expires_in ?? null,
+  };
+}
+
 async function resolveWixAuth({
   account_key,
   access_token,
@@ -465,42 +520,23 @@ async function resolveWixAuth({
           };
         }
       } else if (instanceId && (!accessTokenStored || isExpired(expiresAt))) {
-        const tokenData = await mintWixAppAccessTokenFromInstanceId(instanceId, mintCreds);
-        const nextAccess = tokenData?.access_token ? String(tokenData.access_token).trim() : '';
-        const expires_in = tokenData?.expires_in;
-        const nextExpiresAt = Number.isFinite(Number(expires_in))
-          ? new Date(Date.now() + Number(expires_in) * 1000).toISOString()
-          : null;
-
-        if (nextAccess) {
-          const fromTok = parseWixOAuthAccessTokenContext(nextAccess);
-          const siteToStore = siteIdStored || data?.site_id || fromTok?.metaSiteId || null;
-
-          const nextData = {
-            ...data,
-            auth_type: 'oauth_client_credentials',
-            instance_id: instanceId,
-            site_id: siteToStore ? String(siteToStore).trim() : null,
-            access_token: nextAccess,
-            expires_in: expires_in ?? null,
-            expires_at: nextExpiresAt,
-            refreshed_at: new Date().toISOString(),
-          };
-          const idx = Array.isArray(connections)
-            ? connections.findIndex((c) => c && c.name === 'Wix')
-            : -1;
-          if (idx !== -1) {
-            const copy = JSON.parse(JSON.stringify(connections));
-            copy[idx] = { name: 'Wix', id: nextAccess, data: JSON.stringify(nextData) };
-            await finerworksService.UPDATE_INFO({
-              account_key: String(account_key).trim(),
-              connections: copy,
-            });
-          }
+        const idx = Array.isArray(connections)
+          ? connections.findIndex((c) => c && c.name === 'Wix')
+          : -1;
+        const minted = await mintAndPersistWixAccessToken({
+          account_key,
+          connections,
+          wixConnIndex: idx,
+          data,
+          instanceId,
+          siteIdStored,
+          mintCreds,
+        });
+        if (minted) {
           return {
             authType: 'oauth',
-            accessToken: nextAccess,
-            siteId: oauthEffectiveSiteId(siteToStore, nextAccess),
+            accessToken: minted.accessToken,
+            siteId: minted.siteId,
             source: 'connections_refresh',
           };
         }
@@ -832,4 +868,5 @@ module.exports = {
   buildAuthHeaders,
   summarizeWixHttpError,
   maybePersistDiscoveredWixSiteId,
+  mintAndPersistWixAccessToken,
 };

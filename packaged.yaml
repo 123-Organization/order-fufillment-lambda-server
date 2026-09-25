@@ -277,6 +277,20 @@ Resources:
               Ref: ProdApiGateway
             Method: POST
             Path: /api/add-token-to-user
+        BigcommerceAuthStart:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: ProdApiGateway
+            Method: GET
+            Path: /api/bigcommerce/auth
+        BigcommerceAuthCallback:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: ProdApiGateway
+            Method: GET
+            Path: /api/bigcommerce/auth-callback
     Metadata:
       SamResourceId: OrderFullFillmentServerLessProdServer
   OrderFullFillmentServerLessProdServerV2:
@@ -782,6 +796,13 @@ Resources:
               Ref: ProdApiGateway
             Method: GET
             Path: /api/wix/oauth/install-return
+        WixRefreshToken:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: ProdApiGateway
+            Method: POST
+            Path: /api/wix/refresh-token
         WixProductsSync:
           Type: Api
           Properties:
@@ -908,5 +929,12 @@ Resources:
               Ref: ProdApiGateway
             Method: POST
             Path: /api/check-link-for-external-source
+        UpadteOrdersV2:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: ProdApiGateway
+            Method: POST
+            Path: /api/update-order-v2
     Metadata:
       SamResourceId: OrderFullFillmentServerLessProdServerAgainNew

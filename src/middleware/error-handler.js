@@ -35,6 +35,7 @@ function errorHandler(err, req, res, _next) {
 }
 
 function notFoundHandler(req, res) {
+  log('404 %s %s (no matching route)', req.method, req.originalUrl || req.url);
   if (!String(req.originalUrl || req.url || '').startsWith('/api')) {
     return res.status(404).send('Not found');
   }

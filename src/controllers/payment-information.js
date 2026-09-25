@@ -2,6 +2,7 @@ const braintree = require("braintree");
 const debug = require("debug");
 const log = debug("app:paymentInformation");
 const finerworksService = require("../helpers/finerworks-service");
+const { logIncomingRequest, redactAndTruncate } = require("../helpers/request-log");
 // const gateway = new braintree.BraintreeGateway({
 //     environment: braintree.Environment.Sandbox,
 //     merchantId: 'gz4pdd3wyb4m6534',
@@ -34,6 +35,14 @@ const gateway = new braintree.BraintreeGateway({
 
 exports.getClientToken = async (req, res) => {
   try {
+    logIncomingRequest(log, {
+      method: req.method,
+      path: req.originalUrl || req.url,
+      functionName: 'getClientToken',
+      accountKey: req.body?.account_key || req.query?.account_key,
+      body: req.body,
+      query: req.query,
+    });
     gateway.clientToken.generate({}, (err, response) => {
       if (err) {
         const errorJson = JSON.stringify({
@@ -95,10 +104,19 @@ exports.getClientToken = async (req, res) => {
 
 exports.processVaultedPaymentToken = async (req, res) => {
   try {
+    logIncomingRequest(log, {
+      method: req.method,
+      path: req.originalUrl || req.url,
+      functionName: 'processVaultedPaymentToken',
+      accountKey: req.body?.account_key || req.query?.account_key,
+      body: req.body,
+      query: req.query,
+    });
     const { paymentToken, amount, customerId } = req.body;
 
     // Validate request body
     if (!paymentToken || !amount || !customerId) {
+      log('processVaultedPaymentToken rejected: missing paymentToken/amount/customerId');
       return res.status(400).json({
         success: false,
         message: "Payment token, customer ID and amount are required.",
@@ -106,6 +124,7 @@ exports.processVaultedPaymentToken = async (req, res) => {
     }
     // Ensure amount is a valid number
     if (isNaN(amount) || Number(amount) <= 0) {
+      log('processVaultedPaymentToken rejected: invalid amount %s', amount);
       return res.status(400).json({
         success: false,
         message: "Invalid amount. It must be a positive number.",
@@ -145,6 +164,7 @@ exports.processVaultedPaymentToken = async (req, res) => {
     const errorMessages = result.errors
       .deepErrors()
       .map((error) => error.message);
+    log('processVaultedPaymentToken transaction failed: %s', errorMessages.length ? errorMessages.join(' | ') : result.message);
     return res.status(400).json({
       success: false,
       message: "Transaction failed.",
@@ -174,8 +194,15 @@ exports.processVaultedPaymentToken = async (req, res) => {
 
 exports.createCustomer = async (req, res) => {
   try {
+    logIncomingRequest(log, {
+      method: req.method,
+      path: req.originalUrl || req.url,
+      functionName: 'createCustomer',
+      accountKey: req.body?.account_key,
+      body: req.body,
+      query: req.query,
+    });
     const reqBody = req.body;  // No need to stringify and parse, req.body is already parsed
-    log("requestBody", reqBody);
 
     // Use await for customer creation
     const result = await new Promise((resolve, reject) => {
@@ -198,8 +225,7 @@ exports.createCustomer = async (req, res) => {
     });
 
     if (result.success) {
-      log("Customer created successfully:", result.customer.id);
-      console.log("result========>>>", result);
+      log('createCustomer: Braintree customer created successfully, id=%s', result.customer.id);
 
       // Get user details
       const getInformation = await finerworksService.GET_INFO(reqBody);
@@ -222,15 +248,11 @@ exports.createCustomer = async (req, res) => {
       if (hasAnyValue(getInformation.user_account.billing_info)) {
         payloadForCompanyInformation.billing_info = getInformation.user_account.billing_info;
       }
-      console.log("getInformation=======>>>>>", getInformation);
-      log("payloadForCompanyInformation", JSON.stringify(payloadForCompanyInformation));
-      console.log("payloadForCompanyInformation=======>>>>>", payloadForCompanyInformation);
+      log('createCustomer payload to FinerWorks: %s', redactAndTruncate(payloadForCompanyInformation));
 
       // Update company information
       const updateData = await finerworksService.UPDATE_INFO(payloadForCompanyInformation);
-      console.log("updateData=============>>>>>>>>>>>", updateData);
-      log("check if data updates", JSON.stringify(updateData));
-      log("Customer Id update in the api:", JSON.stringify(payloadForCompanyInformation));
+      log('createCustomer FinerWorks update result: %s', redactAndTruncate(updateData));
       const successLog = JSON.stringify({
         level: 'INFO',
         platform: 'braintree',
@@ -285,15 +307,22 @@ exports.createCustomer = async (req, res) => {
 
 exports.addPaymentCard = async (req, res) => {
   try {
+    logIncomingRequest(log, {
+      method: req.method,
+      path: req.originalUrl || req.url,
+      functionName: 'addPaymentCard',
+      accountKey: req.body?.account_key,
+      body: req.body,
+      query: req.query,
+    });
     const reqBody = JSON.parse(JSON.stringify(req.body));
-    log("requestBody", reqBody);
     gateway.paymentMethod.create(
       {
         paymentMethodNonce: reqBody.nonceFromClient,
         customerId: reqBody.customerId,
       },
       (err, result) => {
-        log("result is", result);
+        log('addPaymentCard Braintree result: %s', redactAndTruncate(result));
         if (err) {
           const errorJson = JSON.stringify({
             level: 'ERROR',
@@ -333,6 +362,7 @@ exports.addPaymentCard = async (req, res) => {
             message: "card Added Successfully",
           });
         } else if (result.errors) {
+          log('addPaymentCard failed: %s', redactAndTruncate(result.message || result.errors));
           res.status(400).json({
             statusCode: 400,
             status: true,
@@ -365,7 +395,16 @@ exports.addPaymentCard = async (req, res) => {
 
 exports.getFullCustomerDetails = async (req, res) => {
   try {
+    logIncomingRequest(log, {
+      method: req.method,
+      path: req.originalUrl || req.url,
+      functionName: 'getFullCustomerDetails',
+      accountKey: req.body?.account_key || req.query?.account_key,
+      body: req.body,
+      query: req.query,
+    });
     if (!req.query.customerId) {
+      log('getFullCustomerDetails rejected: missing customerId');
       res.status(400).json({
         statusCode: 400,
         status: false,
@@ -374,6 +413,7 @@ exports.getFullCustomerDetails = async (req, res) => {
     }
     gateway.customer.find(req.query.customerId, (err, customer) => {
       if (err) {
+        log('getFullCustomerDetails: Braintree lookup failed for customerId=%s: %s', req.query.customerId, err?.message || err);
         res.status(400).json({
           statusCode: 400,
           status: false,
@@ -401,6 +441,7 @@ exports.getFullCustomerDetails = async (req, res) => {
           data: customer,
         });
       } else {
+        log('getFullCustomerDetails: no customer found for customerId=%s', req.query.customerId);
         res.status(400).json({
           statusCode: 400,
           status: false,
@@ -433,10 +474,19 @@ exports.getFullCustomerDetails = async (req, res) => {
 
 exports.removePaymentCard = async (req, res) => {
   try {
+    logIncomingRequest(log, {
+      method: req.method,
+      path: req.originalUrl || req.url,
+      functionName: 'removePaymentCard',
+      accountKey: req.body?.account_key,
+      body: req.body,
+      query: req.query,
+    });
     const { paymentMethodToken, customerId } = req.body;
 
     // Validate request body
     if (!paymentMethodToken || !customerId) {
+      log('removePaymentCard rejected: missing paymentMethodToken/customerId');
       return res.status(400).json({
         statusCode: 400,
         status: false,

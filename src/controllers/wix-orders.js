@@ -26,11 +26,17 @@ function toIsoOrNull(v) {
  * Wix search rejects putting both bounds in one map: `{ createdDate: { $gte, $lte } }`.
  * Use `$and` with two clauses. Operators here are the standard Wix query language
  * `$gte` / `$lte` (not `$ge` / `$le`; those appear on other endpoints only).
+ *
+ * Always excludes archived orders (`archived: false`) — archiving an order in the Wix
+ * dashboard doesn't delete it, so without this clause fulfilled/closed-out orders the
+ * merchant archived keep reappearing in every orders list.
  */
-function createdDateRangeFilter(startIso, endIso) {
-  return {
-    $and: [{ createdDate: { $gte: startIso } }, { createdDate: { $lte: endIso } }],
-  };
+function buildOrdersSearchFilter(startIso, endIso) {
+  const clauses = [{ archived: false }];
+  if (startIso && endIso) {
+    clauses.push({ createdDate: { $gte: startIso } }, { createdDate: { $lte: endIso } });
+  }
+  return clauses.length > 1 ? { $and: clauses } : clauses[0];
 }
 
 /** For `YYYY-MM-DD` only (no time), bound to full UTC days so last day is inclusive. */
@@ -416,16 +422,13 @@ exports.getWixOrders = async (req, res) => {
       return sendApiError(res, 400, 'Provide both startDate and endDate or omit both.');
     }
 
-    let filter = {};
-    if (startIso && endIso) {
-      filter = createdDateRangeFilter(startIso, endIso);
-    }
+    const filter = buildOrdersSearchFilter(startIso, endIso);
 
     const orders = await fetchAllOrdersBySearch({
       wixAuth,
       buildFirstBodyFn: () => ({
         search: {
-          ...(Object.keys(filter).length ? { filter } : {}),
+          filter,
           cursorPaging: { limit: 100 },
           sort: [{ fieldName: 'createdDate', order: 'DESC' }],
         },

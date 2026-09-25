@@ -1,6 +1,7 @@
 const axios = require('axios');
 const finerworksService = require('../helpers/finerworks-service');
 const { handleWixJwtBodyAsAppInstall } = require('./wix-webhooks');
+const { mintAndPersistWixAccessToken } = require('./wix-products');
 const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
 const debug = require('debug');
@@ -42,7 +43,7 @@ function jwtPayloadDecode(token) {
 
 const buildWixRedirectUri = () => {
   // Keep redirect_uri consistent between initiate + callback.
-  return 'https://d7z22w3j4h.execute-api.us-east-1.amazonaws.com/Prod/api/wix/oauth/callback';
+  return 'https://dwe8rzhebf.execute-api.us-east-1.amazonaws.com/Prod/api/wix/oauth/callback';
 };
 
 /**
@@ -998,6 +999,127 @@ const handleWixOAuthCallback = async (req, res) => {
   }
 };
 
+/**
+ * Force-refreshes a Wix connection's access token on demand.
+ *
+ * Unlike Square/Squarespace, Wix app tokens use the client_credentials grant, which has no
+ * refresh_token — a new token is simply re-minted from the same client_id/client_secret/
+ * instance_id. resolveWixAuth already does this lazily whenever a stored token is within 60s
+ * of expiring, so this endpoint isn't fixing a functional gap; it's an explicit trigger for a
+ * frontend "reconnect"/"test connection" action or pre-warming a token before a batch job.
+ *
+ * Expects body/query: { account_key }. No refresh_token param — Wix doesn't have one.
+ */
+const refreshWixToken = async (req, res) => {
+  try {
+    const account_key = req.body?.account_key || req.body?.accountKey || req.query?.account_key || req.query?.accountKey;
+    if (!account_key || !String(account_key).trim()) {
+      log('refreshWixToken rejected: missing account_key');
+      return sendApiError(res, 400, 'Missing required parameter: account_key');
+    }
+    const trimmedKey = String(account_key).trim();
+
+    const info = await finerworksService.GET_INFO({ account_key: trimmedKey });
+    const connections = Array.isArray(info?.user_account?.connections) ? info.user_account.connections : [];
+    const idx = connections.findIndex((c) => c && c.name === 'Wix');
+    if (idx === -1) {
+      log('refreshWixToken rejected: no Wix connection for account_key=%s', trimmedKey);
+      return sendApiError(res, 404, 'No Wix connection found for this account_key');
+    }
+
+    const wixConn = connections[idx];
+    let data = {};
+    try {
+      data = typeof wixConn.data === 'string' ? JSON.parse(wixConn.data) : wixConn.data || {};
+    } catch (_e) {
+      data = {};
+    }
+
+    if (data?.auth_type === 'api_key') {
+      log('refreshWixToken rejected: connection uses api_key auth account_key=%s', trimmedKey);
+      return sendApiError(
+        res,
+        400,
+        'This Wix connection uses an API key, not OAuth — API keys do not expire and have no token to refresh.'
+      );
+    }
+
+    const instanceId = String(data?.instance_id || '').trim();
+    if (!instanceId) {
+      log('refreshWixToken rejected: no instance_id stored account_key=%s', trimmedKey);
+      return sendApiError(
+        res,
+        400,
+        'Wix connection is missing instance_id; reconnect via GET /wix/oauth/start.'
+      );
+    }
+
+    const mintCreds = {
+      client_id: data?.client_id || data?.wix_client_id,
+      client_secret: data?.client_secret || data?.wix_client_secret,
+    };
+
+    log('refreshWixToken: minting new access_token account_key=%s instance_id=%s', trimmedKey, instanceId);
+    const minted = await mintAndPersistWixAccessToken({
+      account_key: trimmedKey,
+      connections,
+      wixConnIndex: idx,
+      data,
+      instanceId,
+      siteIdStored: data?.site_id || null,
+      mintCreds,
+    });
+
+    if (!minted) {
+      log('refreshWixToken failed: Wix returned no access_token account_key=%s', trimmedKey);
+      return sendApiError(
+        res,
+        502,
+        'Wix did not return an access_token for this instance_id. Check WIX_CLIENT_ID/WIX_CLIENT_SECRET.'
+      );
+    }
+
+    const successLog = JSON.stringify({
+      level: 'INFO',
+      platform: 'wix',
+      method: req.method,
+      api: req.originalUrl || req.url,
+      function: 'refreshWixToken',
+      operation: 'Wix access token refreshed successfully',
+      account_key: trimmedKey,
+      result: { expires_at: minted.expiresAt, instance_id: instanceId },
+      timestamp: new Date().toISOString(),
+    });
+    console.log(successLog);
+    log('Success in refreshWixToken: %s', successLog);
+
+    return res.status(200).json({
+      success: true,
+      message: 'Wix access token refreshed successfully',
+      access_token: minted.accessToken,
+      expires_at: minted.expiresAt,
+      instance_id: instanceId,
+    });
+  } catch (err) {
+    const isWixError = err?.response?.config?.url?.includes('wixapis.com') || err?.config?.url?.includes('wixapis.com');
+    const isFinerworksError = err?.response?.config?.url?.includes('finerworks.com') || err?.config?.url?.includes('finerworks.com');
+    const errorJson = JSON.stringify({
+      level: 'ERROR',
+      platform: 'wix',
+      source: isWixError ? 'wix_api' : (isFinerworksError ? 'finerworks_api' : 'lambda'),
+      function: 'refreshWixToken',
+      account_key: req.body?.account_key || req.query?.account_key || 'unknown',
+      httpStatus: err?.response?.status || null,
+      message: `Wix token refresh failed: ${err?.message || 'Unknown error'}`,
+      detail: err?.response?.data?.message || null,
+      timestamp: new Date().toISOString(),
+    });
+    console.error(errorJson);
+    log('Formatted error in refreshWixToken: %s', errorJson);
+    return sendApiError(res, err);
+  }
+};
+
 module.exports = {
   connectWix,
   handleWixAuthStart,
@@ -1008,4 +1130,5 @@ module.exports = {
   maskSecret,
   getWixInstallLink,
   connectWixFromInstance,
+  refreshWixToken,
 };

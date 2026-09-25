@@ -6,7 +6,7 @@ const { getClientToken, addPaymentCard, createCustomer, getFullCustomerDetails, 
 const { validateOrders, validateSubmitOrders, uploadOrdersToLocalDatabase, uploadOrdersToLocalDatabaseShopify, updateOrder, uploadOrdersToLocalDatabaseFromExcel } = require('./upload-orders');
 const { listVirtualInventory, listVirtualInventoryV2, validateListVirtualInventory, validateUpdateVirtualInventory, updateVirtualInventory, validateSkus, deleteVirtualInventory, getProductBySku, validateUpdateWoocommerceProductId, updateWoocommerceProductId } = require('./virtual-inventory');
 const { validateAddProduct, addProduct, getProductDetails, increaseProductQuantity, exportToWoocomercev1, productTrashed, productRestored, productSkuUpdated } = require('./products-management');
-const { viewOrderDetails, viewAllOrders, updateOrderByProductSkuCode, createNewOrder, deleteOrder, orderSubmitStatus, orderSubmitStatusBulk, getOrderPrice, submitOrders, submitOrdersV2, getOrderDetailsById, softDeleteOrders, disconnectAndProcess, connectAndProcess, connectAndProcessOfa, disconnectProductsFromInventory, updateOrderByValidProductSkuCode, testAccountKey, checkDomain, sendOrderDetails } = require('./orders');
+const { viewOrderDetails, viewAllOrders, updateOrderByProductSkuCode, createNewOrder, deleteOrder, orderSubmitStatus, orderSubmitStatusBulk, getOrderPrice, submitOrders, submitOrdersV2, getOrderDetailsById, softDeleteOrders, disconnectAndProcess, connectAndProcess, connectAndProcessOfa, disconnectProductsFromInventory, updateOrderByValidProductSkuCode, testAccountKey, checkDomain, sendOrderDetails, updateOrderMerged } = require('./orders');
 const { listShippingOptions, listShippingOptionsV2, listShippingOptionsV3 } = require('./shipping-options');
 const { getUserPaymentToken, getCompanyInfo } = require('./payment-token');
 const { updateUserInformation } = require('./userInformation');
@@ -15,7 +15,7 @@ const { handleSquarespaceAuth, handleSquarespaceCallback, refreshSquarespaceToke
 const { handleSquareAuth, handleSquareCallback, refreshSquareToken, handleSquareDisconnect } = require('./square-auth');
 const { getSquareOrders, getSquareOrderById, fulfillSquareOrderWithTrackingInfo } = require('./square-orders');
 const { syncSquareProducts } = require('./square-products');
-const { connectWix, handleWixAuthStart, connectWixOAuth, handleWixOAuthInstallReturn, connectWixFromInstance } = require('./wix-auth');
+const { connectWix, handleWixAuthStart, connectWixOAuth, handleWixOAuthInstallReturn, connectWixFromInstance, refreshWixToken } = require('./wix-auth');
 const { disconnectStoreBySlug } = require('./disconnect-store');
 const { syncWixProducts } = require('./wix-products');
 const { getWixOrders, getWixOrderByNumber, fulfillWixOrderWithTrackingInfo } = require('./wix-orders');
@@ -26,6 +26,8 @@ const { setPlatformOrderSync, squarespaceOrderCreateWebhook, squareOrderCreateWe
 const { connectShippo, getShippoStatus, validateShippoKey } = require('./shippo-auth');
 const { fetchShippoOrders, fetchShippoOrdersByOrderNumber } = require('./shippo-orders');
 const { checkLinkForExternalSource, relinkExternalSource, checkSkuExists } = require('./check-link-for-external-source');
+const { handleBigcommerceAuthStart, handleBigcommerceAuthCallback, handleBigcommerceLoadCallback, handleBigcommerceUninstallCallback, handleBigcommerceDisconnect } = require('./bigcommerce-auth');
+const { registerBigcommerceOrderCreateWebhook, listBigcommerceWebhooks, deleteBigcommerceWebhook, bigcommerceOrderCreateWebhook } = require('./bigcommerce-webhooks');
 const healthCheck = require('./health-check');
 const app = Router();
 
@@ -73,6 +75,9 @@ app.post('/disconnect-products-virtualInventory', disconnectProductsFromInventor
 app.get('/get-company-info', getCompanyInfo);
 app.post('/upload-orders-from-excel', uploadOrdersToLocalDatabaseFromExcel);
 app.post('/update-order-by-valid-product-sku', updateOrderByValidProductSkuCode);
+// Combined endpoint: routes to updateOrderByValidProductSkuCode when the payload has `toReplace`,
+// otherwise to the full-order-replace handler behind /update-orders. Payload shapes are unchanged.
+app.post('/update-order-v2', updateOrderMerged)
 app.post('/submit-orders-v2', submitOrdersV2);
 app.post('/connection-establishment', connectAndProcess);
 app.post('/product-trashed', productTrashed);
@@ -104,6 +109,7 @@ app.get('/wix/oauth/start', asyncHandler(handleWixAuthStart));
 app.get('/wix/oauth/install-return', asyncHandler(handleWixOAuthInstallReturn));
 app.post('/wix/oauth/connect', asyncHandler(connectWixOAuth));
 app.get('/wix/instance/connect', asyncHandler(connectWixFromInstance));
+app.post('/wix/refresh-token', asyncHandler(refreshWixToken));
 app.post('/wix/sync-products', asyncHandler(syncWixProducts));
 app.post('/wix/orders', asyncHandler(getWixOrders));
 app.post('/wix/order-by-number', asyncHandler(getWixOrderByNumber));
@@ -146,10 +152,22 @@ app.post('/check-link-for-external-source', asyncHandler(checkLinkForExternalSou
 app.post('/relink-external-source', asyncHandler(relinkExternalSource));
 app.post('/check-sku-exists', asyncHandler(checkSkuExists));
 
+// BigCommerce OAuth (called from inside OFA to start a connection, and by BigCommerce itself
+// for the Auth/Load/Uninstall callbacks registered in the Dev Portal)
+app.get('/bigcommerce/auth', asyncHandler(handleBigcommerceAuthStart));
+app.get('/bigcommerce/auth-callback', asyncHandler(handleBigcommerceAuthCallback));
+app.get('/bigcommerce/load-callback', asyncHandler(handleBigcommerceLoadCallback));
+app.get('/bigcommerce/uninstall-callback', asyncHandler(handleBigcommerceUninstallCallback));
+app.post('/bigcommerce/disconnect', asyncHandler(handleBigcommerceDisconnect));
+app.post('/bigcommerce/register-webhook', asyncHandler(registerBigcommerceOrderCreateWebhook));
+app.post('/bigcommerce/list-webhooks', asyncHandler(listBigcommerceWebhooks));
+app.delete('/bigcommerce/delete-webhook', asyncHandler(deleteBigcommerceWebhook));
+
 // Shopify webhooks (called by Shopify)
 app.post('/webhooks/product-delete', asyncHandler(shopifyProductDeleteWebhook));
 app.post('/webhooks/orders-create', asyncHandler(shopifyOrdersCreateWebhook));
 app.post('/webhooks/squarespace/order-create', asyncHandler(squarespaceOrderCreateWebhook));
 app.post('/webhooks/square/order-create', asyncHandler(squareOrderCreateWebhook));
+app.post('/webhooks/bigcommerce/order-create', asyncHandler(bigcommerceOrderCreateWebhook));
 
 module.exports = app;

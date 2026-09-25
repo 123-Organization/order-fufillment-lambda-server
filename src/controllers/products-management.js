@@ -3,6 +3,7 @@ const Joi = require("joi");
 const log = debug("app:virtualInventory");
 const finerworksService = require("../helpers/finerworks-service");
 const axios = require('axios');
+const { logIncomingRequest, redactAndTruncate } = require("../helpers/request-log");
 log("Products");
 // # region Add Product
 // Define the validation schema
@@ -34,8 +35,17 @@ const requestBodySchema = Joi.object({
 });
 // Middleware for validation
 exports.validateAddProduct = async (req, res, next) => {
+  logIncomingRequest(log, {
+    method: req.method,
+    path: req.originalUrl || req.url,
+    functionName: 'validateAddProduct',
+    accountKey: req.body?.library?.account_key || req.body?.account_key,
+    body: req.body,
+    query: req.query,
+  });
   const { error, value } = requestBodySchema.validate(req.body);
   if (error) {
+    log('validateAddProduct rejected: %s', error.details[0].message);
     return res.status(400).json({
       statusCode: 400,
       status: false,
@@ -48,6 +58,7 @@ exports.validateAddProduct = async (req, res, next) => {
 
 exports.addProduct = async (req, res) => {
   try {
+    log('addProduct payload: %s', redactAndTruncate(req.body));
     const reqBody = JSON.parse(JSON.stringify(req.body));
     const getInformation = await finerworksService.ADD_PRODUCT(reqBody);
     if (
@@ -105,9 +116,18 @@ exports.addProduct = async (req, res) => {
 
 exports.getProductDetails = async (req, res) => {
   try {
+    logIncomingRequest(log, {
+      method: req.method,
+      path: req.originalUrl || req.url,
+      functionName: 'getProductDetails',
+      accountKey: req.body?.account_key,
+      body: req.body,
+      query: req.query,
+    });
     const reqBody = req.body;
 
     if (!reqBody || Object.keys(reqBody).length === 0) {
+      log('getProductDetails rejected: empty body');
       return res.status(400).json({
         statusCode: 400,
         status: false,
@@ -189,10 +209,18 @@ exports.getProductDetails = async (req, res) => {
 
 exports.increaseProductQuantity = async (req, res) => {
   try {
+    logIncomingRequest(log, {
+      method: req.method,
+      path: req.originalUrl || req.url,
+      functionName: 'increaseProductQuantity',
+      accountKey: req.body?.account_key,
+      body: req.body,
+      query: req.query,
+    });
     const reqBody = req.body;
-    console.log("Request body is", reqBody);
 
     if (!reqBody || Object.keys(reqBody).length === 0) {
+      log('increaseProductQuantity rejected: empty body');
       return res.status(400).json({
         statusCode: 400,
         status: false,
@@ -293,10 +321,19 @@ exports.increaseProductQuantity = async (req, res) => {
 
 exports.exportToWoocomercev1 = async (req, res) => {
   try {
+    logIncomingRequest(log, {
+      method: req.method,
+      path: req.originalUrl || req.url,
+      functionName: 'exportToWoocomercev1',
+      accountKey: req.body?.account_key,
+      body: req.body,
+      query: req.query,
+    });
     // Step 1: Validate if domainName and auth_code exist in the request payload
     const { domainName, auth_code, productsList } = req.body;
 
     if (!domainName || !auth_code || productsList.length === 0) {
+      log('exportToWoocomercev1 rejected: missing domainName/auth_code/productsList');
       return res.status(400).json({
         statusCode: 400,
         status: false,
@@ -486,11 +523,20 @@ exports.productTrashed = async (req, res) => {
 
 exports.productSkuUpdated = async (req, res) => {
   try {
+    logIncomingRequest(log, {
+      method: req.method,
+      path: req.originalUrl || req.url,
+      functionName: 'productSkuUpdated',
+      accountKey: req.body?.account_key,
+      body: req.body,
+      query: req.query,
+    });
     // Step 1: Extract the payload fields
     const { clientId, account_key, name, product } = req.body;
 
     // Step 2: Validate if clientId, account_key, product, and other necessary fields exist
     if (!clientId || !account_key || !name || !product) {
+      log('productSkuUpdated rejected: missing clientId/account_key/name/product');
       return res.status(400).json({
         statusCode: 400,
         status: false,
@@ -614,11 +660,20 @@ exports.productSkuUpdated = async (req, res) => {
 
 exports.productRestored = async (req, res) => {
   try {
+    logIncomingRequest(log, {
+      method: req.method,
+      path: req.originalUrl || req.url,
+      functionName: 'productRestored',
+      accountKey: req.body?.account_key,
+      body: req.body,
+      query: req.query,
+    });
     // Step 1: Extract the payload fields
     const { clientId, account_key, name, product } = req.body;
 
     // Step 2: Validate if clientId, account_key, product, and other necessary fields exist
     if (!clientId || !account_key || !name || !product) {
+      log('productRestored rejected: missing clientId/account_key/name/product');
       return res.status(400).json({
         statusCode: 400,
         status: false,
@@ -722,12 +777,21 @@ exports.productRestored = async (req, res) => {
 
 exports.productTrashed = async (req, res) => {
   try {
+    logIncomingRequest(log, {
+      method: req.method,
+      path: req.originalUrl || req.url,
+      functionName: 'productTrashed',
+      accountKey: req.body?.account_key,
+      body: req.body,
+      query: req.query,
+    });
     // Step 1: Extract the payload fields
     const { clientId, account_key, name, product } = req.body;
 
 
     // Step 2: Validate if clientId, account_key, product, and other necessary fields exist
     if (!clientId || !account_key || !name || !product) {
+      log('productTrashed rejected: missing clientId/account_key/name/product');
       return res.status(400).json({
         statusCode: 400,
         status: false,
@@ -832,11 +896,20 @@ exports.productTrashed = async (req, res) => {
 
 exports.productSkuUpdated = async (req, res) => {
   try {
+    logIncomingRequest(log, {
+      method: req.method,
+      path: req.originalUrl || req.url,
+      functionName: 'productSkuUpdated',
+      accountKey: req.body?.account_key,
+      body: req.body,
+      query: req.query,
+    });
     // Step 1: Extract the payload fields
     const { clientId, account_key, name, product } = req.body;
 
     // Step 2: Validate if clientId, account_key, product, and other necessary fields exist
     if (!clientId || !account_key || !name || !product) {
+      log('productSkuUpdated rejected: missing clientId/account_key/name/product');
       return res.status(400).json({
         statusCode: 400,
         status: false,
@@ -960,11 +1033,20 @@ exports.productSkuUpdated = async (req, res) => {
 
 exports.productRestored = async (req, res) => {
   try {
+    logIncomingRequest(log, {
+      method: req.method,
+      path: req.originalUrl || req.url,
+      functionName: 'productRestored',
+      accountKey: req.body?.account_key,
+      body: req.body,
+      query: req.query,
+    });
     // Step 1: Extract the payload fields
     const { clientId, account_key, name, product } = req.body;
 
     // Step 2: Validate if clientId, account_key, product, and other necessary fields exist
     if (!clientId || !account_key || !name || !product) {
+      log('productRestored rejected: missing clientId/account_key/name/product');
       return res.status(400).json({
         statusCode: 400,
         status: false,

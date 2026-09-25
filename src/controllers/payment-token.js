@@ -1,11 +1,21 @@
 const finerworksService = require("../helpers/finerworks-service");
 const debug = require("debug");
 const log = debug("app:getUserPaymentToken");
+const { logIncomingRequest } = require("../helpers/request-log");
 log("Payment Tokens");
 exports.getUserPaymentToken = async (req, res) => {
   try {
+    logIncomingRequest(log, {
+      method: req.method,
+      path: req.originalUrl || req.url,
+      functionName: 'getUserPaymentToken',
+      accountKey: req.body?.account_key || req.query?.account_key,
+      body: req.body,
+      query: req.query,
+    });
     const reqBody = JSON.parse(JSON.stringify(req.query));
     if (!reqBody || !reqBody.payment_profile_id) {
+      log('getUserPaymentToken rejected: missing payment_profile_id');
       res.status(400).json({
         statusCode: 400,
         status: false,
@@ -13,11 +23,9 @@ exports.getUserPaymentToken = async (req, res) => {
       });
     } else {
       const { payment_profile_id } = req.query;
-      log("Request comes to get payment token for", JSON.stringify(reqBody));
       const requestPayload = {
         payment_profile_id: payment_profile_id,
       };
-      console.log("requestPayload", requestPayload);
       const getInformation = await finerworksService.GET_PAYMENT_TOKEN(
         requestPayload
       );
@@ -67,9 +75,14 @@ exports.getUserPaymentToken = async (req, res) => {
 
 exports.getCompanyInfo = async (req, res) => {
   try {
-    // Prepare the request payload with only the necessary credentials
-
-    console.log("came herererererere")
+    logIncomingRequest(log, {
+      method: req.method,
+      path: req.originalUrl || req.url,
+      functionName: 'getCompanyInfo',
+      accountKey: req.body?.account_key || req.query?.account_key,
+      body: req.body,
+      query: req.query,
+    });
     // Perform the API call
     const response = await finerworksService.GET_COMPANY_INFO();
 

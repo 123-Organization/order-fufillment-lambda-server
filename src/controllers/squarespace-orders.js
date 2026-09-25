@@ -130,8 +130,8 @@ const getSquarespaceOrders = async (req, res) => {
           .map((v) => String(v))
       ),
     ];
-    console.log("orderPosToCheck====",orderPosToCheck);
-    
+    console.log("orderPosToCheck====", orderPosToCheck);
+
     const existingSubmittedOrderPos = new Set();
     const existingPendingOrderPos = new Set();
     if (orderPosToCheck.length) {
@@ -182,8 +182,8 @@ const getSquarespaceOrders = async (req, res) => {
         );
       }
     }
-    console.log("existingPendingOrderPos",existingPendingOrderPos);
-        console.log("existingPendingOrderPos",existingSubmittedOrderPos);
+    console.log("existingPendingOrderPos", existingPendingOrderPos);
+    console.log("existingPendingOrderPos", existingSubmittedOrderPos);
 
     let submittedCount = 0;
     let pendingCount = 0;
@@ -213,7 +213,7 @@ const getSquarespaceOrders = async (req, res) => {
     const totalAvailableCount = orders.length;
     const ordersLimitRaw = Number(process.env.SQUARESPACE_ORDERS_LIMIT);
     const ordersLimit =
-      Number.isFinite(ordersLimitRaw) && ordersLimitRaw > 0 ? Math.floor(ordersLimitRaw) : 50;
+      Number.isFinite(ordersLimitRaw) && ordersLimitRaw > 0 ? Math.floor(ordersLimitRaw) : 200;
     orders = orders.slice(0, ordersLimit);
 
     const successLog = JSON.stringify({
@@ -226,19 +226,19 @@ const getSquarespaceOrders = async (req, res) => {
       account_key: trimmedAccountKey,
       result: orders.length <= 20
         ? {
-            count: orders.length,
-            totalAvailableCount,
-            submittedCount,
-            pendingCount,
-            orderIds: orders.map((o) => o?.id),
-          }
+          count: orders.length,
+          totalAvailableCount,
+          submittedCount,
+          pendingCount,
+          orderIds: orders.map((o) => o?.id),
+        }
         : {
-            count: orders.length,
-            totalAvailableCount,
-            submittedCount,
-            pendingCount,
-            firstOrderIds: orders.slice(0, 5).map((o) => o?.id),
-          },
+          count: orders.length,
+          totalAvailableCount,
+          submittedCount,
+          pendingCount,
+          firstOrderIds: orders.slice(0, 5).map((o) => o?.id),
+        },
       timestamp: new Date().toISOString()
     });
     console.log('Success in getSquarespaceOrders: %s', successLog);
@@ -594,7 +594,7 @@ const fulfillSquareSpaceOrderWithTrackingInfo = async (req, res) => {
       ],
       shouldSendNotification: true,
     };
-    console.log("payload====",payload);
+    console.log("payload====", payload);
     if (!carrierName || !service || !shipDate || !trackingNumber) {
       return sendApiError(
         res,
