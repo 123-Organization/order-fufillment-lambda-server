@@ -1353,9 +1353,14 @@ exports.submitOrdersV2 = async (req, res) => {
     });
     console.error(errorJson);
     log('Formatted error in submitOrdersV2: %s', errorJson);
-    const errorMessage = err.response.data;
-    res.status(400).json({
-      statusCode: 400,
+    const status = err?.response?.status && err.response.status < 500 ? err.response.status : 400;
+    const errorMessage =
+      err?.response?.data?.Message ||
+      err?.response?.data?.message ||
+      err?.message ||
+      'Unknown error';
+    res.status(status).json({
+      statusCode: status,
       status: false,
       message: errorMessage,
     });
