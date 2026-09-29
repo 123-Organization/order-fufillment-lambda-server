@@ -44,8 +44,11 @@ wixJwtBodyRouter.post('/wix/oauth/callback', wixJwtText, asyncHandler(handleWixO
 wixJwtBodyRouter.post('/webhooks/wix/order-create', wixJwtText, asyncHandler(handleWixOrderCreateWebhook));
 app.use('/api', wixJwtBodyRouter);
 
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+// Default body-parser limit (100kb) is too small for bulk order submission — a batch of
+// 50+ orders (each with a recipient and line items) can cross it, so requests were being
+// rejected before ever reaching the route handler. Raised to comfortably cover large batches.
+app.use(express.json({ limit: '5mb' }));
+app.use(express.urlencoded({ extended: true, limit: '5mb' }));
 const apiRoutes = require('./src/controllers/routes');
 const server = http.createServer(app);
 app.use('/api', optionalAccountKeyValidator);
