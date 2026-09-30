@@ -732,6 +732,12 @@ Resources:
             RestApiId: !Ref ProdApiGateway
             Method: POST
             Path: "/api/squarespace/orders"
+        FetchOrdersUnified:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ProdApiGateway
+            Method: POST
+            Path: "/api/fetch-orders"
         SquareSpaceSingleOrderFetching :
           Type: Api
           Properties:
