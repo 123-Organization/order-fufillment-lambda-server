@@ -28,6 +28,7 @@ const { fetchShippoOrders, fetchShippoOrdersByOrderNumber } = require('./shippo-
 const { checkLinkForExternalSource, relinkExternalSource, checkSkuExists } = require('./check-link-for-external-source');
 const { handleBigcommerceAuthStart, handleBigcommerceAuthCallback, handleBigcommerceLoadCallback, handleBigcommerceUninstallCallback, handleBigcommerceDisconnect } = require('./bigcommerce-auth');
 const { registerBigcommerceOrderCreateWebhook, listBigcommerceWebhooks, deleteBigcommerceWebhook, bigcommerceOrderCreateWebhook } = require('./bigcommerce-webhooks');
+const { handleTiktokAuthStart, handleTiktokAuthCallback, refreshTiktokToken, handleTiktokDisconnect } = require('./tiktok-auth');
 const healthCheck = require('./health-check');
 const app = Router();
 
@@ -159,6 +160,10 @@ app.get('/bigcommerce/auth-callback', asyncHandler(handleBigcommerceAuthCallback
 app.get('/bigcommerce/load-callback', asyncHandler(handleBigcommerceLoadCallback));
 app.get('/bigcommerce/uninstall-callback', asyncHandler(handleBigcommerceUninstallCallback));
 app.post('/bigcommerce/disconnect', asyncHandler(handleBigcommerceDisconnect));
+app.get('/tiktok/auth', asyncHandler(handleTiktokAuthStart));
+app.get('/tiktok/callback', asyncHandler(handleTiktokAuthCallback));
+app.post('/tiktok/refresh-token', asyncHandler(refreshTiktokToken));
+app.post('/tiktok/disconnect', asyncHandler(handleTiktokDisconnect));
 app.post('/bigcommerce/register-webhook', asyncHandler(registerBigcommerceOrderCreateWebhook));
 app.post('/bigcommerce/list-webhooks', asyncHandler(listBigcommerceWebhooks));
 app.delete('/bigcommerce/delete-webhook', asyncHandler(deleteBigcommerceWebhook));

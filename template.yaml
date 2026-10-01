@@ -299,6 +299,30 @@ Resources:
         #     RestApiId: !Ref ProdApiGateway
         #     Method: POST
         #     Path: "/api/bigcommerce/disconnect"
+        TiktokAuthStart:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ProdApiGateway
+            Method: GET
+            Path: "/api/tiktok/auth"
+        TiktokAuthCallback:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ProdApiGateway
+            Method: GET
+            Path: "/api/tiktok/callback"
+        TiktokRefreshToken:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ProdApiGateway
+            Method: POST
+            Path: "/api/tiktok/refresh-token"
+        TiktokDisconnect:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ProdApiGateway
+            Method: POST
+            Path: "/api/tiktok/disconnect"
   OrderFullFillmentServerLessProdServerV2:
     Type: AWS::Serverless::Function
     Properties:
