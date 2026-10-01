@@ -298,7 +298,13 @@ Resources:
           Properties:
             RestApiId: !Ref MyApiGateway
             Method: POST
-            Path: "/api/squarespace/orders" 
+            Path: "/api/squarespace/orders"
+        FetchOrdersUnified:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Method: POST
+            Path: "/api/fetch-orders"
         SquareSpaceSingleOrderFetching :
           Type: Api
           Properties:
