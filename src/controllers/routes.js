@@ -26,6 +26,7 @@ const { setPlatformOrderSync, squarespaceOrderCreateWebhook, squareOrderCreateWe
 const { connectShippo, getShippoStatus } = require('./shippo-auth');
 const { fetchShippoOrders } = require('./shippo-orders');
 const { handleBigcommerceAuthStart, handleBigcommerceAuthCallback, handleBigcommerceLoadCallback, handleBigcommerceUninstallCallback, handleBigcommerceDisconnect } = require('./bigcommerce-auth');
+const { fetchOrdersUnified } = require('./unified-orders');
 const healthCheck = require('./health-check');
 const app = Router();
 
@@ -112,6 +113,7 @@ app.post('/shopify/disconnectShopifyFromOfa', asyncHandler(disconnectShopifyFrom
 app.post('/stores/disconnect', asyncHandler(disconnectStoreBySlug));
 app.post('/shopify/orders', asyncHandler(getShopifyOrders));
 app.post('/squarespace/orders', asyncHandler(getSquarespaceOrders));
+app.post('/fetch-orders', asyncHandler(fetchOrdersUnified));
 app.post('/shopify/order-by-name', asyncHandler(getShopifyOrderByName));
 app.post('/squarespace/order-by-number', asyncHandler(getSquarespaceOrderByNumber));
 app.post('/squarespace/validate-token', asyncHandler(validateSquarespaceAccessToken));
