@@ -220,9 +220,10 @@ function buildTiktokFulfillmentWebhookUrl({ account_key, orderNumber, orderId })
 
 /** Per-account TikTok order-status-change webhook URL — account_key rides in the query string
  * since TikTok's webhook payload carries shop_id, not account_key (mirrors Squarespace's
- * per-tenant webhook URL pattern in platform-order-sync.js). */
+ * per-tenant webhook URL pattern in platform-order-sync.js). Same OFA_PUBLIC_API_BASE_URL
+ * fallback as resolveTiktokApiBaseUrl so one shared base URL covers both TikTok endpoints. */
 function buildTiktokOrderWebhookUrl(account_key) {
-  const apiBase = String(process.env.TIKTOK_ORDER_CREATE_WEBHOOK_URL || '').trim().replace(/\/$/, '');
+  const apiBase = resolveTiktokApiBaseUrl();
   if (!apiBase) return null;
   return `${apiBase}/api/webhooks/tiktok/order-status-change?account_key=${encodeURIComponent(account_key)}`;
 }
