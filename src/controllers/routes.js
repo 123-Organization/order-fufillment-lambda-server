@@ -26,6 +26,7 @@ const { setPlatformOrderSync, squarespaceOrderCreateWebhook, squareOrderCreateWe
 const { connectShippo, getShippoStatus } = require('./shippo-auth');
 const { fetchShippoOrders } = require('./shippo-orders');
 const { handleBigcommerceAuthStart, handleBigcommerceAuthCallback, handleBigcommerceLoadCallback, handleBigcommerceUninstallCallback, handleBigcommerceDisconnect } = require('./bigcommerce-auth');
+const { handleTiktokAuthStart, handleTiktokAuthCallback, refreshTiktokToken, handleTiktokDisconnect } = require('./tiktok-auth');
 const { fetchOrdersUnified } = require('./unified-orders');
 const healthCheck = require('./health-check');
 const app = Router();
@@ -143,6 +144,10 @@ app.get('/bigcommerce/auth-callback', asyncHandler(handleBigcommerceAuthCallback
 app.get('/bigcommerce/load-callback', asyncHandler(handleBigcommerceLoadCallback));
 app.get('/bigcommerce/uninstall-callback', asyncHandler(handleBigcommerceUninstallCallback));
 app.post('/bigcommerce/disconnect', asyncHandler(handleBigcommerceDisconnect));
+app.get('/tiktok/auth', asyncHandler(handleTiktokAuthStart));
+app.get('/tiktok/callback', asyncHandler(handleTiktokAuthCallback));
+app.post('/tiktok/refresh-token', asyncHandler(refreshTiktokToken));
+app.post('/tiktok/disconnect', asyncHandler(handleTiktokDisconnect));
 
 // Shopify webhooks (called by Shopify)
 app.post('/webhooks/product-delete', asyncHandler(shopifyProductDeleteWebhook));
