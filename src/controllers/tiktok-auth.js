@@ -462,6 +462,78 @@ const handleTiktokAuthCallback = async (req, res) => {
 };
 
 /**
+ * Core refresh logic, reusable outside the HTTP handler (product sync / order fetch call this
+ * directly when a stored token is near expiry, mirroring Square's refreshSquareTokensCore).
+ * Throws on failure rather than writing to a response — callers decide how to surface it.
+ */
+async function refreshTiktokTokenCore(account_key, conn) {
+  const trimmedKey = String(account_key).trim();
+  if (!conn?.refresh_token) {
+    const err = new Error('This TikTok Shop connection has no refresh_token stored; reconnect via GET /tiktok/auth.');
+    err.status = 400;
+    throw err;
+  }
+
+  const appKey = getTiktokAppKey();
+  const appSecret = getTiktokAppSecret();
+  if (!appKey || !appSecret) {
+    const err = new Error('TikTok OAuth credentials not configured');
+    err.status = 500;
+    throw err;
+  }
+
+  log('refreshTiktokTokenCore: refreshing access_token account_key=%s', trimmedKey);
+  const tokenResp = await axios.get(`${TIKTOK_AUTH_BASE}/api/v2/token/refresh`, {
+    params: {
+      app_key: appKey,
+      app_secret: appSecret,
+      refresh_token: conn.refresh_token,
+      grant_type: 'refresh_token',
+    },
+    timeout: 20000,
+  });
+
+  const tokenData = tokenResp?.data?.data;
+  if (!tokenData?.access_token) {
+    const err = new Error('TikTok did not return a new access_token');
+    err.status = 502;
+    err.detail = tokenResp?.data?.message || null;
+    throw err;
+  }
+
+  const now = Date.now();
+  const access_token_expires_at = Number.isFinite(Number(tokenData.access_token_expires_in))
+    ? new Date(now + Number(tokenData.access_token_expires_in) * 1000).toISOString()
+    : null;
+  const refresh_token_expires_at = Number.isFinite(Number(tokenData.refresh_token_expires_in))
+    ? new Date(now + Number(tokenData.refresh_token_expires_in) * 1000).toISOString()
+    : null;
+
+  await saveTiktokConnection({
+    account_key: trimmedKey,
+    access_token: tokenData.access_token,
+    refresh_token: tokenData.refresh_token || conn.refresh_token,
+    access_token_expires_at,
+    refresh_token_expires_at,
+    open_id: conn.open_id,
+    seller_name: conn.seller_name,
+    seller_base_region: conn.seller_base_region,
+    granted_scopes: conn.granted_scopes,
+    shops: conn.shops,
+  });
+
+  return { access_token: tokenData.access_token, access_token_expires_at, refresh_token_expires_at };
+}
+
+/** True when an ISO timestamp is missing, unparseable, or within 5 minutes of now. */
+function isTiktokTokenExpiringSoon(expires_at) {
+  if (!expires_at) return true;
+  const t = Date.parse(expires_at);
+  if (!Number.isFinite(t)) return true;
+  return Date.now() + 5 * 60_000 >= t;
+}
+
+/**
  * Force-refreshes a TikTok Shop connection's access token on demand.
  *
  * Expects body/query: { account_key } only — deliberately does NOT accept a client-supplied
@@ -484,56 +556,8 @@ const refreshTiktokToken = async (req, res) => {
       log('refreshTiktokToken rejected: no TikTok Shop connection for account_key=%s', trimmedKey);
       return sendApiError(res, 404, 'No TikTok Shop connection found for this account_key');
     }
-    if (!conn.refresh_token) {
-      log('refreshTiktokToken rejected: connection has no refresh_token account_key=%s', trimmedKey);
-      return sendApiError(res, 400, 'This TikTok Shop connection has no refresh_token stored; reconnect via GET /tiktok/auth.');
-    }
 
-    const appKey = getTiktokAppKey();
-    const appSecret = getTiktokAppSecret();
-    if (!appKey || !appSecret) {
-      return sendApiError(res, 500, 'TikTok OAuth credentials not configured');
-    }
-
-    log('refreshTiktokToken: refreshing access_token account_key=%s', trimmedKey);
-    const tokenResp = await axios.get(`${TIKTOK_AUTH_BASE}/api/v2/token/refresh`, {
-      params: {
-        app_key: appKey,
-        app_secret: appSecret,
-        refresh_token: conn.refresh_token,
-        grant_type: 'refresh_token',
-      },
-      timeout: 20000,
-    });
-
-    const tokenData = tokenResp?.data?.data;
-    if (!tokenData?.access_token) {
-      log('refreshTiktokToken failed: TikTok returned no access_token account_key=%s', trimmedKey);
-      return sendApiError(res, 502, 'TikTok did not return a new access_token', {
-        detail: tokenResp?.data?.message || null,
-      });
-    }
-
-    const now = Date.now();
-    const access_token_expires_at = Number.isFinite(Number(tokenData.access_token_expires_in))
-      ? new Date(now + Number(tokenData.access_token_expires_in) * 1000).toISOString()
-      : null;
-    const refresh_token_expires_at = Number.isFinite(Number(tokenData.refresh_token_expires_in))
-      ? new Date(now + Number(tokenData.refresh_token_expires_in) * 1000).toISOString()
-      : null;
-
-    await saveTiktokConnection({
-      account_key: trimmedKey,
-      access_token: tokenData.access_token,
-      refresh_token: tokenData.refresh_token || conn.refresh_token,
-      access_token_expires_at,
-      refresh_token_expires_at,
-      open_id: conn.open_id,
-      seller_name: conn.seller_name,
-      seller_base_region: conn.seller_base_region,
-      granted_scopes: conn.granted_scopes,
-      shops: conn.shops,
-    });
+    const result = await refreshTiktokTokenCore(trimmedKey, conn);
 
     const successLog = JSON.stringify({
       level: 'INFO',
@@ -543,7 +567,7 @@ const refreshTiktokToken = async (req, res) => {
       function: 'refreshTiktokToken',
       operation: 'TikTok Shop access token refreshed successfully',
       account_key: trimmedKey,
-      result: { access_token_expires_at },
+      result: { access_token_expires_at: result.access_token_expires_at },
       timestamp: new Date().toISOString(),
     });
     console.log(successLog);
@@ -552,8 +576,8 @@ const refreshTiktokToken = async (req, res) => {
     return res.status(200).json({
       success: true,
       message: 'TikTok Shop access token refreshed successfully',
-      access_token: tokenData.access_token,
-      access_token_expires_at,
+      access_token: result.access_token,
+      access_token_expires_at: result.access_token_expires_at,
     });
   } catch (err) {
     const errorJson = JSON.stringify({
@@ -646,6 +670,8 @@ module.exports = {
   refreshTiktokToken,
   handleTiktokDisconnect,
   getTiktokConnection,
+  refreshTiktokTokenCore,
+  isTiktokTokenExpiringSoon,
   generateTiktokSign,
   tiktokSignedGet,
   getTiktokAppKey,

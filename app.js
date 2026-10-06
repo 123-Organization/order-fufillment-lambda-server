@@ -6,6 +6,7 @@ const http = require('http');
 const { handleWixAppInstanceInstalled } = require('./src/controllers/wix-webhooks');
 const { handleWixOAuthCallback } = require('./src/controllers/wix-auth');
 const { handleWixOrderCreateWebhook } = require('./src/controllers/wix-order-create-webhook');
+const { tiktokOrderStatusChangeWebhook } = require('./src/controllers/platform-order-sync');
 const optionalAccountKeyValidator = require('./src/middleware/optional-account-key-validator');
 const asyncHandler = require('./src/middleware/async-handler');
 const { errorHandler, notFoundHandler } = require('./src/middleware/error-handler');
@@ -43,6 +44,13 @@ wixJwtBodyRouter.post('/wix/webhooks/app-instance-installed', wixJwtText, asyncH
 wixJwtBodyRouter.post('/wix/oauth/callback', wixJwtText, asyncHandler(handleWixOAuthCallback));
 wixJwtBodyRouter.post('/webhooks/wix/order-create', wixJwtText, asyncHandler(handleWixOrderCreateWebhook));
 app.use('/api', wixJwtBodyRouter);
+
+// TikTok Shop's webhook signature is computed over the raw request bytes (HMAC over
+// app_key+rawBody), so this must also run before express.json() re-serializes the body.
+const tiktokRawBodyRouter = express.Router();
+const tiktokRawText = express.text({ type: '*/*', limit: '512kb' });
+tiktokRawBodyRouter.post('/webhooks/tiktok/order-status-change', tiktokRawText, asyncHandler(tiktokOrderStatusChangeWebhook));
+app.use('/api', tiktokRawBodyRouter);
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
