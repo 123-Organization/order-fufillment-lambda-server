@@ -6829,6 +6829,16 @@ const transformShopifyOrderToOrdersPayload = (order) => {
  * Ignores the webhook body except for order id; fetches full order via GraphQL, then returns
  * order details with only line items whose SKU starts with "AP".
  */
+/** Dev vs prod API Gateway base: reads OFA_PUBLIC_API_BASE_URL (same env var every other
+ * platform's fulfillment-callback URL already uses — see resolveSquareApiBaseUrl in
+ * square-order-webhook.js), falling back to the dev gateway so existing dev behavior is
+ * unchanged if the var isn't set. Set OFA_PUBLIC_API_BASE_URL to the prod gateway
+ * (https://dwe8rzhebf.execute-api.us-east-1.amazonaws.com) in the production environment. */
+function resolveShopifyApiBaseUrl() {
+  const fromEnv = String(process.env.OFA_PUBLIC_API_BASE_URL || '').trim().replace(/\/$/, '');
+  return fromEnv || 'https://d7z22w3j4h.execute-api.us-east-1.amazonaws.com/Prod';
+}
+
 const shopifyOrdersCreateWebhook = async (req, res) => {
   try {
     logIncomingRequest(log, {
@@ -6930,8 +6940,7 @@ const shopifyOrdersCreateWebhook = async (req, res) => {
     const transformedOrder = transformShopifyOrderToOrdersPayload(filteredOrder);
     const accountKey = accountInfo?.account_key ?? null;
 
-    const webhookOrderStatusUrlBase =
-      'https://d7z22w3j4h.execute-api.us-east-1.amazonaws.com/Prod/api/shopify/update-fulfillment-status';
+    const webhookOrderStatusUrlBase = `${resolveShopifyApiBaseUrl()}/api/shopify/update-fulfillment-status`;
     const webhookOrderStatusUrl = `${webhookOrderStatusUrlBase}?storeName=${encodeURIComponent(
       shopDomain
     )}&access_token=${encodeURIComponent(accessToken)}&orderNumber=${encodeURIComponent(
@@ -7000,8 +7009,20 @@ const shopifyOrdersCreateWebhook = async (req, res) => {
       }
     } catch (submitErr) {
       log('SUBMIT_ORDERS failed: %s', submitErr?.message);
-      console.log(JSON.stringify(submitErr));
-      return sendApiError(res, 502, "Order submitted to FinerWorks failed");
+      const finerworksErrorBody = submitErr?.response?.data;
+      log('SUBMIT_ORDERS failure detail: %s', JSON.stringify(finerworksErrorBody || {}));
+
+      // FinerWorks' error shape (PascalCase Message/ModelState) doesn't match what
+      // sendApiError's sanitizer expects (lowercase message/errors, from an allowlist built
+      // for other platforms), so it was getting stripped down to just the generic axios
+      // "Request failed with status code 400" with an empty data object. Returning the raw
+      // FinerWorks body here instead passes through exactly what FinerWorks sent.
+      if (finerworksErrorBody !== undefined) {
+        const status = submitErr?.response?.status;
+        const httpStatus = status >= 400 && status < 600 ? status : 502;
+        return res.status(httpStatus).json(finerworksErrorBody);
+      }
+      return sendApiError(res, submitErr);
     }
 
     return res.status(200).json({
