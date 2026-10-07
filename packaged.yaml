@@ -108,7 +108,7 @@ Resources:
         - MyLambdaExecutionRole
         - Arn
       Runtime: nodejs18.x
-      CodeUri: s3://order-fullfilment-app-lambda-server/ee8358165cbaa2bddd703af00fb9f077
+      CodeUri: s3://order-fullfilment-app-lambda-server/80e19f7b06ae4b31263181f03cef0c0d
       MemorySize: 3008
       Timeout: 900
       Environment:
@@ -315,6 +315,13 @@ Resources:
               Ref: MyApiGateway
             Method: POST
             Path: /api/squarespace/orders
+        FetchOrdersUnified:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: POST
+            Path: /api/fetch-orders
         SquareSpaceSingleOrderFetching:
           Type: Api
           Properties:
@@ -439,7 +446,7 @@ Resources:
         - MyLambdaExecutionRole
         - Arn
       Runtime: nodejs18.x
-      CodeUri: s3://order-fullfilment-app-lambda-server/ee8358165cbaa2bddd703af00fb9f077
+      CodeUri: s3://order-fullfilment-app-lambda-server/80e19f7b06ae4b31263181f03cef0c0d
       MemorySize: 3008
       Timeout: 900
       Environment:
@@ -778,7 +785,7 @@ Resources:
         - MyLambdaExecutionRole
         - Arn
       Runtime: nodejs18.x
-      CodeUri: s3://order-fullfilment-app-lambda-server/ee8358165cbaa2bddd703af00fb9f077
+      CodeUri: s3://order-fullfilment-app-lambda-server/80e19f7b06ae4b31263181f03cef0c0d
       MemorySize: 3008
       Timeout: 900
       Environment:
@@ -875,5 +882,40 @@ Resources:
           Properties:
             Schedule: rate(6 hours)
             Input: '{"squareTokenRenewal": true}'
+        BigcommerceAuthStart:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: GET
+            Path: /api/bigcommerce/auth
+        BigcommerceAuthCallback:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: GET
+            Path: /api/bigcommerce/auth-callback
+        BigcommerceLoadCallback:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: GET
+            Path: /api/bigcommerce/load-callback
+        BigcommerceUninstallCallback:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: GET
+            Path: /api/bigcommerce/uninstall-callback
+        BigcommerceDisconnect:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: POST
+            Path: /api/bigcommerce/disconnect
     Metadata:
       SamResourceId: OrderFullFillmentServerLessDevServerAgainNew
