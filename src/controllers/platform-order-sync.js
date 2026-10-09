@@ -1194,20 +1194,19 @@ function extractTiktokOrderEvent(payload) {
  */
 exports.tiktokOrderStatusChangeWebhook = async (req, res) => {
   try {
-    const rawBody = typeof req.body === 'string' ? req.body : JSON.stringify(req.body || {});
+    // req.rawBody is the exact bytes TikTok signed, stashed by express.json()'s `verify` hook
+    // in app.js before parsing — req.body below is express.json()'s already-parsed object, not
+    // reconstructed from it (re-serializing a parsed object isn't guaranteed to byte-match what
+    // was actually signed, e.g. whitespace/number formatting), so the signature check stays
+    // exact while this route lives in routes.js like every other webhook.
+    const rawBody = Buffer.isBuffer(req.rawBody) ? req.rawBody.toString('utf8') : '';
     log('TikTok order status change webhook received (raw)', rawBody, req.query);
 
     if (!verifyTiktokWebhookSignature(rawBody, req.headers?.authorization)) {
       return sendApiError(res, 401, 'Invalid TikTok webhook signature');
     }
 
-    let payload;
-    try {
-      payload = JSON.parse(rawBody);
-    } catch (_e) {
-      return sendApiError(res, 400, 'Invalid JSON body');
-    }
-
+    const payload = req.body;
     const account_key = req.query?.account_key || req.query?.accountKey;
     const { valid, error } = validateAccountKey(account_key);
     if (!valid) {

@@ -22,7 +22,7 @@ const { getWixOrders, getWixOrderByNumber, fulfillWixOrderWithTrackingInfo } = r
 const { getSquarespaceOrders, getSquarespaceOrderByNumber, validateSquarespaceAccessToken, fulfillSquareSpaceOrderWithTrackingInfo } = require('./squarespace-orders');
 const { getShopifyOrders, getShopifyOrderByName, fulfillShopifyOrder, updateOrderReferenceNumbers, updateOrderFulfillmentStatus, syncShopifyProducts, createShopifyCarrierService, listShopifyCarrierServices, deleteShopifyCarrierService, shopifyCarrierServiceCallback, registerShopifyWebhook, registerShopifyOrderCreateWebhook, listShopifyWebhooks, deleteShopifyWebhookById, shopifyProductDeleteWebhook, shopifyOrdersCreateWebhook, createUsCanadaShippingProfile } = require('./shopify-orders');
 const { syncSquarespaceProducts } = require('./squarespace-products');
-const { setPlatformOrderSync, squarespaceOrderCreateWebhook, squareOrderCreateWebhook } = require('./platform-order-sync');
+const { setPlatformOrderSync, squarespaceOrderCreateWebhook, squareOrderCreateWebhook, tiktokOrderStatusChangeWebhook } = require('./platform-order-sync');
 const { connectShippo, getShippoStatus } = require('./shippo-auth');
 const { fetchShippoOrders } = require('./shippo-orders');
 const { handleBigcommerceAuthStart, handleBigcommerceAuthCallback, handleBigcommerceLoadCallback, handleBigcommerceUninstallCallback, handleBigcommerceDisconnect } = require('./bigcommerce-auth');
@@ -160,5 +160,6 @@ app.post('/webhooks/product-delete', asyncHandler(shopifyProductDeleteWebhook));
 app.post('/webhooks/orders-create', asyncHandler(shopifyOrdersCreateWebhook));
 app.post('/webhooks/squarespace/order-create', asyncHandler(squarespaceOrderCreateWebhook));
 app.post('/webhooks/square/order-create', asyncHandler(squareOrderCreateWebhook));
+app.post('/webhooks/tiktok/order-status-change', asyncHandler(tiktokOrderStatusChangeWebhook));
 
 module.exports = app;
