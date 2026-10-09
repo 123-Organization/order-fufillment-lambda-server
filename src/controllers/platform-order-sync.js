@@ -1,4 +1,5 @@
 const axios = require('axios');
+const crypto = require('crypto');
 const finerworksService = require('../helpers/finerworks-service');
 const { validateAccountKey } = require('../validators/accountKey.validator');
 const {
@@ -48,11 +49,20 @@ const { findAccountKeyBySquareMerchantId } = require('../helpers/square-accounts
 const { getSquareBaseUrl } = require('./square-auth');
 const { resolveSquareAuth, summarizeSquareHttpError } = require('./square-products');
 const { createSquareAuthRetry, fetchSquareOrderById } = require('./square-orders');
+const { generateTiktokSign, getTiktokAppKey, getTiktokAppSecret } = require('./tiktok-auth');
+const { resolveTiktokShopAuth, tiktokShopCall, summarizeTiktokHttpError } = require('./tiktok-products');
+const {
+  transformTiktokOrderToFinerWorksPayload,
+  enrichOrderItemsWithProductGuids: enrichTiktokOrderItemsWithProductGuids,
+  buildTiktokFulfillmentWebhookUrl,
+  buildTiktokOrderWebhookUrl,
+} = require('../helpers/tiktok-order-webhook');
 const debug = require('debug');
 const { sendApiError } = require('../helpers/api-error');
 const log = debug('app:platformOrderSync');
 
-const SUPPORTED_PLATFORMS = ['squarespace', 'wix', 'shopify', 'square'];
+const SUPPORTED_PLATFORMS = ['squarespace', 'wix', 'shopify', 'square', 'tiktok'];
+const TIKTOK_ORDER_SYNC_EVENT_TYPE = 'ORDER_STATUS_CHANGE';
 
 const SHOPIFY_ORDER_CREATE_WEBHOOK = {
   topic: 'order/create',
@@ -296,6 +306,60 @@ async function disableSquarespaceOrderSync(account_key, subscriptionId) {
   });
 }
 
+/**
+ * TikTok Shop webhooks are registered per-shop (shop_cipher, like every other shop-scoped
+ * Open API call) rather than app-level like Square's, so enable/disable PUT/DELETE
+ * /event/202309/webhooks directly against the account's authorized shop — no shared
+ * subscription bookkeeping needed. account_key rides in the webhook URL query string since
+ * TikTok's ORDER_STATUS_CHANGE payload carries shop_id, not account_key.
+ */
+async function enableTiktokOrderSync(account_key) {
+  const endpointUrl = buildTiktokOrderWebhookUrl(account_key);
+  if (!endpointUrl || !endpointUrl.toLowerCase().startsWith('https://')) {
+    const err = new Error(
+      'TikTok order webhook URL is not configured. Set TIKTOK_ORDER_CREATE_WEBHOOK_URL (https).'
+    );
+    err.status = 500;
+    throw err;
+  }
+
+  const { accessToken, shopCipher } = await resolveTiktokShopAuth({ account_key });
+  const r = await tiktokShopCall({
+    method: 'PUT',
+    path: '/event/202309/webhooks',
+    accessToken,
+    shopCipher,
+    body: { address: endpointUrl, event_type: TIKTOK_ORDER_SYNC_EVENT_TYPE },
+  });
+  if (r.status < 200 || r.status >= 300 || r.data?.code !== 0) {
+    const err = new Error('Failed to register TikTok Shop order webhook');
+    err.status = r.status >= 400 ? r.status : 502;
+    err.data = summarizeTiktokHttpError({ response: r });
+    throw err;
+  }
+
+  return { endpointUrl, shopCipher };
+}
+
+async function disableTiktokOrderSync(account_key, shopCipherHint) {
+  const { accessToken, shopCipher } = await resolveTiktokShopAuth(
+    shopCipherHint ? { account_key, shop_cipher: shopCipherHint } : { account_key }
+  );
+  const r = await tiktokShopCall({
+    method: 'DELETE',
+    path: '/event/202309/webhooks',
+    accessToken,
+    shopCipher,
+    body: { event_type: TIKTOK_ORDER_SYNC_EVENT_TYPE },
+  });
+  if (r.status < 200 || r.status >= 300 || r.data?.code !== 0) {
+    const err = new Error('Failed to remove TikTok Shop order webhook');
+    err.status = r.status >= 400 ? r.status : 502;
+    err.data = summarizeTiktokHttpError({ response: r });
+    throw err;
+  }
+}
+
 async function enableShopifyOrderSync(req, existingData) {
   const { storeName, access_token } = resolveShopifyCredentials(req.body, null, existingData);
   const { topic, address, format } = SHOPIFY_ORDER_CREATE_WEBHOOK;
@@ -424,6 +488,7 @@ function applyOrderSyncToConnection(conn, order_sync, dataPatch = {}) {
  * Square: ensures the app-level payment.created/payment.updated webhook subscription exists on
  *   enable (orders are pushed to OFA only once paid); disable only flips order_sync (the
  *   subscription is shared across all merchants, so it is never deleted).
+ * TikTok Shop: registers/deletes a per-shop ORDER_STATUS_CHANGE webhook subscription.
  */
 exports.setPlatformOrderSync = async (req, res) => {
   try {
@@ -531,6 +596,19 @@ exports.setPlatformOrderSync = async (req, res) => {
         syncMessage = 'Square order sync disabled';
         connections[idx] = applyOrderSyncToConnection(existingConn, false);
       }
+    } else if (connectionName === 'TikTok Shop') {
+      if (order_sync) {
+        const result = await enableTiktokOrderSync(trimmedKey);
+        syncMessage = 'TikTok Shop order webhook registered successfully';
+        connections[idx] = applyOrderSyncToConnection(existingConn, true, {
+          order_create_webhook_url: result.endpointUrl,
+          shop_cipher: result.shopCipher,
+        });
+      } else {
+        await disableTiktokOrderSync(trimmedKey, existingData.shop_cipher || null);
+        syncMessage = 'TikTok Shop order webhook removed and order sync disabled';
+        connections[idx] = applyOrderSyncToConnection(existingConn, false);
+      }
     } else {
       connections[idx] = applyOrderSyncToConnection(existingConn, order_sync);
       syncMessage = order_sync
@@ -575,7 +653,8 @@ exports.setPlatformOrderSync = async (req, res) => {
     const isWixError = err?.response?.config?.url?.includes('wixapis.com') || err?.config?.url?.includes('wixapis.com');
     // 'squareup' (not 'squareup.com') so the sandbox host connect.squareupsandbox.com also matches.
     const isSquareError = err?.response?.config?.url?.includes('squareup') || err?.config?.url?.includes('squareup');
-    const errorSource = isSquarespaceError ? 'squarespace_api' : (isShopifyError ? 'shopify_api' : (isWixError ? 'wix_api' : (isSquareError ? 'square_api' : (isFinerworksError ? 'finerworks_api' : 'lambda'))));
+    const isTiktokError = err?.response?.config?.url?.includes('tiktok') || err?.config?.url?.includes('tiktok');
+    const errorSource = isSquarespaceError ? 'squarespace_api' : (isShopifyError ? 'shopify_api' : (isWixError ? 'wix_api' : (isSquareError ? 'square_api' : (isTiktokError ? 'tiktok_api' : (isFinerworksError ? 'finerworks_api' : 'lambda')))));
     const errorJson = JSON.stringify({
       level: 'ERROR',
       platform: req.body?.platform || req.query?.platform || 'unknown',
@@ -1071,5 +1150,233 @@ exports.squareOrderCreateWebhook = async (req, res) => {
     console.error(errorJson);
     log('Formatted error in squareOrderCreateWebhook: %s', errorJson);
     return sendApiError(res, err);
+  }
+};
+
+/** Verifies TikTok's webhook signature: Authorization header (no prefix) must equal
+ * hex(HMAC-SHA256(key=app_secret, message=app_key+rawBody)) — computed over the raw request
+ * bytes, not re-serialized JSON, since re-serializing can change key order/whitespace. */
+function verifyTiktokWebhookSignature(rawBody, authorizationHeader) {
+  const appKey = getTiktokAppKey();
+  const appSecret = getTiktokAppSecret();
+  if (!appKey || !appSecret || !authorizationHeader) return false;
+  const expected = crypto
+    .createHmac('sha256', appSecret)
+    .update(`${appKey}${rawBody}`)
+    .digest('hex');
+  const provided = String(authorizationHeader).trim();
+  if (expected.length !== provided.length) return false;
+  try {
+    return crypto.timingSafeEqual(Buffer.from(expected, 'utf8'), Buffer.from(provided, 'utf8'));
+  } catch (_e) {
+    return false;
+  }
+}
+
+/** Handles both the confirmed current-API shape ({event_type, data:{order_id}}) and the only
+ * documented example found ({type: 1, data:{order_id}}, legacy 202212 doc) — see
+ * tiktok-order-webhook.js's header comment for why this stays defensive on payload shape. */
+function extractTiktokOrderEvent(payload) {
+  const eventType = payload?.event_type || (payload?.type === 1 ? 'ORDER_STATUS_CHANGE' : null);
+  const orderId = payload?.data?.order_id || payload?.order_id || null;
+  return { eventType, orderId };
+}
+
+/**
+ * TikTok Shop ORDER_STATUS_CHANGE webhook receiver (registered per-shop when order_sync is
+ * enabled). Query: account_key.
+ *
+ * Registered on a raw-body route (see app.js) because the signature is computed over the raw
+ * request bytes. The webhook payload only reliably carries an order id, so the order is always
+ * re-fetched from TikTok rather than trusting any status field on the payload itself; only
+ * orders that are now AWAITING_SHIPMENT (paid, ready to fulfill) are pushed to FinerWorks —
+ * earlier statuses aren't ready yet, and later ones already got pushed on an earlier transition.
+ */
+exports.tiktokOrderStatusChangeWebhook = async (req, res) => {
+  try {
+    // req.rawBody is the exact bytes TikTok signed, stashed by express.json()'s `verify` hook
+    // in app.js before parsing — req.body below is express.json()'s already-parsed object, not
+    // reconstructed from it (re-serializing a parsed object isn't guaranteed to byte-match what
+    // was actually signed, e.g. whitespace/number formatting), so the signature check stays
+    // exact while this route lives in routes.js like every other webhook.
+    const rawBody = Buffer.isBuffer(req.rawBody) ? req.rawBody.toString('utf8') : '';
+    log('TikTok order status change webhook received (raw)', rawBody, req.query);
+
+    if (!verifyTiktokWebhookSignature(rawBody, req.headers?.authorization)) {
+      return sendApiError(res, 401, 'Invalid TikTok webhook signature');
+    }
+
+    const payload = req.body;
+    const account_key = req.query?.account_key || req.query?.accountKey;
+    const { valid, error } = validateAccountKey(account_key);
+    if (!valid) {
+      return sendApiError(res, 400, error.message);
+    }
+    const trimmedKey = String(account_key).trim();
+
+    const { eventType, orderId } = extractTiktokOrderEvent(payload);
+    if (eventType && eventType !== 'ORDER_STATUS_CHANGE') {
+      return res.status(200).json({
+        success: true,
+        ignored: true,
+        message: `Unsupported TikTok webhook event: ${eventType}`,
+      });
+    }
+    if (!orderId) {
+      return sendApiError(res, 400, 'Missing TikTok order id in webhook payload (data.order_id)');
+    }
+
+    const getInformation = await finerworksService.GET_INFO({ account_key: trimmedKey });
+    const connections = getInformation?.user_account?.connections || [];
+    const conn = Array.isArray(connections)
+      ? connections.find((c) => c && c.name === 'TikTok Shop')
+      : null;
+
+    if (!conn || !isOrderSyncEnabled(conn, 'TikTok Shop')) {
+      return res.status(200).json({
+        success: true,
+        ignored: true,
+        message: 'Order sync is disabled for this TikTok Shop connection',
+      });
+    }
+
+    const connData = parseConnectionData(conn);
+    const { accessToken, shopCipher } = await resolveTiktokShopAuth({
+      account_key: trimmedKey,
+      shop_cipher: connData.shop_cipher || null,
+    });
+
+    const orderResp = await tiktokShopCall({
+      method: 'GET',
+      path: '/order/202309/orders',
+      accessToken,
+      shopCipher,
+      extraParams: { ids: String(orderId).trim() },
+    });
+    if (orderResp.status < 200 || orderResp.status >= 300 || orderResp.data?.code !== 0) {
+      return sendApiError(res, orderResp.status >= 400 ? orderResp.status : 502, 'Failed to fetch TikTok order details', {
+        orderId: String(orderId),
+        ...summarizeTiktokHttpError({ response: orderResp }),
+      });
+    }
+    const tiktokOrder = orderResp.data?.data?.orders?.[0] || null;
+    if (!tiktokOrder) {
+      return sendApiError(res, 404, `TikTok order not found for id: ${orderId}`);
+    }
+
+    const status = tiktokOrder?.status != null ? String(tiktokOrder.status).toUpperCase() : '';
+    if (status !== 'AWAITING_SHIPMENT') {
+      return res.status(200).json({
+        success: true,
+        ignored: true,
+        message: `TikTok order is not awaiting shipment yet (status: ${status || 'unknown'})`,
+        orderId: tiktokOrder.id,
+      });
+    }
+
+    let shippingOptions = null;
+    try {
+      shippingOptions = await finerworksService.SHIPPING_OPTIONS_LIST();
+    } catch (shipErr) {
+      log('SHIPPING_OPTIONS_LIST failed: %s', shipErr?.message);
+    }
+
+    const transformedOrder = transformTiktokOrderToFinerWorksPayload(tiktokOrder, {
+      shippingOptions: shippingOptions?.shipping_options ?? shippingOptions,
+    });
+
+    if (!transformedOrder.order_items?.length) {
+      return res.status(200).json({
+        success: true,
+        ignored: true,
+        message: 'No FinerWorks line items (TikTok seller_sku must start with AP)',
+        orderId: tiktokOrder.id,
+        order_po: transformedOrder.order_po,
+      });
+    }
+
+    if (transformedOrder.recipientMissingFields?.length) {
+      return sendApiError(res, 422, 'TikTok order is missing required recipient address fields', {
+        orderId: tiktokOrder.id,
+        order_po: transformedOrder.order_po,
+        missingFields: transformedOrder.recipientMissingFields,
+      });
+    }
+    delete transformedOrder.recipientMissingFields;
+
+    transformedOrder.order_items = await enrichTiktokOrderItemsWithProductGuids(
+      transformedOrder.order_items,
+      trimmedKey
+    );
+
+    const fulfillmentUrl = buildTiktokFulfillmentWebhookUrl({
+      account_key: trimmedKey,
+      orderNumber: transformedOrder.order_po,
+      orderId: tiktokOrder.id,
+    });
+    if (fulfillmentUrl) {
+      transformedOrder.webhook_order_status_url = fulfillmentUrl;
+    }
+
+    const finalPayload = {
+      orders: [transformedOrder],
+      validate_only: false,
+      payment_token: process.env.TIKTOK_WEBHOOK_PAYMENT_TOKEN || 'xxxx',
+      account_key: trimmedKey,
+    };
+
+    let submitData = null;
+    try {
+      log('Submitting TikTok order to FinerWorks order_po=%s', transformedOrder.order_po);
+      submitData = await finerworksService.SUBMIT_ORDERS(finalPayload);
+    } catch (submitErr) {
+      log('SUBMIT_ORDERS failed: %s', submitErr?.message);
+      const status2 = submitErr?.response?.status === 400 ? 400 : 502;
+      return sendApiError(res, status2, 'Failed to submit TikTok order to FinerWorks', {
+        orderId: tiktokOrder.id,
+        orderNumber: transformedOrder.order_po,
+      });
+    }
+
+    const successLog = JSON.stringify({
+      level: 'INFO',
+      platform: 'tiktok',
+      method: req.method,
+      api: req.originalUrl || req.url,
+      function: 'tiktokOrderStatusChangeWebhook',
+      operation: 'TikTok order created and submitted to FinerWorks successfully',
+      account_key: trimmedKey,
+      result: { orderId: tiktokOrder.id, order_po: transformedOrder.order_po },
+      timestamp: new Date().toISOString(),
+    });
+    console.log(successLog);
+    log('Success in tiktokOrderStatusChangeWebhook: %s', successLog);
+    return res.status(200).json({
+      success: true,
+      submitted: true,
+      orderId: tiktokOrder.id,
+      order_po: transformedOrder.order_po,
+      account_key: trimmedKey,
+      submitData,
+    });
+  } catch (err) {
+    log('TikTok order status change webhook failed', err);
+    const isTiktokError = err?.response?.config?.url?.includes('tiktok') || err?.config?.url?.includes('tiktok');
+    const isFinerworksError = err?.response?.config?.url?.includes('finerworks.com') || err?.config?.url?.includes('finerworks.com');
+    const errorSource = isTiktokError ? 'tiktok_api' : (isFinerworksError ? 'finerworks_api' : 'lambda');
+    const errorJson = JSON.stringify({
+      level: 'ERROR',
+      platform: 'tiktok',
+      source: errorSource,
+      function: 'tiktokOrderStatusChangeWebhook',
+      account_key: req.query?.account_key || req.query?.accountKey || 'unknown',
+      httpStatus: err?.response?.status || err?.status || null,
+      message: `TikTok order status change webhook failed: ${err?.message || 'Unknown error'}`,
+      detail: err?.data || summarizeTiktokHttpError(err),
+      timestamp: new Date().toISOString(),
+    });
+    console.error(errorJson);
+    log('Formatted error in tiktokOrderStatusChangeWebhook: %s', errorJson);
+    return sendApiError(res, err?.status || 500, err?.message || 'Unknown error', err?.data);
   }
 };
