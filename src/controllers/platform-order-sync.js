@@ -48,11 +48,20 @@ const { findAccountKeyBySquareMerchantId } = require('../helpers/square-accounts
 const { getSquareBaseUrl } = require('./square-auth');
 const { resolveSquareAuth, summarizeSquareHttpError } = require('./square-products');
 const { createSquareAuthRetry, fetchSquareOrderById } = require('./square-orders');
+const crypto = require('crypto');
+const { resolveBigcartelAuth, bigcartelApiCall, summarizeBigcartelHttpError, flattenJsonApiResource, resolveLineItemSkus } = require('./bigcartel-orders');
+const { getBigcartelClientSecret } = require('./bigcartel-auth');
+const {
+  transformBigcartelOrderToFinerWorksPayload,
+  enrichOrderItemsWithProductGuids: enrichBigcartelOrderItemsWithProductGuids,
+  buildBigcartelFulfillmentWebhookUrl,
+  buildBigcartelOrderWebhookUrl,
+} = require('../helpers/bigcartel-order-webhook');
 const debug = require('debug');
 const { sendApiError } = require('../helpers/api-error');
 const log = debug('app:platformOrderSync');
 
-const SUPPORTED_PLATFORMS = ['squarespace', 'wix', 'shopify', 'square'];
+const SUPPORTED_PLATFORMS = ['squarespace', 'wix', 'shopify', 'square', 'bigcartel'];
 
 const SHOPIFY_ORDER_CREATE_WEBHOOK = {
   topic: 'order/create',
@@ -296,6 +305,62 @@ async function disableSquarespaceOrderSync(account_key, subscriptionId) {
   });
 }
 
+const BIGCARTEL_ORDER_EVENT_TYPES = ['order.created', 'order.updated'];
+
+/**
+ * UNCONFIRMED, flagged for live testing before go-live (see bigcartel-orders.js and
+ * bigcartel-order-webhook.js header comments for the same caveat): the registration
+ * endpoint/body shape below (POST /v1/webhooks, {url, events}) and the signature scheme
+ * verified in bigcartelOrderWebhook below (x-bigcartel-signature, HMAC-SHA256) both come from
+ * one third-party integration guide, not Big Cartel's own docs, which don't document webhook
+ * registration in the publicly fetchable portion of their docs. Built against the best
+ * available source rather than skipped, per explicit sign-off — needs verification against a
+ * real Big Cartel app before any account relies on it for production order sync.
+ */
+async function enableBigcartelOrderSync(account_key) {
+  const endpointUrl = buildBigcartelOrderWebhookUrl(account_key);
+  if (!endpointUrl || !endpointUrl.toLowerCase().startsWith('https://')) {
+    const err = new Error(
+      'Big Cartel order webhook URL is not configured. Set BIGCARTEL_ORDER_CREATE_WEBHOOK_URL or OFA_PUBLIC_API_BASE_URL (https).'
+    );
+    err.status = 500;
+    throw err;
+  }
+
+  const { accessToken, accountId } = await resolveBigcartelAuth({ account_key });
+  const r = await bigcartelApiCall({
+    method: 'POST',
+    path: `/v1/accounts/${accountId}/webhooks`,
+    accessToken,
+    body: { data: { type: 'webhooks', attributes: { url: endpointUrl, events: BIGCARTEL_ORDER_EVENT_TYPES } } },
+  });
+  if (r.status < 200 || r.status >= 300) {
+    const err = new Error('Failed to register Big Cartel order webhook');
+    err.status = r.status >= 400 ? r.status : 502;
+    err.data = summarizeBigcartelHttpError({ response: r });
+    throw err;
+  }
+
+  const webhookId = r.data?.data?.id || null;
+  return { endpointUrl, webhookId };
+}
+
+async function disableBigcartelOrderSync(account_key, webhookId) {
+  if (!webhookId) return;
+  const { accessToken, accountId } = await resolveBigcartelAuth({ account_key });
+  const r = await bigcartelApiCall({
+    method: 'DELETE',
+    path: `/v1/accounts/${accountId}/webhooks/${encodeURIComponent(webhookId)}`,
+    accessToken,
+  });
+  if (r.status !== 404 && (r.status < 200 || r.status >= 300)) {
+    const err = new Error('Failed to remove Big Cartel order webhook');
+    err.status = r.status >= 400 ? r.status : 502;
+    err.data = summarizeBigcartelHttpError({ response: r });
+    throw err;
+  }
+}
+
 async function enableShopifyOrderSync(req, existingData) {
   const { storeName, access_token } = resolveShopifyCredentials(req.body, null, existingData);
   const { topic, address, format } = SHOPIFY_ORDER_CREATE_WEBHOOK;
@@ -424,6 +489,8 @@ function applyOrderSyncToConnection(conn, order_sync, dataPatch = {}) {
  * Square: ensures the app-level payment.created/payment.updated webhook subscription exists on
  *   enable (orders are pushed to OFA only once paid); disable only flips order_sync (the
  *   subscription is shared across all merchants, so it is never deleted).
+ * Big Cartel: registers/deletes a per-account order.created/order.updated webhook (best-effort
+ *   — see bigcartel-order-webhook.js for the confidence caveat on this platform's webhook API).
  */
 exports.setPlatformOrderSync = async (req, res) => {
   try {
@@ -531,6 +598,19 @@ exports.setPlatformOrderSync = async (req, res) => {
         syncMessage = 'Square order sync disabled';
         connections[idx] = applyOrderSyncToConnection(existingConn, false);
       }
+    } else if (connectionName === 'Big Cartel') {
+      if (order_sync) {
+        const result = await enableBigcartelOrderSync(trimmedKey);
+        syncMessage = 'Big Cartel order webhook registered successfully (best-effort — see docs caveat)';
+        connections[idx] = applyOrderSyncToConnection(existingConn, true, {
+          order_create_webhook_url: result.endpointUrl,
+          webhook_id: result.webhookId,
+        });
+      } else {
+        await disableBigcartelOrderSync(trimmedKey, existingData.webhook_id || null);
+        syncMessage = 'Big Cartel order webhook removed and order sync disabled';
+        connections[idx] = applyOrderSyncToConnection(existingConn, false);
+      }
     } else {
       connections[idx] = applyOrderSyncToConnection(existingConn, order_sync);
       syncMessage = order_sync
@@ -575,7 +655,8 @@ exports.setPlatformOrderSync = async (req, res) => {
     const isWixError = err?.response?.config?.url?.includes('wixapis.com') || err?.config?.url?.includes('wixapis.com');
     // 'squareup' (not 'squareup.com') so the sandbox host connect.squareupsandbox.com also matches.
     const isSquareError = err?.response?.config?.url?.includes('squareup') || err?.config?.url?.includes('squareup');
-    const errorSource = isSquarespaceError ? 'squarespace_api' : (isShopifyError ? 'shopify_api' : (isWixError ? 'wix_api' : (isSquareError ? 'square_api' : (isFinerworksError ? 'finerworks_api' : 'lambda'))));
+    const isBigcartelError = err?.response?.config?.url?.includes('bigcartel') || err?.config?.url?.includes('bigcartel');
+    const errorSource = isSquarespaceError ? 'squarespace_api' : (isShopifyError ? 'shopify_api' : (isWixError ? 'wix_api' : (isSquareError ? 'square_api' : (isBigcartelError ? 'bigcartel_api' : (isFinerworksError ? 'finerworks_api' : 'lambda')))));
     const errorJson = JSON.stringify({
       level: 'ERROR',
       platform: req.body?.platform || req.query?.platform || 'unknown',
@@ -1071,5 +1152,211 @@ exports.squareOrderCreateWebhook = async (req, res) => {
     console.error(errorJson);
     log('Formatted error in squareOrderCreateWebhook: %s', errorJson);
     return sendApiError(res, err);
+  }
+};
+
+/** Verifies Big Cartel's webhook signature: x-bigcartel-signature header must equal
+ * hex(HMAC-SHA256(key=client_secret, message=rawBody)) — computed over the raw request bytes.
+ * UNCONFIRMED, flagged (see this file's enableBigcartelOrderSync comment and
+ * bigcartel-order-webhook.js): this scheme, including that client_secret is the signing key,
+ * comes from one third-party guide, not Big Cartel's own docs. Needs live verification. */
+function verifyBigcartelWebhookSignature(rawBody, signatureHeader) {
+  const secret = getBigcartelClientSecret();
+  if (!secret || !signatureHeader) return false;
+  const expected = crypto.createHmac('sha256', secret).update(rawBody).digest('hex');
+  const provided = String(signatureHeader).trim();
+  if (expected.length !== provided.length) return false;
+  try {
+    return crypto.timingSafeEqual(Buffer.from(expected, 'utf8'), Buffer.from(provided, 'utf8'));
+  } catch (_e) {
+    return false;
+  }
+}
+
+/**
+ * Big Cartel order webhook receiver (registered when order_sync is enabled). Query: account_key.
+ *
+ * UNCONFIRMED, flagged for live testing (see this file's enableBigcartelOrderSync comment,
+ * and bigcartel-orders.js / bigcartel-order-webhook.js): the webhook payload shape read here
+ * (`payload.data.id` as the order id, `payload.event`/`payload.type` as the event name) is a
+ * best-effort guess at a JSON:API-consistent shape, not a confirmed example from Big Cartel.
+ * Re-fetches the full order from Big Cartel rather than trusting the webhook payload's own
+ * fields, same defensive pattern as every other platform's webhook receiver in this codebase.
+ * Refuses to auto-submit (sends a clear error instead of guessing) when the order's line items
+ * don't carry a `sku` field at all — see transformBigcartelOrderToFinerWorksPayload.
+ */
+exports.bigcartelOrderWebhook = async (req, res) => {
+  try {
+    const rawBody = Buffer.isBuffer(req.rawBody) ? req.rawBody.toString('utf8') : '';
+    log('Big Cartel order webhook received (raw)', rawBody, req.query);
+
+    if (!verifyBigcartelWebhookSignature(rawBody, req.headers?.['x-bigcartel-signature'])) {
+      return sendApiError(res, 401, 'Invalid Big Cartel webhook signature');
+    }
+
+    const payload = req.body;
+    const account_key = req.query?.account_key || req.query?.accountKey;
+    const { valid, error } = validateAccountKey(account_key);
+    if (!valid) {
+      return sendApiError(res, 400, error.message);
+    }
+    const trimmedKey = String(account_key).trim();
+
+    const eventType = payload?.event || payload?.type || null;
+    if (eventType && !String(eventType).startsWith('order.')) {
+      return res.status(200).json({ success: true, ignored: true, message: `Unsupported Big Cartel webhook event: ${eventType}` });
+    }
+    const orderId = payload?.data?.id || payload?.data?.order_id || payload?.order_id || null;
+    if (!orderId) {
+      return sendApiError(res, 400, 'Missing Big Cartel order id in webhook payload (data.id)');
+    }
+
+    const getInformation = await finerworksService.GET_INFO({ account_key: trimmedKey });
+    const connections = getInformation?.user_account?.connections || [];
+    const conn = Array.isArray(connections) ? connections.find((c) => c && c.name === 'Big Cartel') : null;
+
+    if (!conn || !isOrderSyncEnabled(conn, 'Big Cartel')) {
+      return res.status(200).json({ success: true, ignored: true, message: 'Order sync is disabled for this Big Cartel connection' });
+    }
+
+    const { accessToken, accountId } = await resolveBigcartelAuth({ account_key: trimmedKey });
+    const orderResp = await bigcartelApiCall({
+      method: 'GET',
+      path: `/v1/accounts/${accountId}/orders/${encodeURIComponent(orderId)}`,
+      accessToken,
+      params: { include: 'items' },
+    });
+    if (orderResp.status === 404) {
+      return sendApiError(res, 404, `Big Cartel order not found for id: ${orderId}`);
+    }
+    if (orderResp.status < 200 || orderResp.status >= 300) {
+      return sendApiError(res, orderResp.status >= 400 ? orderResp.status : 502, 'Failed to fetch Big Cartel order details', {
+        orderId: String(orderId),
+        ...summarizeBigcartelHttpError({ response: orderResp }),
+      });
+    }
+
+    const bigcartelOrder = flattenJsonApiResource(orderResp.data?.data);
+    if (!bigcartelOrder) {
+      return sendApiError(res, 404, `Big Cartel order not found for id: ${orderId}`);
+    }
+    const included = Array.isArray(orderResp.data?.included) ? orderResp.data.included.map(flattenJsonApiResource) : [];
+    const lineItems = included.filter((i) => i?.type === 'order_line_items');
+    if (lineItems.length) {
+      // Big Cartel has no native sku field anywhere (see bigcartel-orders.js header comment) —
+      // resolveLineItemSkus reads the merchant's `SKU:` marker from each product's description
+      // and combines it with the variant's option name, so transformBigcartelOrderToFinerWorksPayload
+      // below has an actual sku to filter line items by.
+      bigcartelOrder.items = await resolveLineItemSkus({ accessToken, accountId, lineItems });
+    }
+
+    let shippingOptions = null;
+    try {
+      shippingOptions = await finerworksService.SHIPPING_OPTIONS_LIST();
+    } catch (shipErr) {
+      log('SHIPPING_OPTIONS_LIST failed: %s', shipErr?.message);
+    }
+
+    const transformedOrder = transformBigcartelOrderToFinerWorksPayload(bigcartelOrder, {
+      shippingOptions: shippingOptions?.shipping_options ?? shippingOptions,
+    });
+
+    if (transformedOrder.skuFieldMissing) {
+      return sendApiError(res, 422, 'Cannot determine which Big Cartel order line items belong to FinerWorks: none of this order\'s products have a "SKU:<value>" marker at the end of their Big Cartel product description. Add one to each FinerWorks-fulfilled product\'s description (see the Big Cartel Connection doc) and this order can be resubmitted.', {
+        orderId: bigcartelOrder.id,
+        order_po: transformedOrder.order_po,
+      });
+    }
+
+    if (!transformedOrder.order_items?.length) {
+      return res.status(200).json({
+        success: true,
+        ignored: true,
+        message: 'No FinerWorks line items (Big Cartel SKU must start with AP)',
+        orderId: bigcartelOrder.id,
+        order_po: transformedOrder.order_po,
+      });
+    }
+
+    if (transformedOrder.recipientMissingFields?.length) {
+      return sendApiError(res, 422, 'Big Cartel order is missing required recipient address fields', {
+        orderId: bigcartelOrder.id,
+        order_po: transformedOrder.order_po,
+        missingFields: transformedOrder.recipientMissingFields,
+      });
+    }
+    delete transformedOrder.recipientMissingFields;
+    delete transformedOrder.skuFieldMissing;
+
+    transformedOrder.order_items = await enrichBigcartelOrderItemsWithProductGuids(transformedOrder.order_items, trimmedKey);
+
+    const fulfillmentUrl = buildBigcartelFulfillmentWebhookUrl({
+      account_key: trimmedKey,
+      orderNumber: transformedOrder.order_po,
+      orderId: bigcartelOrder.id,
+    });
+    if (fulfillmentUrl) transformedOrder.webhook_order_status_url = fulfillmentUrl;
+
+    const finalPayload = {
+      orders: [transformedOrder],
+      validate_only: false,
+      payment_token: process.env.BIGCARTEL_WEBHOOK_PAYMENT_TOKEN || 'xxxx',
+      account_key: trimmedKey,
+    };
+
+    let submitData = null;
+    try {
+      log('Submitting Big Cartel order to FinerWorks order_po=%s', transformedOrder.order_po);
+      submitData = await finerworksService.SUBMIT_ORDERS(finalPayload);
+    } catch (submitErr) {
+      log('SUBMIT_ORDERS failed: %s', submitErr?.message);
+      const finerworksErrorBody = submitErr?.response?.data;
+      if (finerworksErrorBody !== undefined) {
+        const status = submitErr?.response?.status;
+        return res.status(status >= 400 && status < 600 ? status : 502).json(finerworksErrorBody);
+      }
+      return sendApiError(res, submitErr);
+    }
+
+    const successLog = JSON.stringify({
+      level: 'INFO',
+      platform: 'bigcartel',
+      method: req.method,
+      api: req.originalUrl || req.url,
+      function: 'bigcartelOrderWebhook',
+      operation: 'Big Cartel order created and submitted to FinerWorks successfully',
+      account_key: trimmedKey,
+      result: { orderId: bigcartelOrder.id, order_po: transformedOrder.order_po },
+      timestamp: new Date().toISOString(),
+    });
+    console.log(successLog);
+    log('Success in bigcartelOrderWebhook: %s', successLog);
+    return res.status(200).json({
+      success: true,
+      submitted: true,
+      orderId: bigcartelOrder.id,
+      order_po: transformedOrder.order_po,
+      account_key: trimmedKey,
+      submitData,
+    });
+  } catch (err) {
+    log('Big Cartel order webhook failed', err);
+    const isBigcartelError = err?.response?.config?.url?.includes('bigcartel') || err?.config?.url?.includes('bigcartel');
+    const isFinerworksError = err?.response?.config?.url?.includes('finerworks.com') || err?.config?.url?.includes('finerworks.com');
+    const errorSource = isBigcartelError ? 'bigcartel_api' : (isFinerworksError ? 'finerworks_api' : 'lambda');
+    const errorJson = JSON.stringify({
+      level: 'ERROR',
+      platform: 'bigcartel',
+      source: errorSource,
+      function: 'bigcartelOrderWebhook',
+      account_key: req.query?.account_key || req.query?.accountKey || 'unknown',
+      httpStatus: err?.response?.status || err?.status || null,
+      message: `Big Cartel order webhook failed: ${err?.message || 'Unknown error'}`,
+      detail: err?.data || summarizeBigcartelHttpError(err),
+      timestamp: new Date().toISOString(),
+    });
+    console.error(errorJson);
+    log('Formatted error in bigcartelOrderWebhook: %s', errorJson);
+    return sendApiError(res, err?.status || 500, err?.message || 'Unknown error', err?.data);
   }
 };

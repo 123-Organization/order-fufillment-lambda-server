@@ -4,6 +4,7 @@ const PLATFORM_TO_CONNECTION_NAME = {
   shopify: 'Shopify',
   shippo: 'Shippo',
   square: 'Square',
+  bigcartel: 'Big Cartel',
 };
 
 function normalizePlatform(input) {

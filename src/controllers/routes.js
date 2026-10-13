@@ -22,10 +22,12 @@ const { getWixOrders, getWixOrderByNumber, fulfillWixOrderWithTrackingInfo } = r
 const { getSquarespaceOrders, getSquarespaceOrderByNumber, validateSquarespaceAccessToken, fulfillSquareSpaceOrderWithTrackingInfo } = require('./squarespace-orders');
 const { getShopifyOrders, getShopifyOrderByName, fulfillShopifyOrder, updateOrderReferenceNumbers, updateOrderFulfillmentStatus, syncShopifyProducts, createShopifyCarrierService, listShopifyCarrierServices, deleteShopifyCarrierService, shopifyCarrierServiceCallback, registerShopifyWebhook, registerShopifyOrderCreateWebhook, listShopifyWebhooks, deleteShopifyWebhookById, shopifyProductDeleteWebhook, shopifyOrdersCreateWebhook, createUsCanadaShippingProfile } = require('./shopify-orders');
 const { syncSquarespaceProducts } = require('./squarespace-products');
-const { setPlatformOrderSync, squarespaceOrderCreateWebhook, squareOrderCreateWebhook } = require('./platform-order-sync');
+const { setPlatformOrderSync, squarespaceOrderCreateWebhook, squareOrderCreateWebhook, bigcartelOrderWebhook } = require('./platform-order-sync');
 const { connectShippo, getShippoStatus } = require('./shippo-auth');
 const { fetchShippoOrders } = require('./shippo-orders');
 const { handleBigcommerceAuthStart, handleBigcommerceAuthCallback, handleBigcommerceLoadCallback, handleBigcommerceUninstallCallback, handleBigcommerceDisconnect } = require('./bigcommerce-auth');
+const { handleBigcartelAuthStart, handleBigcartelAuthCallback, handleBigcartelDisconnect } = require('./bigcartel-auth');
+const { getBigcartelOrders, getBigcartelOrderById, fulfillBigcartelOrderWithTrackingInfo } = require('./bigcartel-orders');
 const { fetchOrdersUnified } = require('./unified-orders');
 const healthCheck = require('./health-check');
 const app = Router();
@@ -144,10 +146,18 @@ app.get('/bigcommerce/load-callback', asyncHandler(handleBigcommerceLoadCallback
 app.get('/bigcommerce/uninstall-callback', asyncHandler(handleBigcommerceUninstallCallback));
 app.post('/bigcommerce/disconnect', asyncHandler(handleBigcommerceDisconnect));
 
+app.get('/bigcartel/auth', asyncHandler(handleBigcartelAuthStart));
+app.get('/bigcartel/callback', asyncHandler(handleBigcartelAuthCallback));
+app.post('/bigcartel/disconnect', asyncHandler(handleBigcartelDisconnect));
+app.post('/bigcartel/orders', asyncHandler(getBigcartelOrders));
+app.post('/bigcartel/order-by-id', asyncHandler(getBigcartelOrderById));
+app.post('/bigcartel/fulfill-order', asyncHandler(fulfillBigcartelOrderWithTrackingInfo));
+
 // Shopify webhooks (called by Shopify)
 app.post('/webhooks/product-delete', asyncHandler(shopifyProductDeleteWebhook));
 app.post('/webhooks/orders-create', asyncHandler(shopifyOrdersCreateWebhook));
 app.post('/webhooks/squarespace/order-create', asyncHandler(squarespaceOrderCreateWebhook));
 app.post('/webhooks/square/order-create', asyncHandler(squareOrderCreateWebhook));
+app.post('/webhooks/bigcartel/order-event', asyncHandler(bigcartelOrderWebhook));
 
 module.exports = app;
