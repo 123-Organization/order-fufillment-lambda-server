@@ -335,9 +335,10 @@ async function enableBigcartelOrderSync(account_key) {
     body: { data: { type: 'webhooks', attributes: { url: endpointUrl, events: BIGCARTEL_ORDER_EVENT_TYPES } } },
   });
   if (r.status < 200 || r.status >= 300) {
-    const err = new Error('Failed to register Big Cartel order webhook');
+    const summary = summarizeBigcartelHttpError({ response: r });
+    const err = new Error(`Failed to register Big Cartel order webhook: ${summary.message}`);
     err.status = r.status >= 400 ? r.status : 502;
-    err.data = summarizeBigcartelHttpError({ response: r });
+    err.data = summary;
     throw err;
   }
 
@@ -354,9 +355,10 @@ async function disableBigcartelOrderSync(account_key, webhookId) {
     accessToken,
   });
   if (r.status !== 404 && (r.status < 200 || r.status >= 300)) {
-    const err = new Error('Failed to remove Big Cartel order webhook');
+    const summary = summarizeBigcartelHttpError({ response: r });
+    const err = new Error(`Failed to remove Big Cartel order webhook: ${summary.message}`);
     err.status = r.status >= 400 ? r.status : 502;
-    err.data = summarizeBigcartelHttpError({ response: r });
+    err.data = summary;
     throw err;
   }
 }
@@ -665,7 +667,7 @@ exports.setPlatformOrderSync = async (req, res) => {
       account_key: req.body?.account_key || req.query?.account_key || 'unknown',
       httpStatus: err?.response?.status || null,
       message: `Failed to set platform order sync: ${err?.message || 'Unknown error'}`,
-      detail: err?.response?.data?.message || err?.response?.data?.error || null,
+      detail: err?.data || err?.response?.data?.message || err?.response?.data?.error || null,
       timestamp: new Date().toISOString()
     });
     console.error(errorJson);
@@ -1230,9 +1232,10 @@ exports.bigcartelOrderWebhook = async (req, res) => {
       return sendApiError(res, 404, `Big Cartel order not found for id: ${orderId}`);
     }
     if (orderResp.status < 200 || orderResp.status >= 300) {
-      return sendApiError(res, orderResp.status >= 400 ? orderResp.status : 502, 'Failed to fetch Big Cartel order details', {
+      const summary = summarizeBigcartelHttpError({ response: orderResp });
+      return sendApiError(res, orderResp.status >= 400 ? orderResp.status : 502, `Failed to fetch Big Cartel order details: ${summary.message}`, {
         orderId: String(orderId),
-        ...summarizeBigcartelHttpError({ response: orderResp }),
+        ...summary,
       });
     }
 
@@ -1357,6 +1360,6 @@ exports.bigcartelOrderWebhook = async (req, res) => {
     });
     console.error(errorJson);
     log('Formatted error in bigcartelOrderWebhook: %s', errorJson);
-    return sendApiError(res, err?.status || 500, err?.message || 'Unknown error', err?.data);
+    return sendApiError(res, err);
   }
 };

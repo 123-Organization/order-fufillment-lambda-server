@@ -220,9 +220,17 @@ const handleBigcartelAuthCallback = async (req, res) => {
         { headers: { 'Content-Type': 'application/json' }, timeout: 20000 }
       );
     } catch (tokenErr) {
-      log('handleBigcartelAuthCallback: token exchange failed: %s', tokenErr?.message);
-      return sendApiError(res, tokenErr?.response?.status || 502, 'Big Cartel token exchange failed', {
-        detail: tokenErr?.response?.data || null,
+      const tokenErrData = tokenErr?.response?.data;
+      const tokenErrDetail =
+        (typeof tokenErrData?.error_description === 'string' && tokenErrData.error_description) ||
+        (typeof tokenErrData?.error === 'string' && tokenErrData.error) ||
+        (typeof tokenErrData?.message === 'string' && tokenErrData.message) ||
+        (typeof tokenErrData === 'string' && tokenErrData) ||
+        tokenErr?.message ||
+        'Unknown error';
+      log('handleBigcartelAuthCallback: token exchange failed: %s', tokenErrDetail);
+      return sendApiError(res, tokenErr?.response?.status || 502, `Big Cartel token exchange failed: ${tokenErrDetail}`, {
+        httpStatus: tokenErr?.response?.status ?? null,
       });
     }
 

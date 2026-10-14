@@ -125,12 +125,33 @@ async function resolveBigcartelAuth({ account_key }) {
   return { accessToken: conn.access_token, accountId: conn.account_id };
 }
 
+/**
+ * Extracts a readable message + status from a Big Cartel API error, for both logging and the
+ * caller-facing response. Pulls the real detail out of Big Cartel's JSON:API error shape
+ * (`{errors: [{title, detail, ...}]}`) rather than a generic "request failed" string, and keeps
+ * the result to scalar fields (message/httpStatus/errorCount) — the shared sendApiError
+ * sanitizer (sanitizePublicData in api-error.js) silently drops array/nested values that aren't
+ * on its allowlist, so an `errors` array passed straight through would otherwise vanish before
+ * it ever reaches the response.
+ */
 function summarizeBigcartelHttpError(err) {
+  const status = err?.response?.status ?? (typeof err?.status === 'number' ? err.status : null);
   const data = err?.response?.data;
-  if (!data) return { message: err?.message || 'Unknown error' };
+  if (!data) {
+    return { message: err?.message || 'Unknown error', httpStatus: status };
+  }
+  const errorsArray = Array.isArray(data?.errors) ? data.errors : null;
+  const firstError = errorsArray?.[0];
+  const message =
+    (firstError && (firstError.detail || firstError.title || firstError.message)) ||
+    (typeof data?.message === 'string' && data.message) ||
+    (typeof data === 'string' && data) ||
+    err?.message ||
+    'Unknown error';
   return {
-    errors: data.errors || data,
-    httpStatus: err?.response?.status,
+    message: String(message),
+    httpStatus: status,
+    ...(errorsArray && errorsArray.length > 1 ? { errorCount: errorsArray.length } : {}),
   };
 }
 
@@ -189,8 +210,10 @@ const getBigcartelOrders = async (req, res) => {
         },
       });
       if (r.status < 200 || r.status >= 300) {
-        const err = new Error('Big Cartel order list failed');
-        err.response = r;
+        const summary = summarizeBigcartelHttpError({ response: r });
+        const err = new Error(`Big Cartel order list failed: ${summary.message}`);
+        err.status = r.status >= 400 ? r.status : 502;
+        err.data = summary;
         throw err;
       }
       const pageOrders = flattenJsonApiCollection(r.data);
@@ -235,7 +258,7 @@ const getBigcartelOrders = async (req, res) => {
       detail: summarizeBigcartelHttpError(err),
       timestamp: new Date().toISOString(),
     }));
-    return sendApiError(res, err?.status || 500, err?.message || 'Unknown error', err?.data);
+    return sendApiError(res, err);
   }
 };
 
@@ -260,7 +283,8 @@ const getBigcartelOrderById = async (req, res) => {
       return sendApiError(res, 404, `Order not found for id: ${order_id}`);
     }
     if (r.status < 200 || r.status >= 300) {
-      return sendApiError(res, r.status >= 400 ? r.status : 502, 'Failed to fetch Big Cartel order detail', summarizeBigcartelHttpError({ response: r }));
+      const summary = summarizeBigcartelHttpError({ response: r });
+      return sendApiError(res, r.status >= 400 ? r.status : 502, `Failed to fetch Big Cartel order detail: ${summary.message}`, summary);
     }
 
     const order = flattenJsonApiResource(r.data?.data);
@@ -286,7 +310,7 @@ const getBigcartelOrderById = async (req, res) => {
       detail: summarizeBigcartelHttpError(err),
       timestamp: new Date().toISOString(),
     }));
-    return sendApiError(res, err?.status || 500, err?.message || 'Unknown error', err?.data);
+    return sendApiError(res, err);
   }
 };
 
@@ -343,7 +367,8 @@ const fulfillBigcartelOrderWithTrackingInfo = async (req, res) => {
       },
     });
     if (r.status < 200 || r.status >= 300) {
-      return sendApiError(res, r.status >= 400 ? r.status : 502, 'Failed to create Big Cartel shipment', summarizeBigcartelHttpError({ response: r }));
+      const summary = summarizeBigcartelHttpError({ response: r });
+      return sendApiError(res, r.status >= 400 ? r.status : 502, `Failed to create Big Cartel shipment: ${summary.message}`, summary);
     }
 
     console.log(JSON.stringify({
@@ -376,7 +401,7 @@ const fulfillBigcartelOrderWithTrackingInfo = async (req, res) => {
       detail: summarizeBigcartelHttpError(err),
       timestamp: new Date().toISOString(),
     }));
-    return sendApiError(res, err?.status || 500, err?.message || 'Unknown error', err?.data);
+    return sendApiError(res, err);
   }
 };
 
