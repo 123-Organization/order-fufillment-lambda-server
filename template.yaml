@@ -864,3 +864,45 @@ Resources:
             RestApiId: !Ref MyApiGateway
             Method: POST
             Path: "/api/bigcommerce/disconnect"
+        BigcartelAuthStart:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Method: GET
+            Path: "/api/bigcartel/auth"
+        BigcartelAuthCallback:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Method: GET
+            Path: "/api/bigcartel/callback"
+        BigcartelDisconnect:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Method: POST
+            Path: "/api/bigcartel/disconnect"
+        BigcartelOrders:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Method: POST
+            Path: "/api/bigcartel/orders"
+        BigcartelOrderById:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Method: POST
+            Path: "/api/bigcartel/order-by-id"
+        BigcartelFulfillOrder:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Method: POST
+            Path: "/api/bigcartel/fulfill-order"
+        BigcartelOrderWebhook:
+          Type: Api
+          Properties:
+            RestApiId: !Ref MyApiGateway
+            Method: POST
+            Path: "/api/webhooks/bigcartel/order-event"
