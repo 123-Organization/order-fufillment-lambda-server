@@ -44,7 +44,12 @@ wixJwtBodyRouter.post('/wix/oauth/callback', wixJwtText, asyncHandler(handleWixO
 wixJwtBodyRouter.post('/webhooks/wix/order-create', wixJwtText, asyncHandler(handleWixOrderCreateWebhook));
 app.use('/api', wixJwtBodyRouter);
 
-app.use(express.json());
+// TikTok Shop's webhook signature is computed over the raw request bytes (HMAC over
+// app_key+rawBody), so unlike Wix's JWT webhooks above, it doesn't need its own
+// pre-express.json() router — the `verify` hook below stashes the raw bytes on req.rawBody
+// before express.json() parses them, so the TikTok webhook route can live in routes.js
+// like every other webhook and still verify against the exact bytes TikTok signed.
+app.use(express.json({ verify: (req, res, buf) => { req.rawBody = buf; } }));
 app.use(express.urlencoded({ extended: true }));
 const apiRoutes = require('./src/controllers/routes');
 const server = http.createServer(app);

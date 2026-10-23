@@ -22,10 +22,13 @@ const { getWixOrders, getWixOrderByNumber, fulfillWixOrderWithTrackingInfo } = r
 const { getSquarespaceOrders, getSquarespaceOrderByNumber, validateSquarespaceAccessToken, fulfillSquareSpaceOrderWithTrackingInfo } = require('./squarespace-orders');
 const { getShopifyOrders, getShopifyOrderByName, fulfillShopifyOrder, updateOrderReferenceNumbers, updateOrderFulfillmentStatus, syncShopifyProducts, createShopifyCarrierService, listShopifyCarrierServices, deleteShopifyCarrierService, shopifyCarrierServiceCallback, registerShopifyWebhook, registerShopifyOrderCreateWebhook, listShopifyWebhooks, deleteShopifyWebhookById, shopifyProductDeleteWebhook, shopifyOrdersCreateWebhook, createUsCanadaShippingProfile } = require('./shopify-orders');
 const { syncSquarespaceProducts } = require('./squarespace-products');
-const { setPlatformOrderSync, squarespaceOrderCreateWebhook, squareOrderCreateWebhook } = require('./platform-order-sync');
+const { setPlatformOrderSync, squarespaceOrderCreateWebhook, squareOrderCreateWebhook, tiktokOrderStatusChangeWebhook } = require('./platform-order-sync');
 const { connectShippo, getShippoStatus } = require('./shippo-auth');
 const { fetchShippoOrders } = require('./shippo-orders');
 const { handleBigcommerceAuthStart, handleBigcommerceAuthCallback, handleBigcommerceLoadCallback, handleBigcommerceUninstallCallback, handleBigcommerceDisconnect } = require('./bigcommerce-auth');
+const { handleTiktokAuthStart, handleTiktokAuthCallback, refreshTiktokToken, handleTiktokDisconnect } = require('./tiktok-auth');
+const { syncTiktokProducts } = require('./tiktok-products');
+const { getTiktokOrders, getTiktokOrderById, fulfillTiktokOrderWithTrackingInfo } = require('./tiktok-orders');
 const { fetchOrdersUnified } = require('./unified-orders');
 const healthCheck = require('./health-check');
 const app = Router();
@@ -143,11 +146,20 @@ app.get('/bigcommerce/auth-callback', asyncHandler(handleBigcommerceAuthCallback
 app.get('/bigcommerce/load-callback', asyncHandler(handleBigcommerceLoadCallback));
 app.get('/bigcommerce/uninstall-callback', asyncHandler(handleBigcommerceUninstallCallback));
 app.post('/bigcommerce/disconnect', asyncHandler(handleBigcommerceDisconnect));
+app.get('/tiktok/auth', asyncHandler(handleTiktokAuthStart));
+app.get('/tiktok/callback', asyncHandler(handleTiktokAuthCallback));
+app.post('/tiktok/refresh-token', asyncHandler(refreshTiktokToken));
+app.post('/tiktok/disconnect', asyncHandler(handleTiktokDisconnect));
+app.post('/tiktok/sync-products', asyncHandler(syncTiktokProducts));
+app.post('/tiktok/orders', asyncHandler(getTiktokOrders));
+app.post('/tiktok/order-by-id', asyncHandler(getTiktokOrderById));
+app.post('/tiktok/fulfill-order', asyncHandler(fulfillTiktokOrderWithTrackingInfo));
 
 // Shopify webhooks (called by Shopify)
 app.post('/webhooks/product-delete', asyncHandler(shopifyProductDeleteWebhook));
 app.post('/webhooks/orders-create', asyncHandler(shopifyOrdersCreateWebhook));
 app.post('/webhooks/squarespace/order-create', asyncHandler(squarespaceOrderCreateWebhook));
 app.post('/webhooks/square/order-create', asyncHandler(squareOrderCreateWebhook));
+app.post('/webhooks/tiktok/order-status-change', asyncHandler(tiktokOrderStatusChangeWebhook));
 
 module.exports = app;

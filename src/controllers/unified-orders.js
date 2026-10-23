@@ -3,6 +3,7 @@ const { sendApiError } = require('../helpers/api-error');
 const { logIncomingRequest } = require('../helpers/request-log');
 const { getWixOrders, getWixOrderByNumber } = require('./wix-orders');
 const { getSquarespaceOrders, getSquarespaceOrderByNumber } = require('./squarespace-orders');
+const { getTiktokOrders, getTiktokOrderById } = require('./tiktok-orders');
 
 const log = debug('app:unifiedOrders');
 
@@ -68,6 +69,26 @@ const IMPLEMENTED_PLATFORMS = {
       normalize: (body) => ({ order: body?.order || null }),
     },
   },
+  tiktok: {
+    list: {
+      handler: getTiktokOrders,
+      normalize: (body) => ({
+        count: body?.count ?? (Array.isArray(body?.orders) ? body.orders.length : 0),
+        orders: body?.orders || [],
+        // TikTok-specific extra — which authorized shop (shop_cipher) this ran against.
+        extra: { shopCipher: body?.shopCipher },
+      }),
+    },
+    single: {
+      handler: getTiktokOrderById,
+      // getTiktokOrderById returns { order } for one id, or { count, orders } when order_id(s)
+      // resolved to more than one order — normalize whichever came back (same shape as Wix's).
+      normalize: (body) =>
+        Array.isArray(body?.orders)
+          ? { count: body?.count ?? body.orders.length, orders: body.orders }
+          : { order: body?.order || null },
+    },
+  },
 };
 
 /**
@@ -116,7 +137,7 @@ async function runHandlerCapturingResponse(handlerFn, req) {
  * Single entry point for fetching orders across e-commerce platforms — lists orders, or fetches
  * one specific order when an order key is supplied.
  *
- * Currently wired for: wix, squarespace. square, shopify, etsy, and woocommerce are
+ * Currently wired for: wix, squarespace, tiktok. square, shopify, etsy, and woocommerce are
  * recognized platform values that return a clear "not yet implemented" response rather than
  * a generic 400, so callers can distinguish "reserved for later" from "invalid platform".
  *
@@ -132,7 +153,7 @@ async function runHandlerCapturingResponse(handlerFn, req) {
  * platform handler, so the same field names and requirements documented for each platform's
  * own endpoints apply here — this endpoint only adds `platform` on top.
  *
- * Expects body/query: { platform: 'wix' | 'squarespace', ...platform-specific params }.
+ * Expects body/query: { platform: 'wix' | 'squarespace' | 'tiktok', ...platform-specific params }.
  */
 exports.fetchOrdersUnified = async (req, res) => {
   try {

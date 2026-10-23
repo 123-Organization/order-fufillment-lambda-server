@@ -4,6 +4,8 @@ const PLATFORM_TO_CONNECTION_NAME = {
   shopify: 'Shopify',
   shippo: 'Shippo',
   square: 'Square',
+  bigcommerce: 'BigCommerce',
+  tiktok: 'TikTok Shop',
 };
 
 function normalizePlatform(input) {
