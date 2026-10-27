@@ -42,16 +42,37 @@ exports.GET_INFO = async (payload) => {
 };
 
 /**
+ * Normalizes each order's `source` tag to a consistent lowercase/trimmed value before it
+ * reaches FinerWorks. There are 9 call sites across this codebase that eventually call
+ * SUBMIT_ORDERS (webhooks, manual submit-orders, bulk upload, pending-order resubmission),
+ * and not all of them build `source` fresh — some forward whatever value was already stored
+ * on a pending order from an earlier, separate step (e.g. a manual upload that tagged it
+ * "Square" to match the UI's display name, vs. the automated webhook's own lowercase
+ * "square"). Normalizing once here, at the single chokepoint every submission passes through,
+ * guarantees FinerWorks sees one consistent casing regardless of which path an order took —
+ * cheaper and more reliable than hunting down and fixing every upstream caller individually.
+ */
+function normalizeOrderSource(order) {
+  if (!order || typeof order !== 'object') return order;
+  if (typeof order.source !== 'string') return order;
+  const normalized = order.source.trim().toLowerCase();
+  return normalized === order.source ? order : { ...order, source: normalized };
+}
+
+/**
  * Submits orders.
  * @param {Object} payload - The payload containing the order details.
  * @returns {Promise<Object>} - The response data from the API.
  */
 exports.SUBMIT_ORDERS = async (payload) => {
+  const normalizedPayload = Array.isArray(payload?.orders)
+    ? { ...payload, orders: payload.orders.map(normalizeOrderSource) }
+    : payload;
   const postData = await axios({
     method: 'POST',
     url: process.env.FINER_WORKS_URL + 'submit_orders_v2',
     headers: getHeaders(),
-    data: payload
+    data: normalizedPayload
   });
   return postData.data;
 };
