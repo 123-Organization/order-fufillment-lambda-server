@@ -6820,7 +6820,9 @@ const transformShopifyOrderToOrdersPayload = (order) => {
     custom_data_1: null,
     custom_data_2: null,
     custom_data_3: null,
-    source: null,
+    // Every other platform's order-webhook transform tags its orders (square/squarespace/wix/
+    // tiktok) — this one never did, so Shopify orders reached FinerWorks with no source at all.
+    source: 'shopify',
   };
 };
 
