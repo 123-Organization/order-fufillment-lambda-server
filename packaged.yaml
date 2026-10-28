@@ -108,7 +108,7 @@ Resources:
         - MyLambdaExecutionRole
         - Arn
       Runtime: nodejs18.x
-      CodeUri: s3://order-fullfilment-app-lambda-server/80e19f7b06ae4b31263181f03cef0c0d
+      CodeUri: s3://order-fullfilment-app-lambda-server/8f7441df9df49ea697d398c67fe1002d
       MemorySize: 3008
       Timeout: 900
       Environment:
@@ -446,7 +446,7 @@ Resources:
         - MyLambdaExecutionRole
         - Arn
       Runtime: nodejs18.x
-      CodeUri: s3://order-fullfilment-app-lambda-server/80e19f7b06ae4b31263181f03cef0c0d
+      CodeUri: s3://order-fullfilment-app-lambda-server/8f7441df9df49ea697d398c67fe1002d
       MemorySize: 3008
       Timeout: 900
       Environment:
@@ -785,7 +785,7 @@ Resources:
         - MyLambdaExecutionRole
         - Arn
       Runtime: nodejs18.x
-      CodeUri: s3://order-fullfilment-app-lambda-server/80e19f7b06ae4b31263181f03cef0c0d
+      CodeUri: s3://order-fullfilment-app-lambda-server/8f7441df9df49ea697d398c67fe1002d
       MemorySize: 3008
       Timeout: 900
       Environment:
@@ -917,5 +917,68 @@ Resources:
               Ref: MyApiGateway
             Method: POST
             Path: /api/bigcommerce/disconnect
+        TiktokAuthStart:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: GET
+            Path: /api/tiktok/auth
+        TiktokAuthCallback:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: GET
+            Path: /api/tiktok/callback
+        TiktokRefreshToken:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: POST
+            Path: /api/tiktok/refresh-token
+        TiktokDisconnect:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: POST
+            Path: /api/tiktok/disconnect
+        TiktokSyncProducts:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: POST
+            Path: /api/tiktok/sync-products
+        TiktokOrders:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: POST
+            Path: /api/tiktok/orders
+        TiktokOrderById:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: POST
+            Path: /api/tiktok/order-by-id
+        TiktokFulfillOrder:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: POST
+            Path: /api/tiktok/fulfill-order
+        TiktokOrderStatusChangeWebhook:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: POST
+            Path: /api/webhooks/tiktok/order-status-change
     Metadata:
       SamResourceId: OrderFullFillmentServerLessDevServerAgainNew

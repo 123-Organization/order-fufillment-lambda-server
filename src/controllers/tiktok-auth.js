@@ -35,6 +35,9 @@ const getInstallCtxSecret = () => process.env.TIKTOK_INSTALL_CTX_SECRET || getTi
  * Basic Information) — TikTok's docs are inconsistent about whether it takes `service_id` or
  * `app_key`, so the safest option is to paste that exact link into TIKTOK_AUTHORIZE_URL rather
  * than relying on this function's best-effort construction from TIKTOK_SERVICE_ID.
+ *
+ * Returns null when neither is configured, so the caller can fail loudly instead of sending
+ * the seller to TikTok with `service_id=undefined` ("service does not exist").
  */
 function buildTiktokAuthorizeUrl(state) {
   const explicit = String(process.env.TIKTOK_AUTHORIZE_URL || '').trim();
@@ -42,7 +45,8 @@ function buildTiktokAuthorizeUrl(state) {
     const sep = explicit.includes('?') ? '&' : '?';
     return `${explicit}${sep}state=${encodeURIComponent(state)}`;
   }
-  const serviceId = process.env.TIKTOK_SERVICE_ID;
+  const serviceId = String(process.env.TIKTOK_SERVICE_ID || '').trim();
+  if (!serviceId) return null;
   return `${TIKTOK_AUTHORIZE_BASE}/open/authorize?service_id=${encodeURIComponent(serviceId)}&state=${encodeURIComponent(state)}`;
 }
 
@@ -263,6 +267,14 @@ const handleTiktokAuthStart = async (req, res) => {
     log('handleTiktokAuthStart: state JWT signed (expires in 15m)');
 
     const authorizeUrl = buildTiktokAuthorizeUrl(state);
+    if (!authorizeUrl) {
+      log('handleTiktokAuthStart rejected: TIKTOK_AUTHORIZE_URL / TIKTOK_SERVICE_ID not configured');
+      return sendApiError(
+        res,
+        500,
+        'Set TIKTOK_AUTHORIZE_URL (or TIKTOK_SERVICE_ID) to the authorization link from TikTok Partner Center.'
+      );
+    }
     log('handleTiktokAuthStart: redirecting to %s', authorizeUrl);
 
     const successLog = JSON.stringify({
