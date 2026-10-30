@@ -77,7 +77,7 @@ Resources:
   OrderFullFillmentServerLessProdServer:
     Type: AWS::Serverless::Function
     Properties:
-      FunctionName: OrderFulfillmentServerlessProdAgain
+      FunctionName: OrderFulfillmentServerlessProdNode24
       Handler: lambda.handler
       Role:
         Fn::GetAtt:
@@ -296,7 +296,7 @@ Resources:
   OrderFullFillmentServerLessProdServerV2:
     Type: AWS::Serverless::Function
     Properties:
-      FunctionName: OrderFulfillmentServerlessProdV2Again
+      FunctionName: OrderFulfillmentServerlessProdV2Node24
       Handler: lambda.handler
       Role:
         Fn::GetAtt:
@@ -635,7 +635,7 @@ Resources:
   OrderFullFillmentServerLessProdServerAgainNew:
     Type: AWS::Serverless::Function
     Properties:
-      FunctionName: OrderFullFillmentServerLessProdServerAgainNew
+      FunctionName: OrderFulfillmentServerlessProdServerNode24
       Handler: lambda.handler
       Role:
         Fn::GetAtt:
