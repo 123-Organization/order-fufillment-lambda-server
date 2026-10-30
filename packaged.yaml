@@ -83,7 +83,7 @@ Resources:
         Fn::GetAtt:
         - ProdLambdaExecutionRole
         - Arn
-      Runtime: nodejs18.x
+      Runtime: nodejs24.x
       CodeUri: s3://orderfullfilmentprodbucketlambda/42e2c5f1b5249147df057dc81d66b55c
       MemorySize: 3008
       Timeout: 900
@@ -302,7 +302,7 @@ Resources:
         Fn::GetAtt:
         - ProdLambdaExecutionRole
         - Arn
-      Runtime: nodejs18.x
+      Runtime: nodejs24.x
       CodeUri: s3://orderfullfilmentprodbucketlambda/42e2c5f1b5249147df057dc81d66b55c
       MemorySize: 3008
       Timeout: 900
@@ -641,7 +641,7 @@ Resources:
         Fn::GetAtt:
         - ProdLambdaExecutionRole
         - Arn
-      Runtime: nodejs18.x
+      Runtime: nodejs24.x
       CodeUri: s3://orderfullfilmentprodbucketlambda/42e2c5f1b5249147df057dc81d66b55c
       MemorySize: 3008
       Timeout: 900

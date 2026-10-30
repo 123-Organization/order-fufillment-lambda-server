@@ -49,7 +49,7 @@ Resources:
       FunctionName: OrderFullFillmentServerLessDevServer
       Handler: lambda.handler
       Role: !GetAtt MyLambdaExecutionRole.Arn
-      Runtime: nodejs18.x
+      Runtime: nodejs24.x
       CodeUri: .
       MemorySize: 3008
       Timeout: 900

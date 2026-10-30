@@ -79,7 +79,7 @@ Resources:
       FunctionName: OrderFulfillmentServerlessProdAgain
       Handler: lambda.handler
       Role: !GetAtt ProdLambdaExecutionRole.Arn
-      Runtime: nodejs18.x
+      Runtime: nodejs24.x
       CodeUri: .
       MemorySize: 3008
       Timeout: 900
@@ -305,7 +305,7 @@ Resources:
       FunctionName: OrderFulfillmentServerlessProdV2Again
       Handler: lambda.handler
       Role: !GetAtt ProdLambdaExecutionRole.Arn
-      Runtime: nodejs18.x
+      Runtime: nodejs24.x
       CodeUri: .
       MemorySize: 3008
       Timeout: 900
@@ -639,7 +639,7 @@ Resources:
       FunctionName: OrderFullFillmentServerLessProdServerAgainNew
       Handler: lambda.handler
       Role: !GetAtt ProdLambdaExecutionRole.Arn
-      Runtime: nodejs18.x
+      Runtime: nodejs24.x
       CodeUri: .
       MemorySize: 3008
       Timeout: 900
