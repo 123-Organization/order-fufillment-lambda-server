@@ -2233,43 +2233,104 @@ const fetchAllOrders = async ({
     // 'Accept': 'application/json'
   };
 
-  const query = overrideQuery || buildOrdersQuery(startDate, endDate);
-  const variables = {};
-  let resp;
-  try {
-    resp = await axios.post(endpoint, { query, variables }, { headers });
-  } catch (err) {
-    log(
-      'searchShopifyOrdersPage error: status=%s detail=%s',
-      err?.response?.status,
-      JSON.stringify(err?.response?.data || err?.message)
-    );
-    const status = err?.response?.status || 500;
-    const message =
-      (err?.response?.data && (err.response.data.errors || err.response.data.error)) ||
-      err.message ||
-      'Request failed';
-    const error = new Error(typeof message === 'string' ? message : JSON.stringify(message));
-    error.status = status;
-    throw error;
-  }
-  log('searchShopifyOrdersPage: response received, status=%s', resp.status);
-  if (resp.data.errors) {
-    const message = Array.isArray(resp.data.errors)
-      ? resp.data.errors.map((e) => e.message).join('; ')
-      : 'Unknown GraphQL error';
-    const error = new Error(message);
-    error.status = 502;
-    throw error;
-  }
-  const payload = resp.data.data && resp.data.data.orders ? resp.data.data.orders : null;
-  if (!payload) return [];
+  // A caller-supplied query carries its own `first`/`after`, so it is sent once as-is. The default
+  // query is paged via pageInfo.endCursor: it only asks for SHOPIFY_ORDERS_PAGE_SIZE orders per
+  // request (to stay under Shopify's query cost limit), so reading just the first page silently
+  // dropped every older order in the selected date range.
   const orders = [];
-  const pageEdges = payload.edges || [];
-  for (const edge of pageEdges) {
-    if (edge && edge.node) orders.push(edge.node);
+  let after = null;
+  let truncated = false;
+  const startedAt = Date.now();
+
+  for (let page = 1; ; page++) {
+    const query = overrideQuery || buildOrdersQuery(startDate, endDate, SHOPIFY_ORDERS_PAGE_SIZE, after);
+    const resp = await postShopifyOrdersQuery({ endpoint, headers, query });
+    log('searchShopifyOrdersPage: page=%s response received, status=%s', page, resp.status);
+
+    const payload = resp.data.data && resp.data.data.orders ? resp.data.data.orders : null;
+    if (!payload) break;
+    for (const edge of payload.edges || []) {
+      if (edge && edge.node) orders.push(edge.node);
+    }
+
+    const pageInfo = payload.pageInfo || {};
+    if (overrideQuery || !pageInfo.hasNextPage || !pageInfo.endCursor) break;
+
+    // API Gateway cuts the request off at ~29s, so stop early and say so rather than time out.
+    if (page >= SHOPIFY_ORDERS_MAX_PAGES || Date.now() - startedAt > SHOPIFY_ORDERS_TIME_BUDGET_MS) {
+      truncated = true;
+      log(
+        'searchShopifyOrdersPage: stopped after page=%s orders=%s elapsedMs=%s; more orders remain in range',
+        page,
+        orders.length,
+        Date.now() - startedAt
+      );
+      break;
+    }
+    after = pageInfo.endCursor;
+    await waitForShopifyQueryCost(resp.data.extensions?.cost);
   }
-  return orders;
+
+  return { orders, truncated };
+};
+
+const SHOPIFY_ORDERS_PAGE_SIZE = 10;
+const SHOPIFY_ORDERS_MAX_PAGES = 100;
+const SHOPIFY_ORDERS_TIME_BUDGET_MS = 24000;
+const SHOPIFY_THROTTLE_MAX_RETRIES = 5;
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** Wait until Shopify's leaky bucket has room for another request of the same requested cost. */
+const waitForShopifyQueryCost = async (cost) => {
+  const status = cost?.throttleStatus;
+  const requested = Number(cost?.requestedQueryCost);
+  if (!status || !Number.isFinite(requested)) return;
+  const deficit = requested - Number(status.currentlyAvailable);
+  const restoreRate = Number(status.restoreRate) || 50;
+  if (deficit > 0) await sleep(Math.ceil((deficit / restoreRate) * 1000));
+};
+
+const postShopifyOrdersQuery = async ({ endpoint, headers, query }) => {
+  for (let attempt = 0; ; attempt++) {
+    let resp;
+    try {
+      resp = await axios.post(endpoint, { query, variables: {} }, { headers });
+    } catch (err) {
+      log(
+        'searchShopifyOrdersPage error: status=%s detail=%s',
+        err?.response?.status,
+        JSON.stringify(err?.response?.data || err?.message)
+      );
+      const status = err?.response?.status || 500;
+      const message =
+        (err?.response?.data && (err.response.data.errors || err.response.data.error)) ||
+        err.message ||
+        'Request failed';
+      const error = new Error(typeof message === 'string' ? message : JSON.stringify(message));
+      error.status = status;
+      throw error;
+    }
+
+    const errors = resp.data.errors;
+    const throttled =
+      Array.isArray(errors) && errors.some((e) => e?.extensions?.code === 'THROTTLED');
+    if (throttled && attempt < SHOPIFY_THROTTLE_MAX_RETRIES) {
+      log('searchShopifyOrdersPage: throttled, retry=%s', attempt + 1);
+      await sleep(1000);
+      await waitForShopifyQueryCost(resp.data.extensions?.cost);
+      continue;
+    }
+    if (errors) {
+      const message = Array.isArray(errors)
+        ? errors.map((e) => e.message).join('; ')
+        : 'Unknown GraphQL error';
+      const error = new Error(message);
+      error.status = 502;
+      throw error;
+    }
+    return resp;
+  }
 };
 
 const getShopifyOrders = async (req, res) => {
@@ -2313,7 +2374,7 @@ const getShopifyOrders = async (req, res) => {
     console.log('shippingOptions====>>', shippingOptions);
 
     const query = req.body?.query; // optional override for custom queries
-    let orders = await fetchAllOrders({
+    const { orders: fetchedOrders, truncated } = await fetchAllOrders({
       shopDomain,
       accessToken,
       apiVersion,
@@ -2321,6 +2382,7 @@ const getShopifyOrders = async (req, res) => {
       startDate,
       endDate,
     });
+    let orders = fetchedOrders;
 
     // Filter orders to only those with at least one line item sourced from "Shop location"
     const TARGET_LOCATION_NAME = 'Shop location';
@@ -2375,13 +2437,13 @@ const getShopifyOrders = async (req, res) => {
       operation: 'Shopify orders list fetched successfully',
       shop: shopDomain,
       result: orders.length <= 20
-        ? { count: orders.length, orderIds: orders.map(o => o?.id), orderNames: orders.map(o => o?.name) }
-        : { count: orders.length, firstOrderIds: orders.slice(0, 5).map(o => o?.id), firstOrderNames: orders.slice(0, 5).map(o => o?.name) },
+        ? { count: orders.length, truncated, orderIds: orders.map(o => o?.id), orderNames: orders.map(o => o?.name) }
+        : { count: orders.length, truncated, firstOrderIds: orders.slice(0, 5).map(o => o?.id), firstOrderNames: orders.slice(0, 5).map(o => o?.name) },
       timestamp: new Date().toISOString()
     });
     console.log('Success in getShopifyOrders: %s', successLog);
     log('Success in getShopifyOrders: %s', successLog);
-    return res.status(200).json({ success: true, count: orders.length, orders });
+    return res.status(200).json({ success: true, count: orders.length, truncated, orders });
   } catch (err) {
     const isShopifyError = err?.response?.config?.url?.includes('myshopify.com');
     const isFinerworksError = err?.response?.config?.url?.includes('finerworks.com') || err?.config?.url?.includes('finerworks.com');
