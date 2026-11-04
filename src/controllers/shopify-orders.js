@@ -3519,7 +3519,7 @@ const processSingleOrderFulfillment = async ({
   const fulfillmentOrderId = fulfillmentOrder.id;
 
   // Prepare line items - if not specified, fulfill all items with all remaining quantities
-  let fulfillmentLineItems = null;
+  let fulfillmentLineItems;
   if (lineItems && Array.isArray(lineItems) && lineItems.length > 0) {
     // Map provided line items to fulfillment order line items
     fulfillmentLineItems = lineItems.map((item) => {

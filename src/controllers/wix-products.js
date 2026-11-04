@@ -217,7 +217,7 @@ async function maybePersistDiscoveredWixSiteId(account_key, metaSiteId) {
   const idx = Array.isArray(connections) ? connections.findIndex((c) => c && c.name === 'Wix') : -1;
   if (idx === -1) return;
 
-  let data = {};
+  let data;
   try {
     const raw = connections[idx]?.data;
     data = typeof raw === 'string' ? JSON.parse(raw) : raw || {};
@@ -493,7 +493,7 @@ async function resolveWixAuth({
       ? connections.find((c) => c && c.name === 'Wix')
       : null;
     if (wixConn) {
-      let data = {};
+      let data;
       try {
         data = typeof wixConn.data === 'string' ? JSON.parse(wixConn.data) : wixConn.data || {};
       } catch (_) {

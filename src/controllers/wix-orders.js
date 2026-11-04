@@ -45,8 +45,8 @@ function parseDateRangeInputs(startRaw, endRaw) {
   const endTrim = String(endRaw || '').trim();
   const dateOnly = /^\d{4}-\d{2}-\d{2}$/;
 
-  let startIso = null;
-  let endIso = null;
+  let startIso;
+  let endIso;
 
   if (dateOnly.test(startTrim)) {
     startIso = `${startTrim}T00:00:00.000Z`;

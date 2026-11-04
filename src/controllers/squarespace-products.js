@@ -234,7 +234,7 @@ async function resolveStorePage(headers, explicitStorePageId) {
     cursor = p.nextPageCursor;
   }
 
-  let selected = null;
+  let selected;
   if (explicitStorePageId) {
     selected =
       pages.find((p) => String(p?.id || '').trim() === String(explicitStorePageId).trim()) || null;
