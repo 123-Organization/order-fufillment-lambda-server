@@ -91,7 +91,6 @@ Resources:
         Variables:
           DEBUG: app*
           SQUARESPACE_ACCOUNTS_TABLE_NAME: squarespace-accounts
-          SQUARESPACE_ORDERS_LIMIT: '50'
           SQUARE_ACCOUNTS_TABLE_NAME: square-accounts
           SQUARE_ACCOUNTS_ACCOUNT_KEY_GSI: account-key
       Events:
@@ -310,7 +309,6 @@ Resources:
         Variables:
           DEBUG: app*
           SQUARESPACE_ACCOUNTS_TABLE_NAME: squarespace-accounts
-          SQUARESPACE_ORDERS_LIMIT: '50'
           SQUARE_ACCOUNTS_TABLE_NAME: square-accounts
           SQUARE_ACCOUNTS_ACCOUNT_KEY_GSI: account-key
       Events:
@@ -649,7 +647,6 @@ Resources:
         Variables:
           DEBUG: app*
           SHIPPO_MODE: live
-          SQUARESPACE_ORDERS_LIMIT: '50'
       Events:
         ConnectShippo:
           Type: Api

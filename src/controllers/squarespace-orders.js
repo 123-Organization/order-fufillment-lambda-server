@@ -7,10 +7,31 @@ const log = debug('app:squarespaceOrders');
 
 const SQUARESPACE_ORDERS_URL = 'https://api.squarespace.com/1.0/commerce/orders';
 
+const DATE_ONLY_RE = /^\d{4}-\d{2}-\d{2}$/;
+const SQUARESPACE_EARLIEST_DATE = '2000-01-01T00:00:00.000Z';
+// Lambda/API Gateway reject responses over ~6MB; stay safely below that.
+const SQUARESPACE_ORDERS_MAX_RESPONSE_BYTES = 5 * 1024 * 1024;
+
 function toIsoOrNull(v) {
   if (!v) return null;
   const d = new Date(v);
   return Number.isNaN(d.getTime()) ? null : d.toISOString();
+}
+
+/**
+ * A date-only endDate ("2026-11-05") means the whole day. new Date('2026-11-05') is midnight,
+ * which would drop every order from that last day, so move it to 23:59:59.999 UTC.
+ */
+function toEndIsoOrNull(v) {
+  if (!v) return null;
+  if (DATE_ONLY_RE.test(String(v).trim())) return toIsoOrNull(`${String(v).trim()}T23:59:59.999Z`);
+  return toIsoOrNull(v);
+}
+
+function isWithin(iso, startIso, endIso) {
+  if (!iso) return false;
+  const t = new Date(iso).getTime();
+  return !Number.isNaN(t) && t >= new Date(startIso).getTime() && t <= new Date(endIso).getTime();
 }
 
 /** Keys used to match a Squarespace order against FinerWorks order_po values. */
@@ -44,16 +65,24 @@ async function fetchAllSquarespaceOrders({
   const orders = [];
   let cursor = null;
 
+  // Squarespace can only filter by *modified* date. An order placed inside the range but edited
+  // afterwards (note, refund, address change...) has modifiedOn > endDate and would be missed,
+  // so query modifiedAfter=start .. now and keep orders created OR modified inside the range.
+  // This is a superset of the previous modified-only result, so nothing returned before is lost.
+  const hasRange = Boolean(startDate || endDate);
+  const rangeStart = toIsoOrNull(startDate) || SQUARESPACE_EARLIEST_DATE;
+  const nowIso = new Date().toISOString();
+  const rangeEndRaw = toEndIsoOrNull(endDate) || nowIso;
+  const rangeEnd = rangeEndRaw > nowIso ? nowIso : rangeEndRaw;
+
   for (let i = 0; i < 100; i++) {
     const params = {};
     if (cursor) {
       params.cursor = cursor;
     } else {
-      const modifiedAfter = toIsoOrNull(startDate);
-      const modifiedBefore = toIsoOrNull(endDate);
-      if (modifiedAfter && modifiedBefore) {
-        params.modifiedAfter = modifiedAfter;
-        params.modifiedBefore = modifiedBefore;
+      if (hasRange) {
+        params.modifiedAfter = rangeStart;
+        params.modifiedBefore = nowIso;
       }
       if (fulfillmentStatus)
         params.fulfillmentStatus = String(fulfillmentStatus).trim().toUpperCase();
@@ -70,7 +99,10 @@ async function fetchAllSquarespaceOrders({
     cursor = pagination.nextPageCursor;
   }
 
-  return orders;
+  if (!hasRange) return orders;
+  return orders.filter(
+    (o) => isWithin(o?.createdOn, rangeStart, rangeEnd) || isWithin(o?.modifiedOn, rangeStart, rangeEnd)
+  );
 }
 
 const getSquarespaceOrders = async (req, res) => {
@@ -120,6 +152,8 @@ const getSquarespaceOrders = async (req, res) => {
       fulfillmentStatus,
       customerId,
     });
+
+    const fetchedFromSquarespaceCount = orders.length;
 
     // Exclude orders already present in FinerWorks (submitted or pending), matched by order_po.
     const orderPosToCheck = [
@@ -211,10 +245,23 @@ const getSquarespaceOrders = async (req, res) => {
     }
 
     const totalAvailableCount = orders.length;
+
+    // Return every importable order. The only cap is the Lambda response size: if the orders
+    // would not fit, cut at the byte budget and flag it as truncated instead of failing.
+    // SQUARESPACE_ORDERS_LIMIT is still honoured if it is explicitly set to a positive number.
     const ordersLimitRaw = Number(process.env.SQUARESPACE_ORDERS_LIMIT);
-    const ordersLimit =
-      Number.isFinite(ordersLimitRaw) && ordersLimitRaw > 0 ? Math.floor(ordersLimitRaw) : 200;
-    orders = orders.slice(0, ordersLimit);
+    if (Number.isFinite(ordersLimitRaw) && ordersLimitRaw > 0) {
+      orders = orders.slice(0, Math.floor(ordersLimitRaw));
+    }
+    let responseBytes = 0;
+    let fitCount = 0;
+    for (const order of orders) {
+      responseBytes += Buffer.byteLength(JSON.stringify(order)) + 1;
+      if (responseBytes > SQUARESPACE_ORDERS_MAX_RESPONSE_BYTES) break;
+      fitCount += 1;
+    }
+    orders = orders.slice(0, fitCount);
+    const truncated = orders.length < totalAvailableCount;
 
     const successLog = JSON.stringify({
       level: 'INFO',
@@ -227,14 +274,18 @@ const getSquarespaceOrders = async (req, res) => {
       result: orders.length <= 20
         ? {
           count: orders.length,
+          fetchedFromSquarespaceCount,
           totalAvailableCount,
+          truncated,
           submittedCount,
           pendingCount,
           orderIds: orders.map((o) => o?.id),
         }
         : {
           count: orders.length,
+          fetchedFromSquarespaceCount,
           totalAvailableCount,
+          truncated,
           submittedCount,
           pendingCount,
           firstOrderIds: orders.slice(0, 5).map((o) => o?.id),
@@ -246,7 +297,9 @@ const getSquarespaceOrders = async (req, res) => {
     return res.status(200).json({
       success: true,
       count: orders.length,
+      fetchedFromSquarespaceCount,
       totalAvailableCount,
+      truncated,
       submittedCount,
       pendingCount,
       orders,
