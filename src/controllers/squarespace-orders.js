@@ -7,10 +7,52 @@ const log = debug('app:squarespaceOrders');
 
 const SQUARESPACE_ORDERS_URL = 'https://api.squarespace.com/1.0/commerce/orders';
 
+const DATE_ONLY_RE = /^\d{4}-\d{2}-\d{2}$/;
+const SQUARESPACE_EARLIEST_DATE = '2000-01-01T00:00:00.000Z';
+
+/** Positive whole number from env, or the default when the variable is unset/blank/invalid. */
+function envPositiveInt(name, fallback) {
+  const raw = process.env[name];
+  if (raw == null || String(raw).trim() === '') return fallback;
+  const n = Number(raw);
+  return Number.isInteger(n) && n > 0 ? n : fallback;
+}
+
+// All tunables are optional env vars; the defaults below apply when a variable is not set.
+const squarespaceOrdersConfig = () => {
+  const maxPageSize = envPositiveInt('SQUARESPACE_ORDERS_MAX_PAGE_SIZE', 200);
+  return {
+    maxPageSize,
+    // Never larger than the max, even if misconfigured.
+    defaultPageSize: Math.min(envPositiveInt('SQUARESPACE_ORDERS_DEFAULT_PAGE_SIZE', 200), maxPageSize),
+    // Lambda/API Gateway reject responses over ~6MB; stay safely below that.
+    maxResponseBytes: envPositiveInt('SQUARESPACE_ORDERS_MAX_RESPONSE_BYTES', 5 * 1024 * 1024),
+    // Squarespace returns 50 orders per call, so 100 calls = up to 5000 orders per request.
+    maxFetchPages: envPositiveInt('SQUARESPACE_ORDERS_MAX_FETCH_PAGES', 100),
+    apiTimeoutMs: envPositiveInt('SQUARESPACE_API_TIMEOUT_MS', 120000),
+  };
+};
+
 function toIsoOrNull(v) {
   if (!v) return null;
   const d = new Date(v);
   return Number.isNaN(d.getTime()) ? null : d.toISOString();
+}
+
+/**
+ * A date-only endDate ("2026-11-05") means the whole day. new Date('2026-11-05') is midnight,
+ * which would drop every order from that last day, so move it to 23:59:59.999 UTC.
+ */
+function toEndIsoOrNull(v) {
+  if (!v) return null;
+  if (DATE_ONLY_RE.test(String(v).trim())) return toIsoOrNull(`${String(v).trim()}T23:59:59.999Z`);
+  return toIsoOrNull(v);
+}
+
+function isWithin(iso, startIso, endIso) {
+  if (!iso) return false;
+  const t = new Date(iso).getTime();
+  return !Number.isNaN(t) && t >= new Date(startIso).getTime() && t <= new Date(endIso).getTime();
 }
 
 /** Keys used to match a Squarespace order against FinerWorks order_po values. */
@@ -44,23 +86,32 @@ async function fetchAllSquarespaceOrders({
   const orders = [];
   let cursor = null;
 
-  for (let i = 0; i < 100; i++) {
+  // Squarespace can only filter by *modified* date. An order placed inside the range but edited
+  // afterwards (note, refund, address change...) has modifiedOn > endDate and would be missed,
+  // so query modifiedAfter=start .. now and keep orders created OR modified inside the range.
+  // This is a superset of the previous modified-only result, so nothing returned before is lost.
+  const { maxFetchPages, apiTimeoutMs } = squarespaceOrdersConfig();
+  const hasRange = Boolean(startDate || endDate);
+  const rangeStart = toIsoOrNull(startDate) || SQUARESPACE_EARLIEST_DATE;
+  const nowIso = new Date().toISOString();
+  const rangeEndRaw = toEndIsoOrNull(endDate) || nowIso;
+  const rangeEnd = rangeEndRaw > nowIso ? nowIso : rangeEndRaw;
+
+  for (let i = 0; i < maxFetchPages; i++) {
     const params = {};
     if (cursor) {
       params.cursor = cursor;
     } else {
-      const modifiedAfter = toIsoOrNull(startDate);
-      const modifiedBefore = toIsoOrNull(endDate);
-      if (modifiedAfter && modifiedBefore) {
-        params.modifiedAfter = modifiedAfter;
-        params.modifiedBefore = modifiedBefore;
+      if (hasRange) {
+        params.modifiedAfter = rangeStart;
+        params.modifiedBefore = nowIso;
       }
       if (fulfillmentStatus)
         params.fulfillmentStatus = String(fulfillmentStatus).trim().toUpperCase();
       if (customerId) params.customerId = String(customerId).trim();
     }
 
-    const resp = await axios.get(SQUARESPACE_ORDERS_URL, { headers, params, timeout: 120000 });
+    const resp = await axios.get(SQUARESPACE_ORDERS_URL, { headers, params, timeout: apiTimeoutMs });
     const data = resp?.data || {};
     const pageOrders = Array.isArray(data.result) ? data.result : [];
     orders.push(...pageOrders);
@@ -70,7 +121,10 @@ async function fetchAllSquarespaceOrders({
     cursor = pagination.nextPageCursor;
   }
 
-  return orders;
+  if (!hasRange) return orders;
+  return orders.filter(
+    (o) => isWithin(o?.createdOn, rangeStart, rangeEnd) || isWithin(o?.modifiedOn, rangeStart, rangeEnd)
+  );
 }
 
 const getSquarespaceOrders = async (req, res) => {
@@ -93,6 +147,23 @@ const getSquarespaceOrders = async (req, res) => {
     const fulfillmentStatus =
       req.body?.fulfillmentStatus || req.body?.fulfillment_status || req.query?.fulfillmentStatus;
     const customerId = req.body?.customerId || req.body?.customer_id || req.query?.customerId;
+
+    // Paging: pageSize / pageNumber (also page_size / page_number). Always applied: without pageSize
+    // the default page size (200) is used, without pageNumber page 1 is returned.
+    const pageSizeRaw = req.body?.pageSize ?? req.body?.page_size ?? req.query?.pageSize ?? req.query?.page_size;
+    const pageNumberRaw =
+      req.body?.pageNumber ?? req.body?.page_number ?? req.query?.pageNumber ?? req.query?.page_number;
+    const hasValue = (v) => v !== undefined && v !== null && String(v).trim() !== '';
+    const ordersConfig = squarespaceOrdersConfig();
+    const pageSize = hasValue(pageSizeRaw) ? Number(pageSizeRaw) : ordersConfig.defaultPageSize;
+    const pageNumber = hasValue(pageNumberRaw) ? Number(pageNumberRaw) : 1;
+    if (!Number.isInteger(pageSize) || pageSize < 1 || pageSize > ordersConfig.maxPageSize) {
+      return sendApiError(res, 400, `Invalid pageSize. Expected a whole number from 1 to ${ordersConfig.maxPageSize}.`);
+    }
+    if (!Number.isInteger(pageNumber) || pageNumber < 1) {
+      return sendApiError(res, 400, 'Invalid pageNumber. Expected a whole number starting from 1.');
+    }
+    const paging = { pageSize, pageNumber };
 
     // validate the required parameters
     if (!startDate && !endDate) {
@@ -120,6 +191,8 @@ const getSquarespaceOrders = async (req, res) => {
       fulfillmentStatus,
       customerId,
     });
+
+    const fetchedFromSquarespaceCount = orders.length;
 
     // Exclude orders already present in FinerWorks (submitted or pending), matched by order_po.
     const orderPosToCheck = [
@@ -211,10 +284,47 @@ const getSquarespaceOrders = async (req, res) => {
     }
 
     const totalAvailableCount = orders.length;
+
+    // Squarespace has no page size / page number (cursor-only, fixed 50 per page, no total count),
+    // so every matching order is fetched above and the requested page is cut here. totalRecords is
+    // therefore the exact number of importable orders
+    // (not already submitted/pending in FinerWorks). Sorted by createdOn (immutable) so pages stay
+    // stable between requests even if an order is edited in the meantime (Squarespace's own order is
+    // by modifiedOn, which moves).
+    const totalPages = Math.ceil(totalAvailableCount / paging.pageSize);
+    const start = (paging.pageNumber - 1) * paging.pageSize;
+    orders = [...orders]
+      .sort((a, b) =>
+        String(a?.createdOn || '').localeCompare(String(b?.createdOn || '')) ||
+        String(a?.id || '').localeCompare(String(b?.id || ''))
+      )
+      .slice(start, start + paging.pageSize);
+    const pagination = {
+      pageNumber: paging.pageNumber,
+      pageSize: paging.pageSize,
+      totalRecords: totalAvailableCount,
+      totalPages,
+      hasNextPage: paging.pageNumber < totalPages,
+      hasPreviousPage: paging.pageNumber > 1 && totalPages > 0,
+    };
+    const pageCount = orders.length;
+
+    // Safety cap on the page: the Lambda response size. If the page would not fit, cut at the
+    // byte budget and flag it as truncated instead of failing.
+    // SQUARESPACE_ORDERS_LIMIT is still honoured if it is explicitly set to a positive number.
     const ordersLimitRaw = Number(process.env.SQUARESPACE_ORDERS_LIMIT);
-    const ordersLimit =
-      Number.isFinite(ordersLimitRaw) && ordersLimitRaw > 0 ? Math.floor(ordersLimitRaw) : 200;
-    orders = orders.slice(0, ordersLimit);
+    if (Number.isFinite(ordersLimitRaw) && ordersLimitRaw > 0) {
+      orders = orders.slice(0, Math.floor(ordersLimitRaw));
+    }
+    let responseBytes = 0;
+    let fitCount = 0;
+    for (const order of orders) {
+      responseBytes += Buffer.byteLength(JSON.stringify(order)) + 1;
+      if (responseBytes > ordersConfig.maxResponseBytes) break;
+      fitCount += 1;
+    }
+    orders = orders.slice(0, fitCount);
+    const truncated = orders.length < pageCount;
 
     const successLog = JSON.stringify({
       level: 'INFO',
@@ -227,14 +337,18 @@ const getSquarespaceOrders = async (req, res) => {
       result: orders.length <= 20
         ? {
           count: orders.length,
+          fetchedFromSquarespaceCount,
           totalAvailableCount,
+          truncated,
           submittedCount,
           pendingCount,
           orderIds: orders.map((o) => o?.id),
         }
         : {
           count: orders.length,
+          fetchedFromSquarespaceCount,
           totalAvailableCount,
+          truncated,
           submittedCount,
           pendingCount,
           firstOrderIds: orders.slice(0, 5).map((o) => o?.id),
@@ -246,9 +360,13 @@ const getSquarespaceOrders = async (req, res) => {
     return res.status(200).json({
       success: true,
       count: orders.length,
+      totalRecords: totalAvailableCount,
+      fetchedFromSquarespaceCount,
       totalAvailableCount,
+      truncated,
       submittedCount,
       pendingCount,
+      pagination,
       orders,
     });
   } catch (err) {
