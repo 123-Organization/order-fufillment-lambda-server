@@ -91,7 +91,11 @@ Resources:
         Variables:
           DEBUG: app*
           SQUARESPACE_ACCOUNTS_TABLE_NAME: squarespace-accounts
-          SQUARESPACE_ORDERS_LIMIT: '50'
+          SQUARESPACE_ORDERS_MAX_PAGE_SIZE: "200"
+          SQUARESPACE_ORDERS_DEFAULT_PAGE_SIZE: "200"
+          SQUARESPACE_ORDERS_MAX_RESPONSE_BYTES: "5242880"
+          SQUARESPACE_ORDERS_MAX_FETCH_PAGES: "100"
+          SQUARESPACE_API_TIMEOUT_MS: "120000"
           SQUARE_ACCOUNTS_TABLE_NAME: square-accounts
           SQUARE_ACCOUNTS_ACCOUNT_KEY_GSI: account-key
       Events:
@@ -310,7 +314,11 @@ Resources:
         Variables:
           DEBUG: app*
           SQUARESPACE_ACCOUNTS_TABLE_NAME: squarespace-accounts
-          SQUARESPACE_ORDERS_LIMIT: '50'
+          SQUARESPACE_ORDERS_MAX_PAGE_SIZE: "200"
+          SQUARESPACE_ORDERS_DEFAULT_PAGE_SIZE: "200"
+          SQUARESPACE_ORDERS_MAX_RESPONSE_BYTES: "5242880"
+          SQUARESPACE_ORDERS_MAX_FETCH_PAGES: "100"
+          SQUARESPACE_API_TIMEOUT_MS: "120000"
           SQUARE_ACCOUNTS_TABLE_NAME: square-accounts
           SQUARE_ACCOUNTS_ACCOUNT_KEY_GSI: account-key
       Events:
@@ -649,7 +657,11 @@ Resources:
         Variables:
           DEBUG: app*
           SHIPPO_MODE: live
-          SQUARESPACE_ORDERS_LIMIT: '50'
+          SQUARESPACE_ORDERS_MAX_PAGE_SIZE: "200"
+          SQUARESPACE_ORDERS_DEFAULT_PAGE_SIZE: "200"
+          SQUARESPACE_ORDERS_MAX_RESPONSE_BYTES: "5242880"
+          SQUARESPACE_ORDERS_MAX_FETCH_PAGES: "100"
+          SQUARESPACE_API_TIMEOUT_MS: "120000"
       Events:
         ConnectShippo:
           Type: Api
