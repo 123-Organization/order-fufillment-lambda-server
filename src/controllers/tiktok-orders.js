@@ -172,6 +172,66 @@ const getTiktokOrderById = async (req, res) => {
 };
 
 /**
+ * Lists the webhooks registered on the account's TikTok shop (GET /event/202309/webhooks).
+ * Used to confirm that order_sync true/false actually registered/removed the
+ * ORDER_STATUS_CHANGE webhook, and which address TikTok will call. Read-only.
+ * Expects body/query: { account_key } (optional shop_cipher / shop_id).
+ */
+const listTiktokWebhooks = async (req, res) => {
+  try {
+    const account_key = req.body?.account_key || req.query?.account_key;
+    const shop_cipher = req.body?.shop_cipher || req.query?.shop_cipher;
+    const shop_id = req.body?.shop_id || req.query?.shop_id;
+    if (!account_key || !String(account_key).trim()) {
+      return sendApiError(res, 400, 'Missing required parameter: account_key');
+    }
+
+    const { accessToken, shopCipher } = await resolveTiktokShopAuth({
+      account_key: String(account_key).trim(),
+      shop_cipher,
+      shop_id,
+    });
+
+    const r = await tiktokShopCall({
+      method: 'GET',
+      path: '/event/202309/webhooks',
+      accessToken,
+      shopCipher,
+    });
+    if (r.status < 200 || r.status >= 300 || r.data?.code !== 0) {
+      return sendApiError(res, r.status >= 400 ? r.status : 502, 'Failed to list TikTok Shop webhooks', summarizeTiktokHttpError({ response: r }));
+    }
+
+    const webhooks = Array.isArray(r.data?.data?.webhooks) ? r.data.data.webhooks : [];
+    const orderStatusWebhook = webhooks.find((w) => w?.event_type === 'ORDER_STATUS_CHANGE') || null;
+    log('Success in listTiktokWebhooks: count=%d', webhooks.length);
+
+    return res.status(200).json({
+      success: true,
+      orderSyncWebhookRegistered: Boolean(orderStatusWebhook),
+      orderSyncWebhookAddress: orderStatusWebhook?.address || null,
+      count: webhooks.length,
+      webhooks,
+    });
+  } catch (err) {
+    const errorJson = JSON.stringify({
+      level: 'ERROR',
+      platform: 'tiktok',
+      source: err?.response ? 'tiktok_api' : 'lambda',
+      function: 'listTiktokWebhooks',
+      account_key: req.body?.account_key || req.query?.account_key || 'unknown',
+      httpStatus: err?.response?.status || err?.status || null,
+      message: `Failed to list TikTok Shop webhooks: ${err?.message || 'Unknown error'}`,
+      detail: summarizeTiktokHttpError(err),
+      timestamp: new Date().toISOString(),
+    });
+    console.error(errorJson);
+    log('Formatted error in listTiktokWebhooks: %s', errorJson);
+    return sendApiError(res, err?.status || 500, err?.message || 'Unknown error', err?.data);
+  }
+};
+
+/**
  * Adds tracking info to a TikTok Shop order once FinerWorks has shipped it — the TikTok
  * equivalent of Square/Squarespace/Wix's "fulfill order with tracking info".
  *
@@ -270,5 +330,6 @@ module.exports = {
   getTiktokOrders,
   getTiktokOrderById,
   fulfillTiktokOrderWithTrackingInfo,
+  listTiktokWebhooks,
   toEpochSeconds,
 };

@@ -28,7 +28,7 @@ const { fetchShippoOrders } = require('./shippo-orders');
 const { handleBigcommerceAuthStart, handleBigcommerceAuthCallback, handleBigcommerceLoadCallback, handleBigcommerceUninstallCallback, handleBigcommerceDisconnect } = require('./bigcommerce-auth');
 const { handleTiktokAuthStart, handleTiktokAuthCallback, refreshTiktokToken, handleTiktokDisconnect } = require('./tiktok-auth');
 const { syncTiktokProducts } = require('./tiktok-products');
-const { getTiktokOrders, getTiktokOrderById, fulfillTiktokOrderWithTrackingInfo } = require('./tiktok-orders');
+const { getTiktokOrders, getTiktokOrderById, fulfillTiktokOrderWithTrackingInfo, listTiktokWebhooks } = require('./tiktok-orders');
 const { fetchOrdersUnified } = require('./unified-orders');
 const healthCheck = require('./health-check');
 const app = Router();
@@ -154,6 +154,7 @@ app.post('/tiktok/sync-products', asyncHandler(syncTiktokProducts));
 app.post('/tiktok/orders', asyncHandler(getTiktokOrders));
 app.post('/tiktok/order-by-id', asyncHandler(getTiktokOrderById));
 app.post('/tiktok/fulfill-order', asyncHandler(fulfillTiktokOrderWithTrackingInfo));
+app.post('/tiktok/webhooks', asyncHandler(listTiktokWebhooks));
 
 // Shopify webhooks (called by Shopify)
 app.post('/webhooks/product-delete', asyncHandler(shopifyProductDeleteWebhook));
