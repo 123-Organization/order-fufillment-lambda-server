@@ -19,7 +19,7 @@ const log = debug('app:tiktokProducts');
  * server (github.com/tiktok/ttspc-server-sample, src/services/ttsApi.ts). Category assignment
  * is mandatory on every product, so this auto-recommends one from the product's own
  * title/description/images (POST .../categories/recommend) rather than requiring a manual
- * category mapping step — takes the top recommendation.
+ * category mapping step — takes the leaf of the recommended category path.
  */
 
 function normalizeSku(v) {
@@ -60,6 +60,51 @@ function pickQty(p) {
   const q = Number(p?.quantity_in_stock ?? p?.quantity ?? p?.inventory_quantity ?? 0);
   if (Number.isFinite(q) && q >= 0) return Math.round(q);
   return 0;
+}
+
+/** First positive number among the candidates (product field, request body, env), else the fallback. */
+function firstPositive(fallback, ...candidates) {
+  for (const c of candidates) {
+    const n = Number(c);
+    if (Number.isFinite(n) && n > 0) return n;
+  }
+  return fallback;
+}
+
+/**
+ * TikTok requires package dimensions + weight on every product. The OFA product payload doesn't
+ * carry shipping sizes, so each value comes from the product (`package_length` / `length`, ...),
+ * then the request body (`package_dimensions` / `package_weight`), then env, then a default sized
+ * for a typical framed print. For a multi-SKU product TikTok takes one package, so the largest
+ * SKU wins.
+ */
+function pickPackage(items, body) {
+  const bd = body?.package_dimensions || {};
+  const bw = body?.package_weight || {};
+  const env = process.env;
+  const dim = (key, envKey, fallback) =>
+    Math.max(
+      ...items.map((p) =>
+        firstPositive(fallback, p?.[`package_${key}`], p?.[key], bd?.[key], env[envKey])
+      )
+    );
+  const weight = Math.max(
+    ...items.map((p) =>
+      firstPositive(3, p?.package_weight, p?.weight, p?.shipping_weight, bw?.value, env.TIKTOK_DEFAULT_PACKAGE_WEIGHT)
+    )
+  );
+  return {
+    package_dimensions: {
+      length: String(dim('length', 'TIKTOK_DEFAULT_PACKAGE_LENGTH', 20)),
+      width: String(dim('width', 'TIKTOK_DEFAULT_PACKAGE_WIDTH', 16)),
+      height: String(dim('height', 'TIKTOK_DEFAULT_PACKAGE_HEIGHT', 3)),
+      unit: String(bd?.unit || env.TIKTOK_DEFAULT_PACKAGE_DIMENSION_UNIT || 'INCH').toUpperCase(),
+    },
+    package_weight: {
+      value: String(weight),
+      unit: String(bw?.unit || env.TIKTOK_DEFAULT_PACKAGE_WEIGHT_UNIT || 'POUND').toUpperCase(),
+    },
+  };
 }
 
 function pickImageUrls(p) {
@@ -194,10 +239,19 @@ async function resolveTiktokShopAuth({ account_key, shop_cipher, shop_id }) {
 
 async function getWarehouseId({ accessToken, shopCipher }) {
   const r = await tiktokShopCall({ method: 'GET', path: '/logistics/202309/warehouses', accessToken, shopCipher });
-  if (r.status < 200 || r.status >= 300 || r.data?.code !== 0) return null;
+  if (r.status < 200 || r.status >= 300 || r.data?.code !== 0) {
+    return { warehouseId: null, error: summarizeTiktokHttpError({ response: r }), warehouses: [] };
+  }
   const warehouses = r.data?.data?.warehouses || [];
-  // Prefer the default warehouse when the account has more than one.
-  return warehouses.find((w) => w?.is_default)?.id || warehouses[0]?.id || null;
+  // SKU inventory can only live in an enabled sales warehouse (return warehouses are rejected);
+  // fields are checked only when TikTok sends them. Prefer the default one when there are several.
+  const usable = warehouses.filter(
+    (w) =>
+      (!w?.type || w.type === 'SALES_WAREHOUSE') &&
+      (!w?.effect_status || w.effect_status === 'ENABLED')
+  );
+  const picked = usable.find((w) => w?.is_default) || usable[0] || null;
+  return { warehouseId: picked?.id || null, error: null, warehouses };
 }
 
 async function recommendCategoryId({ accessToken, shopCipher, title, description, imageUris }) {
@@ -216,8 +270,15 @@ async function recommendCategoryId({ accessToken, shopCipher, title, description
   if (r.status < 200 || r.status >= 300 || r.data?.code !== 0) {
     return { categoryId: null, error: summarizeTiktokHttpError({ response: r }) };
   }
-  const top = r.data?.data?.categories?.[0] || null;
-  return { categoryId: top?.id || null, category: top };
+  // TikTok returns the recommended category as its full path (level 1 → leaf), not as ranked
+  // alternatives, and products can only be created in the leaf — so take the leaf, falling back to
+  // the deepest level if is_leaf is missing.
+  const path = r.data?.data?.categories || [];
+  const leaf =
+    path.find((c) => c?.is_leaf === true) ||
+    [...path].sort((a, b) => Number(b?.level || 0) - Number(a?.level || 0))[0] ||
+    null;
+  return { categoryId: leaf?.id || null, category: leaf };
 }
 
 /** Downloads an image from its FinerWorks URL and uploads it to TikTok's media API, returning
@@ -312,9 +373,29 @@ const syncTiktokProducts = async (req, res) => {
     }
 
     const { accessToken, shopCipher } = await resolveTiktokShopAuth({ account_key, shop_cipher, shop_id });
-    const warehouseId = await getWarehouseId({ accessToken, shopCipher });
+    const { warehouseId, error: warehouseError, warehouses } = await getWarehouseId({ accessToken, shopCipher });
+    if (warehouseError) {
+      log('syncTiktokProducts: warehouse lookup failed: %o', warehouseError);
+      return sendApiError(res, 502, `Could not read TikTok Shop warehouses: ${warehouseError.message}`, {
+        code: warehouseError.code,
+        httpStatus: warehouseError.httpStatus,
+        detail: warehouseError.request_id ? `TikTok request_id ${warehouseError.request_id}` : undefined,
+      });
+    }
     if (!warehouseId) {
-      return sendApiError(res, 400, 'No TikTok Shop warehouse found for this shop; set one up in Seller Center first.');
+      // sendApiError's public data drops arrays, so list what TikTok returned as one string.
+      const found = warehouses.length
+        ? warehouses
+          .map((w) => `${w?.name || w?.id} (${w?.type || 'unknown type'}, ${w?.effect_status || 'unknown status'})`)
+          .join('; ')
+        : 'none';
+      log('syncTiktokProducts: no usable warehouse; TikTok returned: %s', found);
+      return sendApiError(
+        res,
+        400,
+        'No enabled TikTok Shop sales warehouse found for this shop; add one in Seller Center first.',
+        { detail: `Warehouses returned by TikTok: ${found}` }
+      );
     }
 
     const jobs = buildSyncJobs(rawProducts);
@@ -363,16 +444,38 @@ const syncTiktokProducts = async (req, res) => {
           continue;
         }
 
-        const { categoryId, category, error: catError } = await recommendCategoryId({
-          accessToken,
-          shopCipher,
-          title: name,
-          description: pickDescription(items[0]),
-          imageUris: uploadedUris,
-        });
+        // An explicit category (per product, per request, or server default) skips TikTok's
+        // recommendation, which can't place short FinerWorks names like "Framed Giclee - Canvas Prints".
+        const explicitCategoryId = String(
+          items[0]?.tiktok_category_id || req.body?.category_id || process.env.TIKTOK_DEFAULT_CATEGORY_ID || ''
+        ).trim();
+        let categoryId = explicitCategoryId || null;
+        let category = null;
+        let catError = null;
+        if (!categoryId) {
+          // Retry once with a wall-art hint appended; only the lookup text changes, not the product title.
+          for (const lookupTitle of [name, `${name} Wall Art Print`]) {
+            ({ categoryId, category, error: catError } = await recommendCategoryId({
+              accessToken,
+              shopCipher,
+              title: lookupTitle,
+              description: pickDescription(items[0]),
+              imageUris: uploadedUris,
+            }));
+            if (categoryId) break;
+            log('syncTiktokProducts: category recommend failed for title "%s": %o', lookupTitle, catError);
+          }
+        }
         if (!categoryId) {
           failed += 1;
-          results.push({ success: false, jobIndex: ji, ...(guid ? { image_guid: guid } : {}), sku: skuPreview, error: 'Could not resolve a TikTok category', detail: catError });
+          results.push({
+            success: false,
+            jobIndex: ji,
+            ...(guid ? { image_guid: guid } : {}),
+            sku: skuPreview,
+            error: 'Could not resolve a TikTok category. Pass tiktok_category_id on the product, category_id in the request, or set TIKTOK_DEFAULT_CATEGORY_ID.',
+            detail: catError,
+          });
           continue;
         }
 
@@ -393,18 +496,23 @@ const syncTiktokProducts = async (req, res) => {
             : {}),
         }));
 
+        const createBody = {
+          title: name.slice(0, 255),
+          description: pickDescription(items[0]) || name,
+          category_id: categoryId,
+          // categoryId comes from the v2 recommend call above; without this TikTok assumes v1,
+          // which all-region (e.g. US) shops reject with code 12052217.
+          category_version: 'v2',
+          main_images: [{ uri: uploadedUris[0] }],
+          ...pickPackage(items, req.body),
+          skus,
+        };
         const createResp = await tiktokShopCall({
           method: 'POST',
           path: '/product/202309/products',
           accessToken,
           shopCipher,
-          body: {
-            title: name.slice(0, 255),
-            description: pickDescription(items[0]) || name,
-            category_id: categoryId,
-            main_images: [{ uri: uploadedUris[0] }],
-            skus,
-          },
+          body: createBody,
         });
 
         if (createResp.status >= 200 && createResp.status < 300 && createResp.data?.code === 0) {
