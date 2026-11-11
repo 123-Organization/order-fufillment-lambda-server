@@ -107,6 +107,27 @@ async function fetchTiktokAuthorizedShops(accessToken) {
 }
 
 /**
+ * TikTok's token APIs (/api/v2/token/get and /refresh) return `access_token_expire_in` /
+ * `refresh_token_expire_in` as ABSOLUTE Unix timestamps in seconds — not a relative
+ * "expires_in" duration. Reading the wrong field name stored null, which made
+ * isTiktokTokenExpiringSoon() true on every call and forced a token refresh each time.
+ * Still accepts a relative `*_expires_in` (seconds) as a fallback.
+ */
+function tiktokTokenExpiryIso(tokenData, prefix) {
+  const absolute = Number(tokenData?.[`${prefix}_expire_in`]);
+  if (Number.isFinite(absolute) && absolute > 0) {
+    // Real Unix timestamps are > 1e9; anything smaller is a duration in seconds.
+    const ms = absolute > 1e9 ? absolute * 1000 : Date.now() + absolute * 1000;
+    return new Date(ms).toISOString();
+  }
+  const relative = Number(tokenData?.[`${prefix}_expires_in`]);
+  if (Number.isFinite(relative) && relative > 0) {
+    return new Date(Date.now() + relative * 1000).toISOString();
+  }
+  return null;
+}
+
+/**
  * Upserts the TikTok Shop connection (tokens + shop list) into an OFA account's FinerWorks
  * connections list. Shared by the Auth Callback and the refresh endpoint.
  */
@@ -128,11 +149,28 @@ async function saveTiktokConnection({
     ? JSON.parse(JSON.stringify(getInformation.user_account.connections))
     : [];
   const idx = connections.findIndex((c) => c && c.name === 'TikTok Shop');
+  // Merge onto the existing connection instead of replacing it: other flows store their own
+  // fields in the same connection (POST /stores/order-sync keeps order_sync,
+  // order_create_webhook_url and shop_cipher here). Rebuilding `data` from scratch on every
+  // token refresh silently turned order sync off.
+  const existingConn = idx !== -1 && connections[idx] ? connections[idx] : {};
+  let existingData = {};
+  if (typeof existingConn.data === 'string') {
+    try {
+      existingData = JSON.parse(existingConn.data) || {};
+    } catch (_e) {
+      existingData = {};
+    }
+  } else if (existingConn.data && typeof existingConn.data === 'object') {
+    existingData = existingConn.data;
+  }
   const nextConnection = {
+    ...existingConn,
     name: 'TikTok Shop',
     // Keep the same pattern as Square/Shopify/Squarespace/Wix: id stores the access token.
     id: access_token,
     data: JSON.stringify({
+      ...existingData,
       access_token,
       refresh_token: refresh_token || null,
       access_token_expires_at: access_token_expires_at || null,
@@ -379,13 +417,8 @@ const handleTiktokAuthCallback = async (req, res) => {
       });
     }
 
-    const now = Date.now();
-    const access_token_expires_at = Number.isFinite(Number(tokenData.access_token_expires_in))
-      ? new Date(now + Number(tokenData.access_token_expires_in) * 1000).toISOString()
-      : null;
-    const refresh_token_expires_at = Number.isFinite(Number(tokenData.refresh_token_expires_in))
-      ? new Date(now + Number(tokenData.refresh_token_expires_in) * 1000).toISOString()
-      : null;
+    const access_token_expires_at = tiktokTokenExpiryIso(tokenData, 'access_token');
+    const refresh_token_expires_at = tiktokTokenExpiryIso(tokenData, 'refresh_token');
 
     log('handleTiktokAuthCallback: fetching authorized shops open_id=%s', tokenData.open_id);
     let shops = [];
@@ -501,13 +534,8 @@ async function refreshTiktokTokenCore(account_key, conn) {
     throw err;
   }
 
-  const now = Date.now();
-  const access_token_expires_at = Number.isFinite(Number(tokenData.access_token_expires_in))
-    ? new Date(now + Number(tokenData.access_token_expires_in) * 1000).toISOString()
-    : null;
-  const refresh_token_expires_at = Number.isFinite(Number(tokenData.refresh_token_expires_in))
-    ? new Date(now + Number(tokenData.refresh_token_expires_in) * 1000).toISOString()
-    : null;
+  const access_token_expires_at = tiktokTokenExpiryIso(tokenData, 'access_token');
+  const refresh_token_expires_at = tiktokTokenExpiryIso(tokenData, 'refresh_token');
 
   await saveTiktokConnection({
     account_key: trimmedKey,
