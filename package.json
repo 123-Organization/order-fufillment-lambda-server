@@ -21,12 +21,8 @@
   "license": "ISC",
   "dependencies": {
     "@aws-sdk/client-dynamodb": "^3.511.0",
-    "@aws-sdk/client-s3": "^3.511.0",
     "@aws-sdk/lib-dynamodb": "^3.511.0",
-    "add": "^2.0.6",
-    "aws-lambda": "^1.0.7",
     "axios": "^1.6.7",
-    "body-parser": "^1.20.2",
     "braintree": "^3.21.0",
     "cors": "^2.8.5",
     "debug": "^4.3.4",
@@ -34,13 +30,8 @@
     "express": "^4.18.2",
     "form-data": "^4.0.5",
     "joi": "^17.13.3",
-    "node-fetch": "^3.3.2",
-    "nodemon": "^2.0.22",
-    "serverless-http": "^3.2.0",
-    "uuidv4": "^6.2.13",
-    "yarn": "^1.22.22",
-    "form-data": "^4.0.5",
-    "jsonwebtoken": "^9.0.3"
+    "jsonwebtoken": "^9.0.3",
+    "serverless-http": "^3.2.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.4",
@@ -48,7 +39,7 @@
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-n": "^18.0.1",
     "globals": "^17.6.0",
-    "prettier": "^3.8.3",
-    "serverless-build-plugin": "^3.2.0"
+    "nodemon": "^2.0.22",
+    "prettier": "^3.8.3"
   }
 }
