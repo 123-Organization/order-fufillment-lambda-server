@@ -6,6 +6,7 @@ const PLATFORM_TO_CONNECTION_NAME = {
   square: 'Square',
   bigcommerce: 'BigCommerce',
   tiktok: 'TikTok Shop',
+  bigcartel: 'Big Cartel',
 };
 
 function normalizePlatform(input) {
