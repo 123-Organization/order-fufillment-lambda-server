@@ -322,7 +322,11 @@ async function updateVirtualInventoryWithTiktokIds(accountKey, items, productId,
   for (const src of items) {
     const sku = normalizeSku(src?.sku);
     if (!sku) continue;
-    const tiktokSkuId = skuIdBySeller.get(sku) || null;
+    // TikTok's per-SKU id is the variant id (product -> skus[].id); saved as tiktok_variant_id
+    // like the other platforms' <platform>_variant_id fields.
+    const tiktokVariantId = skuIdBySeller.get(sku) || null;
+    // Drop the old field name written by earlier syncs so FinerWorks only keeps tiktok_variant_id.
+    const { tiktok_sku_id: _legacyTiktokSkuId, ...existingIntegrations } = src?.third_party_integrations || {};
     const viItem = {
       sku,
       asking_price: pickPrice(src),
@@ -331,9 +335,9 @@ async function updateVirtualInventoryWithTiktokIds(accountKey, items, productId,
       quantity_in_stock: pickQty(src),
       track_inventory: true,
       third_party_integrations: {
-        ...(src?.third_party_integrations || {}),
+        ...existingIntegrations,
         tiktok_product_id: String(productId),
-        ...(tiktokSkuId ? { tiktok_sku_id: String(tiktokSkuId) } : {}),
+        ...(tiktokVariantId ? { tiktok_variant_id: String(tiktokVariantId) } : {}),
       },
     };
     try {
@@ -357,7 +361,7 @@ async function updateVirtualInventoryWithTiktokIds(accountKey, items, productId,
  * steps this adds: auto-recommending a category (mandatory on every product), uploading images
  * to TikTok's media API first (TikTok doesn't fetch by URL), and resolving a warehouse_id for
  * SKU inventory. TikTok ids are written back to FinerWorks virtual inventory
- * (`third_party_integrations.tiktok_product_id` / `tiktok_sku_id`).
+ * (`third_party_integrations.tiktok_product_id` / `tiktok_variant_id`).
  */
 const syncTiktokProducts = async (req, res) => {
   try {
