@@ -15,11 +15,14 @@ const SKIP_ACCOUNT_KEY_VALIDATION = [
   { method: 'GET', path: '/wix/oauth/install-return' },
   { method: 'POST', path: '/wix/oauth/callback' },
   { method: 'GET', path: '/wix/instance/connect' },
+  { method: 'GET', path: '/ebay/callback' },
 
   // Inbound platform webhooks (no account_key or resolved elsewhere)
   { method: 'POST', path: '/webhooks/orders-create' },
   { method: 'POST', path: '/webhooks/product-delete' },
   { method: 'POST', path: '/webhooks/wix/order-create' },
+  { method: 'GET', path: '/webhooks/ebay/notification' },
+  { method: 'POST', path: '/webhooks/ebay/notification' },
 
   // Shopify carrier rate callback
   { method: 'POST', path: '/shopify/carrier-service/callback' }

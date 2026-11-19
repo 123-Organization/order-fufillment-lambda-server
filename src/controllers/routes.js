@@ -29,6 +29,10 @@ const { handleBigcommerceAuthStart, handleBigcommerceAuthCallback, handleBigcomm
 const { handleTiktokAuthStart, handleTiktokAuthCallback, refreshTiktokToken, handleTiktokDisconnect } = require('./tiktok-auth');
 const { syncTiktokProducts } = require('./tiktok-products');
 const { getTiktokOrders, getTiktokOrderById, fulfillTiktokOrderWithTrackingInfo } = require('./tiktok-orders');
+const { handleEbayAuthStart, handleEbayAuthCallback, refreshEbayToken, handleEbayDisconnect } = require('./ebay-auth');
+const { syncEbayProducts } = require('./ebay-products');
+const { getEbayOrders, getEbayOrderById, fulfillEbayOrderWithTrackingInfo, syncEbayOrders } = require('./ebay-orders');
+const { ebayNotificationChallenge, ebayNotificationWebhook } = require('./ebay-webhooks');
 const { fetchOrdersUnified } = require('./unified-orders');
 const healthCheck = require('./health-check');
 const app = Router();
@@ -154,6 +158,15 @@ app.post('/tiktok/sync-products', asyncHandler(syncTiktokProducts));
 app.post('/tiktok/orders', asyncHandler(getTiktokOrders));
 app.post('/tiktok/order-by-id', asyncHandler(getTiktokOrderById));
 app.post('/tiktok/fulfill-order', asyncHandler(fulfillTiktokOrderWithTrackingInfo));
+app.get('/ebay/auth', asyncHandler(handleEbayAuthStart));
+app.get('/ebay/callback', asyncHandler(handleEbayAuthCallback));
+app.post('/ebay/refresh-token', asyncHandler(refreshEbayToken));
+app.post('/ebay/disconnect', asyncHandler(handleEbayDisconnect));
+app.post('/ebay/sync-products', asyncHandler(syncEbayProducts));
+app.post('/ebay/orders', asyncHandler(getEbayOrders));
+app.post('/ebay/order-by-id', asyncHandler(getEbayOrderById));
+app.post('/ebay/fulfill-order', asyncHandler(fulfillEbayOrderWithTrackingInfo));
+app.post('/ebay/sync-orders', asyncHandler(syncEbayOrders));
 
 // Shopify webhooks (called by Shopify)
 app.post('/webhooks/product-delete', asyncHandler(shopifyProductDeleteWebhook));
@@ -161,5 +174,9 @@ app.post('/webhooks/orders-create', asyncHandler(shopifyOrdersCreateWebhook));
 app.post('/webhooks/squarespace/order-create', asyncHandler(squarespaceOrderCreateWebhook));
 app.post('/webhooks/square/order-create', asyncHandler(squareOrderCreateWebhook));
 app.post('/webhooks/tiktok/order-status-change', asyncHandler(tiktokOrderStatusChangeWebhook));
+// eBay: one endpoint for the ownership challenge (GET) and every signed notification (POST) —
+// marketplace account deletion + order notifications.
+app.get('/webhooks/ebay/notification', asyncHandler(ebayNotificationChallenge));
+app.post('/webhooks/ebay/notification', asyncHandler(ebayNotificationWebhook));
 
 module.exports = app;
