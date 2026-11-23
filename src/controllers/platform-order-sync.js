@@ -13,7 +13,8 @@ const {
   listSquarespaceWebhookSubscriptions,
   createSquarespaceWebhookSubscription,
   deleteSquarespaceWebhookSubscription,
-  findOrderCreateSubscription,
+  findSubscriptionsByTopic,
+  ORDER_CREATE_TOPIC,
 } = require('../helpers/squarespace-webhook-api');
 const {
   listShopifyWebhooks,
@@ -275,14 +276,19 @@ async function enableSquarespaceOrderSync(account_key) {
 
   await withSquarespaceAccessToken(account_key, async (accessToken) => {
     const existing = await listSquarespaceWebhookSubscriptions(accessToken);
-    webhookSubscription = findOrderCreateSubscription(existing, endpointUrl);
 
-    if (!webhookSubscription) {
-      webhookSubscription = await createSquarespaceWebhookSubscription(accessToken, {
-        endpointUrl,
-        topics: ['order.create'],
-      });
+    // Always start clean: delete every existing subscription for this event, then register a
+    // fresh one. Re-creating (instead of reusing) also gets a new signing secret back, since
+    // Squarespace only returns the secret on create.
+    const stale = findSubscriptionsByTopic(existing, ORDER_CREATE_TOPIC);
+    for (const sub of stale) {
+      await deleteSquarespaceWebhookSubscription(accessToken, sub.id);
     }
+
+    webhookSubscription = await createSquarespaceWebhookSubscription(accessToken, {
+      endpointUrl,
+      topics: [ORDER_CREATE_TOPIC],
+    });
   });
 
   return { endpointUrl, webhookSubscription };
