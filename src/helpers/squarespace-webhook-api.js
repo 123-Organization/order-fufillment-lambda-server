@@ -56,7 +56,19 @@ function findOrderCreateSubscription(subscriptions, endpointUrl) {
   );
 }
 
+const ORDER_CREATE_TOPIC = 'order.create';
+
+/** All subscriptions that include `topic`, whatever endpoint URL they point to. */
+function findSubscriptionsByTopic(subscriptions, topic) {
+  if (!Array.isArray(subscriptions)) return [];
+  return subscriptions.filter(
+    (sub) => sub?.id && Array.isArray(sub?.topics) && sub.topics.includes(topic)
+  );
+}
+
 module.exports = {
+  ORDER_CREATE_TOPIC,
+  findSubscriptionsByTopic,
   listSquarespaceWebhookSubscriptions,
   createSquarespaceWebhookSubscription,
   deleteSquarespaceWebhookSubscription,
