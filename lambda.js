@@ -5,6 +5,12 @@ const serverlessApp = serverless(server);
 // const log = debug('app:local');
 const { runSquarespaceTokenRenewalJob } = require('./src/controllers/squarespace-auth');
 const { runSquareTokenRenewalJob } = require('./src/controllers/square-auth');
+const { runEbayOrderPollJob } = require('./src/controllers/ebay-orders');
+
+/** eBay order check schedule sends {"ebayOrderPoll": true}; checked before the generic Squarespace match. */
+function isScheduledEbayOrderPoll(event) {
+    return Boolean(event && typeof event === 'object' && event.ebayOrderPoll === true);
+}
 
 /** Square's schedule always sends this explicit flag, so it never collides with the Squarespace job below. */
 function isScheduledSquareRenewal(event) {
@@ -20,6 +26,7 @@ function isScheduledSquarespaceRenewal(event) {
     if (!event || typeof event !== 'object') return false;
     if (event.squarespaceTokenRenewal === true) return true;
     if (event.squareTokenRenewal === true) return false;
+    if (event.ebayOrderPoll === true) return false;
     if (event.source === 'aws.events') return true;
     if (event.source === 'aws.scheduler') return true;
     if (event['detail-type'] === 'Scheduled Event') return true;
@@ -28,6 +35,14 @@ function isScheduledSquarespaceRenewal(event) {
 
 // Lambda handler function
 exports.handler = async (event, context) => {
+    if (isScheduledEbayOrderPoll(event)) {
+        const summary = await runEbayOrderPollJob();
+        return {
+            statusCode: 200,
+            body: JSON.stringify({ ok: true, summary })
+        };
+    }
+
     if (isScheduledSquareRenewal(event)) {
         const summary = await runSquareTokenRenewalJob();
         return {

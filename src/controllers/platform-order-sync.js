@@ -57,11 +57,14 @@ const {
   buildTiktokFulfillmentWebhookUrl,
   buildTiktokOrderWebhookUrl,
 } = require('../helpers/tiktok-order-webhook');
+const { resolveEbayAuth } = require('./ebay-auth');
+const { createEbayOrderSubscription, deleteEbayOrderSubscription } = require('../helpers/ebay-notifications');
+const { putEbayAccount, updateEbayAccountByAccountKey } = require('../helpers/ebay-accounts-dynamo');
 const debug = require('debug');
 const { sendApiError } = require('../helpers/api-error');
 const log = debug('app:platformOrderSync');
 
-const SUPPORTED_PLATFORMS = ['squarespace', 'wix', 'shopify', 'square', 'tiktok'];
+const SUPPORTED_PLATFORMS = ['squarespace', 'wix', 'shopify', 'square', 'tiktok', 'ebay'];
 const TIKTOK_ORDER_SYNC_EVENT_TYPE = 'ORDER_STATUS_CHANGE';
 
 const SHOPIFY_ORDER_CREATE_WEBHOOK = {
@@ -360,6 +363,46 @@ async function disableTiktokOrderSync(account_key, shopCipherHint) {
   }
 }
 
+/**
+ * eBay order sync = two paths that both end in the same idempotent submit:
+ *  1. Notification subscription (EBAY_ORDER_NOTIFICATION_TOPIC) for near-real-time delivery —
+ *     best effort: if the topic isn't available to the app, sync still works through path 2.
+ *  2. The scheduled order check (runEbayOrderPollJob) for every registry row with order_sync on.
+ */
+async function enableEbayOrderSync(account_key, existingData) {
+  const { accessToken } = await resolveEbayAuth(account_key);
+  let subscriptionId = existingData.notification_subscription_id || null;
+  let warning = null;
+  try {
+    const sub = await createEbayOrderSubscription(accessToken);
+    subscriptionId = sub.subscriptionId || subscriptionId;
+  } catch (subErr) {
+    warning = `eBay order notifications not enabled (${subErr?.data?.message || subErr?.message}); orders will be picked up by the scheduled order check instead.`;
+    log('enableEbayOrderSync: %s', warning);
+  }
+  await putEbayAccount({
+    id: crypto.randomUUID(),
+    account_key,
+    ebay_user_id: existingData.ebay_user_id || null,
+    ebay_username: existingData.ebay_username || null,
+    order_sync: true,
+    notification_subscription_id: subscriptionId,
+  });
+  return { subscriptionId, warning };
+}
+
+async function disableEbayOrderSync(account_key, existingData) {
+  if (existingData.notification_subscription_id) {
+    try {
+      const { accessToken } = await resolveEbayAuth(account_key);
+      await deleteEbayOrderSubscription(accessToken, existingData.notification_subscription_id);
+    } catch (subErr) {
+      log('disableEbayOrderSync: subscription delete failed (continuing): %s', subErr?.message);
+    }
+  }
+  await updateEbayAccountByAccountKey(account_key, { order_sync: false, notification_subscription_id: null });
+}
+
 async function enableShopifyOrderSync(req, existingData) {
   const { storeName, access_token } = resolveShopifyCredentials(req.body, null, existingData);
   const { topic, address, format } = SHOPIFY_ORDER_CREATE_WEBHOOK;
@@ -489,6 +532,8 @@ function applyOrderSyncToConnection(conn, order_sync, dataPatch = {}) {
  *   enable (orders are pushed to OFA only once paid); disable only flips order_sync (the
  *   subscription is shared across all merchants, so it is never deleted).
  * TikTok Shop: registers/deletes a per-shop ORDER_STATUS_CHANGE webhook subscription.
+ * eBay: subscribes the seller to the order notification topic (best effort) and flags the
+ *   account for the scheduled eBay order check; disable removes both.
  */
 exports.setPlatformOrderSync = async (req, res) => {
   try {
@@ -609,6 +654,18 @@ exports.setPlatformOrderSync = async (req, res) => {
         syncMessage = 'TikTok Shop order webhook removed and order sync disabled';
         connections[idx] = applyOrderSyncToConnection(existingConn, false);
       }
+    } else if (connectionName === 'eBay') {
+      if (order_sync) {
+        const result = await enableEbayOrderSync(trimmedKey, existingData);
+        syncMessage = result.warning || 'eBay order sync enabled (order notifications + scheduled order check)';
+        connections[idx] = applyOrderSyncToConnection(existingConn, true, {
+          notification_subscription_id: result.subscriptionId || null,
+        });
+      } else {
+        await disableEbayOrderSync(trimmedKey, existingData);
+        syncMessage = 'eBay order sync disabled';
+        connections[idx] = applyOrderSyncToConnection(existingConn, false, { notification_subscription_id: null });
+      }
     } else {
       connections[idx] = applyOrderSyncToConnection(existingConn, order_sync);
       syncMessage = order_sync
@@ -654,7 +711,8 @@ exports.setPlatformOrderSync = async (req, res) => {
     // 'squareup' (not 'squareup.com') so the sandbox host connect.squareupsandbox.com also matches.
     const isSquareError = err?.response?.config?.url?.includes('squareup') || err?.config?.url?.includes('squareup');
     const isTiktokError = err?.response?.config?.url?.includes('tiktok') || err?.config?.url?.includes('tiktok');
-    const errorSource = isSquarespaceError ? 'squarespace_api' : (isShopifyError ? 'shopify_api' : (isWixError ? 'wix_api' : (isSquareError ? 'square_api' : (isTiktokError ? 'tiktok_api' : (isFinerworksError ? 'finerworks_api' : 'lambda')))));
+    const isEbayError = /ebay\.com/i.test(err?.response?.config?.url || err?.config?.url || '');
+    const errorSource = isEbayError ? 'ebay_api' : isSquarespaceError ? 'squarespace_api' : (isShopifyError ? 'shopify_api' : (isWixError ? 'wix_api' : (isSquareError ? 'square_api' : (isTiktokError ? 'tiktok_api' : (isFinerworksError ? 'finerworks_api' : 'lambda')))));
     const errorJson = JSON.stringify({
       level: 'ERROR',
       platform: req.body?.platform || req.query?.platform || 'unknown',

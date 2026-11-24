@@ -327,6 +327,8 @@ const ordersSchema = Joi.object({
                         square_variant_id: Joi.any().optional().allow(null),
                         squarespace_product_id: Joi.any().optional().allow(null),
                         squarespace_variant_id: Joi.any().optional().allow(null),
+                        ebay_product_id: Joi.any().optional().allow(null),
+                        ebay_variant_id: Joi.any().optional().allow(null),
                         tiktok_product_id: Joi.any().optional().allow(null),
                         tiktok_variant_id: Joi.any().optional().allow(null),
                         wix_inventory_id: Joi.any().optional().allow(null),
