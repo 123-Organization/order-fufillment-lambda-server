@@ -4,6 +4,7 @@ const { logIncomingRequest } = require('../helpers/request-log');
 const { getWixOrders, getWixOrderByNumber } = require('./wix-orders');
 const { getSquarespaceOrders, getSquarespaceOrderByNumber } = require('./squarespace-orders');
 const { getTiktokOrders, getTiktokOrderById } = require('./tiktok-orders');
+const { getEbayOrders, getEbayOrderById } = require('./ebay-orders');
 
 const log = debug('app:unifiedOrders');
 
@@ -89,6 +90,22 @@ const IMPLEMENTED_PLATFORMS = {
           : { order: body?.order || null },
     },
   },
+  ebay: {
+    list: {
+      handler: getEbayOrders,
+      normalize: (body) => ({
+        count: body?.count ?? (Array.isArray(body?.orders) ? body.orders.length : 0),
+        orders: body?.orders || [],
+      }),
+    },
+    single: {
+      handler: getEbayOrderById,
+      normalize: (body) =>
+        Array.isArray(body?.orders)
+          ? { count: body?.count ?? body.orders.length, orders: body.orders }
+          : { order: body?.order || null },
+    },
+  },
 };
 
 /**
@@ -137,7 +154,7 @@ async function runHandlerCapturingResponse(handlerFn, req) {
  * Single entry point for fetching orders across e-commerce platforms — lists orders, or fetches
  * one specific order when an order key is supplied.
  *
- * Currently wired for: wix, squarespace, tiktok. square, shopify, etsy, and woocommerce are
+ * Currently wired for: wix, squarespace, tiktok, ebay. square, shopify, etsy, and woocommerce are
  * recognized platform values that return a clear "not yet implemented" response rather than
  * a generic 400, so callers can distinguish "reserved for later" from "invalid platform".
  *
@@ -153,7 +170,7 @@ async function runHandlerCapturingResponse(handlerFn, req) {
  * platform handler, so the same field names and requirements documented for each platform's
  * own endpoints apply here — this endpoint only adds `platform` on top.
  *
- * Expects body/query: { platform: 'wix' | 'squarespace' | 'tiktok', ...platform-specific params }.
+ * Expects body/query: { platform: 'wix' | 'squarespace' | 'tiktok' | 'ebay', ...platform-specific params }.
  */
 exports.fetchOrdersUnified = async (req, res) => {
   try {

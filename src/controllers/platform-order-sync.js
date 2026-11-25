@@ -65,11 +65,14 @@ const {
   buildBigcartelFulfillmentWebhookUrl,
   buildBigcartelOrderWebhookUrl,
 } = require('../helpers/bigcartel-order-webhook');
+const { resolveEbayAuth } = require('./ebay-auth');
+const { createEbayOrderSubscription, deleteEbayOrderSubscription } = require('../helpers/ebay-notifications');
+const { putEbayAccount, updateEbayAccountByAccountKey } = require('../helpers/ebay-accounts-dynamo');
 const debug = require('debug');
 const { sendApiError } = require('../helpers/api-error');
 const log = debug('app:platformOrderSync');
 
-const SUPPORTED_PLATFORMS = ['squarespace', 'wix', 'shopify', 'square', 'tiktok', 'bigcartel'];
+const SUPPORTED_PLATFORMS = ['squarespace', 'wix', 'shopify', 'square', 'tiktok', 'bigcartel', 'ebay'];
 const TIKTOK_ORDER_SYNC_EVENT_TYPE = 'ORDER_STATUS_CHANGE';
 
 const SHOPIFY_ORDER_CREATE_WEBHOOK = {
@@ -426,6 +429,46 @@ async function disableBigcartelOrderSync(account_key, webhookId) {
   }
 }
 
+/**
+ * eBay order sync = two paths that both end in the same idempotent submit:
+ *  1. Notification subscription (EBAY_ORDER_NOTIFICATION_TOPIC) for near-real-time delivery —
+ *     best effort: if the topic isn't available to the app, sync still works through path 2.
+ *  2. The scheduled order check (runEbayOrderPollJob) for every registry row with order_sync on.
+ */
+async function enableEbayOrderSync(account_key, existingData) {
+  const { accessToken } = await resolveEbayAuth(account_key);
+  let subscriptionId = existingData.notification_subscription_id || null;
+  let warning = null;
+  try {
+    const sub = await createEbayOrderSubscription(accessToken);
+    subscriptionId = sub.subscriptionId || subscriptionId;
+  } catch (subErr) {
+    warning = `eBay order notifications not enabled (${subErr?.data?.message || subErr?.message}); orders will be picked up by the scheduled order check instead.`;
+    log('enableEbayOrderSync: %s', warning);
+  }
+  await putEbayAccount({
+    id: crypto.randomUUID(),
+    account_key,
+    ebay_user_id: existingData.ebay_user_id || null,
+    ebay_username: existingData.ebay_username || null,
+    order_sync: true,
+    notification_subscription_id: subscriptionId,
+  });
+  return { subscriptionId, warning };
+}
+
+async function disableEbayOrderSync(account_key, existingData) {
+  if (existingData.notification_subscription_id) {
+    try {
+      const { accessToken } = await resolveEbayAuth(account_key);
+      await deleteEbayOrderSubscription(accessToken, existingData.notification_subscription_id);
+    } catch (subErr) {
+      log('disableEbayOrderSync: subscription delete failed (continuing): %s', subErr?.message);
+    }
+  }
+  await updateEbayAccountByAccountKey(account_key, { order_sync: false, notification_subscription_id: null });
+}
+
 async function enableShopifyOrderSync(req, existingData) {
   const { storeName, access_token } = resolveShopifyCredentials(req.body, null, existingData);
   const { topic, address, format } = SHOPIFY_ORDER_CREATE_WEBHOOK;
@@ -557,6 +600,8 @@ function applyOrderSyncToConnection(conn, order_sync, dataPatch = {}) {
  * TikTok Shop: registers/deletes a per-shop ORDER_STATUS_CHANGE webhook subscription.
  * Big Cartel: registers/deletes a per-account order.created/order.updated webhook (best-effort
  *   — see bigcartel-order-webhook.js for the confidence caveat on this platform's webhook API).
+ * eBay: subscribes the seller to the order notification topic (best effort) and flags the
+ *   account for the scheduled eBay order check; disable removes both.
  */
 exports.setPlatformOrderSync = async (req, res) => {
   try {
@@ -690,6 +735,18 @@ exports.setPlatformOrderSync = async (req, res) => {
         syncMessage = 'Big Cartel order webhook removed and order sync disabled';
         connections[idx] = applyOrderSyncToConnection(existingConn, false);
       }
+    } else if (connectionName === 'eBay') {
+      if (order_sync) {
+        const result = await enableEbayOrderSync(trimmedKey, existingData);
+        syncMessage = result.warning || 'eBay order sync enabled (order notifications + scheduled order check)';
+        connections[idx] = applyOrderSyncToConnection(existingConn, true, {
+          notification_subscription_id: result.subscriptionId || null,
+        });
+      } else {
+        await disableEbayOrderSync(trimmedKey, existingData);
+        syncMessage = 'eBay order sync disabled';
+        connections[idx] = applyOrderSyncToConnection(existingConn, false, { notification_subscription_id: null });
+      }
     } else {
       connections[idx] = applyOrderSyncToConnection(existingConn, order_sync);
       syncMessage = order_sync
@@ -736,7 +793,8 @@ exports.setPlatformOrderSync = async (req, res) => {
     const isSquareError = err?.response?.config?.url?.includes('squareup') || err?.config?.url?.includes('squareup');
     const isTiktokError = err?.response?.config?.url?.includes('tiktok') || err?.config?.url?.includes('tiktok');
     const isBigcartelError = err?.response?.config?.url?.includes('bigcartel') || err?.config?.url?.includes('bigcartel');
-    const errorSource = isSquarespaceError ? 'squarespace_api' : (isShopifyError ? 'shopify_api' : (isWixError ? 'wix_api' : (isSquareError ? 'square_api' : (isTiktokError ? 'tiktok_api' : (isBigcartelError ? 'bigcartel_api' : (isFinerworksError ? 'finerworks_api' : 'lambda'))))));
+    const isEbayError = /ebay\.com/i.test(err?.response?.config?.url || err?.config?.url || '');
+    const errorSource = isEbayError ? 'ebay_api' : isSquarespaceError ? 'squarespace_api' : (isShopifyError ? 'shopify_api' : (isWixError ? 'wix_api' : (isSquareError ? 'square_api' : (isTiktokError ? 'tiktok_api' : (isBigcartelError ? 'bigcartel_api' : (isFinerworksError ? 'finerworks_api' : 'lambda'))))));
     const errorJson = JSON.stringify({
       level: 'ERROR',
       platform: req.body?.platform || req.query?.platform || 'unknown',
@@ -1275,7 +1333,13 @@ function extractTiktokOrderEvent(payload) {
  * earlier statuses aren't ready yet, and later ones already got pushed on an earlier transition.
  */
 exports.tiktokOrderStatusChangeWebhook = async (req, res) => {
+  // Step-by-step trace logs; every line is prefixed so CloudWatch/terminal output is easy to filter.
+  const tlog = (step, message, data) => {
+    if (data === undefined) console.log(`[TikTok webhook] ${step} ${message}`);
+    else console.log(`[TikTok webhook] ${step} ${message}`, typeof data === 'string' ? data : JSON.stringify(data, null, 2));
+  };
   try {
+    tlog('1', 'Webhook received', { method: req.method, url: req.originalUrl || req.url, query: req.query });
     // req.rawBody is the exact bytes TikTok signed, stashed by express.json()'s `verify` hook
     // in app.js before parsing — req.body below is express.json()'s already-parsed object, not
     // reconstructed from it (re-serializing a parsed object isn't guaranteed to byte-match what
@@ -1283,21 +1347,29 @@ exports.tiktokOrderStatusChangeWebhook = async (req, res) => {
     // exact while this route lives in routes.js like every other webhook.
     const rawBody = Buffer.isBuffer(req.rawBody) ? req.rawBody.toString('utf8') : '';
     log('TikTok order status change webhook received (raw)', rawBody, req.query);
+    tlog('2', 'Raw body (bytes that were signed):', rawBody || '(empty — rawBody not captured)');
+    tlog('2', `Authorization header present: ${Boolean(req.headers?.authorization)}, length: ${String(req.headers?.authorization || '').trim().length} (expected 64)`);
 
     if (!verifyTiktokWebhookSignature(rawBody, req.headers?.authorization)) {
+      tlog('3', 'STOP: signature check FAILED -> 401 (body changed after signing, wrong app key/secret, or "Bearer " prefix)');
       return sendApiError(res, 401, 'Invalid TikTok webhook signature');
     }
+    tlog('3', 'Signature check passed');
 
     const payload = req.body;
     const account_key = req.query?.account_key || req.query?.accountKey;
     const { valid, error } = validateAccountKey(account_key);
     if (!valid) {
+      tlog('4', `STOP: invalid account_key "${account_key}" -> 400: ${error.message}`);
       return sendApiError(res, 400, error.message);
     }
     const trimmedKey = String(account_key).trim();
+    tlog('4', `account_key OK: ${trimmedKey}`);
 
     const { eventType, orderId } = extractTiktokOrderEvent(payload);
+    tlog('5', 'Parsed event', { eventType, orderId, payloadOrderStatus: payload?.data?.order_status || null, shop_id: payload?.shop_id || null });
     if (eventType && eventType !== 'ORDER_STATUS_CHANGE') {
+      tlog('5', `STOP: unsupported event type ${eventType} -> ignored`);
       return res.status(200).json({
         success: true,
         ignored: true,
@@ -1305,16 +1377,20 @@ exports.tiktokOrderStatusChangeWebhook = async (req, res) => {
       });
     }
     if (!orderId) {
+      tlog('5', 'STOP: no data.order_id in payload -> 400');
       return sendApiError(res, 400, 'Missing TikTok order id in webhook payload (data.order_id)');
     }
 
+    tlog('6', 'Loading FinerWorks account connections (GET_INFO)...');
     const getInformation = await finerworksService.GET_INFO({ account_key: trimmedKey });
     const connections = getInformation?.user_account?.connections || [];
     const conn = Array.isArray(connections)
       ? connections.find((c) => c && c.name === 'TikTok Shop')
       : null;
 
+    tlog('6', `TikTok Shop connection found: ${Boolean(conn)}, order_sync enabled: ${Boolean(conn && isOrderSyncEnabled(conn, 'TikTok Shop'))}`);
     if (!conn || !isOrderSyncEnabled(conn, 'TikTok Shop')) {
+      tlog('6', 'STOP: no TikTok Shop connection or order_sync is off -> ignored');
       return res.status(200).json({
         success: true,
         ignored: true,
@@ -1323,10 +1399,14 @@ exports.tiktokOrderStatusChangeWebhook = async (req, res) => {
     }
 
     const connData = parseConnectionData(conn);
+    tlog('7', `Resolving TikTok auth (stored shop_cipher: ${connData.shop_cipher || 'none'}, token expires: ${connData.access_token_expires_at || 'unknown'})...`);
     const { accessToken, shopCipher } = await resolveTiktokShopAuth({
       account_key: trimmedKey,
       shop_cipher: connData.shop_cipher || null,
     });
+    tlog('7', `TikTok auth resolved, shopCipher: ${shopCipher}`);
+
+    tlog('8', `Fetching order ${orderId} from TikTok (GET /order/202309/orders)...`);
 
     const orderResp = await tiktokShopCall({
       method: 'GET',
@@ -1335,7 +1415,9 @@ exports.tiktokOrderStatusChangeWebhook = async (req, res) => {
       shopCipher,
       extraParams: { ids: String(orderId).trim() },
     });
+    tlog('8', `TikTok order fetch -> HTTP ${orderResp.status}, code ${orderResp.data?.code}, message: ${orderResp.data?.message}`);
     if (orderResp.status < 200 || orderResp.status >= 300 || orderResp.data?.code !== 0) {
+      tlog('8', 'STOP: TikTok order fetch failed', summarizeTiktokHttpError({ response: orderResp }));
       return sendApiError(res, orderResp.status >= 400 ? orderResp.status : 502, 'Failed to fetch TikTok order details', {
         orderId: String(orderId),
         ...summarizeTiktokHttpError({ response: orderResp }),
@@ -1343,11 +1425,29 @@ exports.tiktokOrderStatusChangeWebhook = async (req, res) => {
     }
     const tiktokOrder = orderResp.data?.data?.orders?.[0] || null;
     if (!tiktokOrder) {
+      tlog('8', `STOP: TikTok returned no order for id ${orderId} -> 404`);
       return sendApiError(res, 404, `TikTok order not found for id: ${orderId}`);
     }
+    const addr = tiktokOrder.recipient_address || {};
+    tlog('8', 'TikTok order summary', {
+      id: tiktokOrder.id,
+      status: tiktokOrder.status,
+      shipping_type: tiktokOrder.shipping_type,
+      fulfillment_type: tiktokOrder.fulfillment_type,
+      is_on_hold_order: tiktokOrder.is_on_hold_order,
+      line_items: (tiktokOrder.line_items || []).map((li) => ({ seller_sku: li?.seller_sku, product_name: li?.product_name })),
+      recipient_address: {
+        name: addr.name ? (String(addr.name).includes('*') ? 'MASKED' : 'present') : 'EMPTY',
+        address_line1: addr.address_line1 ? (String(addr.address_line1).includes('*') ? 'MASKED' : 'present') : 'EMPTY',
+        postal_code: addr.postal_code || 'EMPTY',
+        region_code: addr.region_code || 'EMPTY',
+        district_info: (addr.district_info || []).map((d) => `${d?.address_level_name}: ${d?.address_name}`),
+      },
+    });
 
     const status = tiktokOrder?.status != null ? String(tiktokOrder.status).toUpperCase() : '';
     if (status !== 'AWAITING_SHIPMENT') {
+      tlog('9', `STOP: order status is ${status || 'unknown'}, only AWAITING_SHIPMENT is submitted -> ignored`);
       return res.status(200).json({
         success: true,
         ignored: true,
@@ -1356,18 +1456,30 @@ exports.tiktokOrderStatusChangeWebhook = async (req, res) => {
       });
     }
 
+    tlog('9', 'Status is AWAITING_SHIPMENT, continuing');
+
     let shippingOptions = null;
     try {
       shippingOptions = await finerworksService.SHIPPING_OPTIONS_LIST();
+      const opts = shippingOptions?.shipping_options ?? shippingOptions;
+      tlog('10', `FinerWorks shipping options loaded: ${Array.isArray(opts) ? opts.length : 'n/a'}`);
     } catch (shipErr) {
       log('SHIPPING_OPTIONS_LIST failed: %s', shipErr?.message);
+      tlog('10', `FinerWorks shipping options failed (falling back to default code): ${shipErr?.message}`);
     }
 
     const transformedOrder = transformTiktokOrderToFinerWorksPayload(tiktokOrder, {
       shippingOptions: shippingOptions?.shipping_options ?? shippingOptions,
     });
+    tlog('11', 'Transformed to FinerWorks order', {
+      order_po: transformedOrder.order_po,
+      shipping_code: transformedOrder.shipping_code,
+      item_skus: (transformedOrder.order_items || []).map((i) => i.product_sku),
+      recipientMissingFields: transformedOrder.recipientMissingFields,
+    });
 
     if (!transformedOrder.order_items?.length) {
+      tlog('11', 'STOP: no line items with seller_sku starting with AP -> ignored');
       return res.status(200).json({
         success: true,
         ignored: true,
@@ -1378,6 +1490,7 @@ exports.tiktokOrderStatusChangeWebhook = async (req, res) => {
     }
 
     if (transformedOrder.recipientMissingFields?.length) {
+      tlog('11', `STOP: recipient address missing fields ${transformedOrder.recipientMissingFields.join(', ')} -> 422`);
       return sendApiError(res, 422, 'TikTok order is missing required recipient address fields', {
         orderId: tiktokOrder.id,
         order_po: transformedOrder.order_po,
@@ -1386,10 +1499,16 @@ exports.tiktokOrderStatusChangeWebhook = async (req, res) => {
     }
     delete transformedOrder.recipientMissingFields;
 
+    tlog('12', 'Looking up FinerWorks product_guid for each SKU (LIST_VIRTUAL_INVENTORY)...');
     transformedOrder.order_items = await enrichTiktokOrderItemsWithProductGuids(
       transformedOrder.order_items,
       trimmedKey
     );
+    tlog('12', 'SKU -> product_guid', transformedOrder.order_items.map((i) => ({
+      sku: i.product_sku,
+      product_guid: i.product_guid,
+      found_in_finerworks: i.product_guid !== '00000000-0000-0000-0000-000000000000',
+    })));
 
     const fulfillmentUrl = buildTiktokFulfillmentWebhookUrl({
       account_key: trimmedKey,
@@ -1399,6 +1518,7 @@ exports.tiktokOrderStatusChangeWebhook = async (req, res) => {
     if (fulfillmentUrl) {
       transformedOrder.webhook_order_status_url = fulfillmentUrl;
     }
+    tlog('13', `FinerWorks status callback URL: ${fulfillmentUrl || 'NOT SET (OFA_PUBLIC_API_BASE_URL / TIKTOK_ORDER_CREATE_WEBHOOK_URL missing)'}`);
 
     const finalPayload = {
       orders: [transformedOrder],
@@ -1407,16 +1527,40 @@ exports.tiktokOrderStatusChangeWebhook = async (req, res) => {
       account_key: trimmedKey,
     };
 
+    // Full payload sent to FinerWorks submit_orders_v2 (payment_token masked — it's a secret).
+    console.log('[TikTok webhook] 14 FinerWorks finalPayload:', JSON.stringify(
+      { ...finalPayload, payment_token: finalPayload.payment_token ? '***' : finalPayload.payment_token },
+      null,
+      2
+    ));
+
     let submitData = null;
     try {
       log('Submitting TikTok order to FinerWorks order_po=%s', transformedOrder.order_po);
+      tlog('15', 'Submitting to FinerWorks (submit_orders_v2)...');
       submitData = await finerworksService.SUBMIT_ORDERS(finalPayload);
+      tlog('15', 'FinerWorks submit response:', submitData);
     } catch (submitErr) {
+      const finerworksError = submitErr?.response?.data ?? submitErr?.message ?? null;
+      tlog('15', `STOP: FinerWorks submit FAILED (HTTP ${submitErr?.response?.status || 'n/a'})`, finerworksError);
       log('SUBMIT_ORDERS failed: %s', submitErr?.message);
+      console.error(JSON.stringify({
+        level: 'ERROR',
+        platform: 'tiktok',
+        source: 'finerworks_api',
+        function: 'tiktokOrderStatusChangeWebhook',
+        account_key: trimmedKey,
+        httpStatus: submitErr?.response?.status || null,
+        message: 'Failed to submit TikTok order to FinerWorks',
+        detail: { orderId: tiktokOrder.id, order_po: transformedOrder.order_po, finerworksError },
+        timestamp: new Date().toISOString(),
+      }));
       const status2 = submitErr?.response?.status === 400 ? 400 : 502;
       return sendApiError(res, status2, 'Failed to submit TikTok order to FinerWorks', {
         orderId: tiktokOrder.id,
         orderNumber: transformedOrder.order_po,
+        finerworksStatus: submitErr?.response?.status || null,
+        finerworksError,
       });
     }
 
@@ -1433,6 +1577,7 @@ exports.tiktokOrderStatusChangeWebhook = async (req, res) => {
     });
     console.log(successLog);
     log('Success in tiktokOrderStatusChangeWebhook: %s', successLog);
+    tlog('16', `DONE: order ${tiktokOrder.id} submitted to FinerWorks as order_po ${transformedOrder.order_po}`);
     return res.status(200).json({
       success: true,
       submitted: true,
@@ -1442,6 +1587,7 @@ exports.tiktokOrderStatusChangeWebhook = async (req, res) => {
       submitData,
     });
   } catch (err) {
+    tlog('ERR', `Unexpected error: ${err?.message || err}`, err?.data || err?.response?.data || undefined);
     log('TikTok order status change webhook failed', err);
     const isTiktokError = err?.response?.config?.url?.includes('tiktok') || err?.config?.url?.includes('tiktok');
     const isFinerworksError = err?.response?.config?.url?.includes('finerworks.com') || err?.config?.url?.includes('finerworks.com');

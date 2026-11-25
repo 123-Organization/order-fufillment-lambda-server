@@ -7,6 +7,7 @@ const PLATFORM_TO_CONNECTION_NAME = {
   bigcommerce: 'BigCommerce',
   tiktok: 'TikTok Shop',
   bigcartel: 'Big Cartel',
+  ebay: 'eBay',
 };
 
 function normalizePlatform(input) {
