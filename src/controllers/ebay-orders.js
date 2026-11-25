@@ -30,6 +30,11 @@ function toIso(v, endOfDay = false) {
 /** Builds the Fulfillment API `filter` param, e.g. creationdate:[a..b],orderfulfillmentstatus:{NOT_STARTED|IN_PROGRESS} */
 function buildOrderFilter({ from, to, fulfillmentStatuses }) {
   const parts = [];
+  // eBay rejects any creationdate in the future ("The start and end dates can't be in the
+  // future"), and an endDate of today expands to 23:59:59.999Z — so cap both at "now".
+  const now = new Date().toISOString();
+  if (to && to > now) to = now;
+  if (from && from > now) from = now;
   if (from || to) parts.push(`creationdate:[${from || ''}..${to || ''}]`);
   if (fulfillmentStatuses?.length) parts.push(`orderfulfillmentstatus:{${fulfillmentStatuses.join('|')}}`);
   return parts.join(',') || undefined;
