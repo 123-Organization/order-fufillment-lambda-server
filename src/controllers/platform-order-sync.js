@@ -377,7 +377,7 @@ const BIGCARTEL_ORDER_EVENT_TYPES = ['order.created', 'order.updated'];
  * UNCONFIRMED, flagged for live testing before go-live (see bigcartel-orders.js and
  * bigcartel-order-webhook.js header comments for the same caveat): the registration
  * endpoint/body shape below (POST /v1/webhooks, {url, events}) and the signature scheme
- * verified in bigcartelOrderWebhook below (x-bigcartel-signature, HMAC-SHA256) both come from
+ * verified in bigcartelOrderWebhook below (X-Webhook-Signature, HMAC-SHA256) both come from
  * one third-party integration guide, not Big Cartel's own docs, which don't document webhook
  * registration in the publicly fetchable portion of their docs. Built against the best
  * available source rather than skipped, per explicit sign-off — needs verification against a
@@ -1609,11 +1609,15 @@ exports.tiktokOrderStatusChangeWebhook = async (req, res) => {
   }
 };
 
-/** Verifies Big Cartel's webhook signature: x-bigcartel-signature header must equal
- * hex(HMAC-SHA256(key=client_secret, message=rawBody)) — computed over the raw request bytes.
- * UNCONFIRMED, flagged (see this file's enableBigcartelOrderSync comment and
- * bigcartel-order-webhook.js): this scheme, including that client_secret is the signing key,
- * comes from one third-party guide, not Big Cartel's own docs. Needs live verification. */
+/** Big Cartel sends the signature in `X-Webhook-Signature` (developers.bigcartel.com/api/v1,
+ * Webhooks): hex(HMAC-SHA256(key=client_secret, message=raw request body)). The legacy
+ * `x-bigcartel-signature` header is still accepted as a fallback. Node lowercases header names. */
+function getBigcartelSignatureHeader(req) {
+  return req.headers?.['x-webhook-signature'] || req.headers?.['x-bigcartel-signature'] || null;
+}
+
+/** Verifies Big Cartel's webhook signature: the signature header must equal
+ * hex(HMAC-SHA256(key=client_secret, message=rawBody)) — computed over the raw request bytes. */
 function verifyBigcartelWebhookSignature(rawBody, signatureHeader) {
   const secret = getBigcartelClientSecret();
   if (!secret || !signatureHeader) return false;
@@ -1644,7 +1648,7 @@ exports.bigcartelOrderWebhook = async (req, res) => {
     const rawBody = Buffer.isBuffer(req.rawBody) ? req.rawBody.toString('utf8') : '';
     log('Big Cartel order webhook received (raw)', rawBody, req.query);
 
-    if (!verifyBigcartelWebhookSignature(rawBody, req.headers?.['x-bigcartel-signature'])) {
+    if (!verifyBigcartelWebhookSignature(rawBody, getBigcartelSignatureHeader(req))) {
       return sendApiError(res, 401, 'Invalid Big Cartel webhook signature');
     }
 

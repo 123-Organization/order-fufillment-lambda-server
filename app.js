@@ -44,7 +44,7 @@ wixJwtBodyRouter.post('/wix/oauth/callback', wixJwtText, asyncHandler(handleWixO
 wixJwtBodyRouter.post('/webhooks/wix/order-create', wixJwtText, asyncHandler(handleWixOrderCreateWebhook));
 app.use('/api', wixJwtBodyRouter);
 
-// Big Cartel (x-bigcartel-signature) and TikTok Shop (HMAC over app_key+rawBody) webhook
+// Big Cartel (X-Webhook-Signature) and TikTok Shop (HMAC over app_key+rawBody) webhook
 // signatures are computed over the raw request bytes, so express.json()'s `verify` hook stashes
 // them on req.rawBody before parsing — lets those webhook routes live in routes.js next to every
 // other platform's webhook instead of needing their own pre-json() router like Wix's JWT webhooks
