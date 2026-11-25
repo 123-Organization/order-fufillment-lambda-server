@@ -24,6 +24,28 @@ Resources:
           ProjectionType: ALL
     Metadata:
       SamResourceId: SquareAccountsTable
+  EbayAccountsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: ebay-accounts
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+      - AttributeName: id
+        AttributeType: S
+      - AttributeName: account_key
+        AttributeType: S
+      KeySchema:
+      - AttributeName: id
+        KeyType: HASH
+      GlobalSecondaryIndexes:
+      - IndexName: account-key
+        KeySchema:
+        - AttributeName: account_key
+          KeyType: HASH
+        Projection:
+          ProjectionType: ALL
+    Metadata:
+      SamResourceId: EbayAccountsTable
   MyApiGateway:
     Type: AWS::Serverless::Api
     Properties:
@@ -96,6 +118,23 @@ Resources:
               - SquareAccountsTable
               - Arn
             - Fn::Sub: ${SquareAccountsTable.Arn}/index/*
+      - PolicyName: EbayAccountsDynamoDBPolicy
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Effect: Allow
+            Action:
+            - dynamodb:GetItem
+            - dynamodb:PutItem
+            - dynamodb:UpdateItem
+            - dynamodb:DeleteItem
+            - dynamodb:Scan
+            - dynamodb:Query
+            Resource:
+            - Fn::GetAtt:
+              - EbayAccountsTable
+              - Arn
+            - Fn::Sub: ${EbayAccountsTable.Arn}/index/*
     Metadata:
       SamResourceId: MyLambdaExecutionRole
   OrderFullFillmentServerLessDevServerAgain:
@@ -108,7 +147,7 @@ Resources:
         - MyLambdaExecutionRole
         - Arn
       Runtime: nodejs18.x
-      CodeUri: s3://order-fullfilment-app-lambda-server/8f7441df9df49ea697d398c67fe1002d
+      CodeUri: s3://order-fullfilment-app-lambda-server/b3cca2ff25535dc450701e4da026f4d2
       MemorySize: 3008
       Timeout: 900
       Environment:
@@ -446,7 +485,7 @@ Resources:
         - MyLambdaExecutionRole
         - Arn
       Runtime: nodejs18.x
-      CodeUri: s3://order-fullfilment-app-lambda-server/8f7441df9df49ea697d398c67fe1002d
+      CodeUri: s3://order-fullfilment-app-lambda-server/b3cca2ff25535dc450701e4da026f4d2
       MemorySize: 3008
       Timeout: 900
       Environment:
@@ -785,13 +824,16 @@ Resources:
         - MyLambdaExecutionRole
         - Arn
       Runtime: nodejs18.x
-      CodeUri: s3://order-fullfilment-app-lambda-server/8f7441df9df49ea697d398c67fe1002d
+      CodeUri: s3://order-fullfilment-app-lambda-server/b3cca2ff25535dc450701e4da026f4d2
       MemorySize: 3008
       Timeout: 900
       Environment:
         Variables:
           DEBUG: app*
           SHIPPO_MODE: live
+          EBAY_ACCOUNTS_TABLE_NAME:
+            Ref: EbayAccountsTable
+          EBAY_ACCOUNTS_ACCOUNT_KEY_GSI: account-key
       Events:
         ConnectShippo:
           Type: Api
@@ -980,5 +1022,87 @@ Resources:
               Ref: MyApiGateway
             Method: POST
             Path: /api/webhooks/tiktok/order-status-change
+        EbayAuthStart:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: GET
+            Path: /api/ebay/auth
+        EbayAuthCallback:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: GET
+            Path: /api/ebay/callback
+        EbayRefreshToken:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: POST
+            Path: /api/ebay/refresh-token
+        EbayDisconnect:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: POST
+            Path: /api/ebay/disconnect
+        EbaySyncProducts:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: POST
+            Path: /api/ebay/sync-products
+        EbayOrders:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: POST
+            Path: /api/ebay/orders
+        EbayOrderById:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: POST
+            Path: /api/ebay/order-by-id
+        EbayFulfillOrder:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: POST
+            Path: /api/ebay/fulfill-order
+        EbaySyncOrders:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: POST
+            Path: /api/ebay/sync-orders
+        EbayNotificationChallenge:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: GET
+            Path: /api/webhooks/ebay/notification
+        EbayNotificationWebhook:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: MyApiGateway
+            Method: POST
+            Path: /api/webhooks/ebay/notification
+        EbayOrderPollSchedule:
+          Type: Schedule
+          Properties:
+            Schedule: rate(15 minutes)
+            Input: '{"ebayOrderPoll": true}'
     Metadata:
       SamResourceId: OrderFullFillmentServerLessDevServerAgainNew
