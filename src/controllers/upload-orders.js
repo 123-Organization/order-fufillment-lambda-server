@@ -760,6 +760,7 @@ exports.uploadOrdersToLocalDatabaseShopify = async (req, res) => {
   try {
     const reqBody = JSON.parse(JSON.stringify(req.body));
     if (!reqBody?.orders) {
+      log('uploadOrdersToLocalDatabaseShopify rejected: missing orders');
       res.status(400).json({
         statusCode: 400,
         status: false,
@@ -784,7 +785,8 @@ exports.uploadOrdersToLocalDatabaseShopify = async (req, res) => {
       // (list_pending_orders). The two lookups are independent, so run them in parallel. Matched by
       // order_po. account_key comes from payment_token for this endpoint, account_key as fallback.
       const orderPosToCheck = orders.map((o) => o.order_po).filter(Boolean);
-      const existingOrderPos = new Set();
+      const existingRealOrderPos = new Set();
+      const existingPendingOrderPos = new Set();
       if (orderPosToCheck.length) {
         const accountKeyForLookup = reqBody.payment_token || reqBody.account_key || null;
         const [listOrdersResult, listPendingResult] = await Promise.allSettled([
@@ -799,7 +801,7 @@ exports.uploadOrdersToLocalDatabaseShopify = async (req, res) => {
 
         if (listOrdersResult.status === "fulfilled") {
           for (const o of (Array.isArray(listOrdersResult.value?.orders) ? listOrdersResult.value.orders : [])) {
-            existingOrderPos.add(String(o.order_po));
+            existingRealOrderPos.add(String(o.order_po));
           }
         } else {
           log("list_orders lookup failed; proceeding without that check: %s", listOrdersResult.reason?.message);
@@ -807,16 +809,26 @@ exports.uploadOrdersToLocalDatabaseShopify = async (req, res) => {
 
         if (listPendingResult.status === "fulfilled") {
           for (const o of (Array.isArray(listPendingResult.value?.orders) ? listPendingResult.value.orders : [])) {
-            existingOrderPos.add(String(o.order_po));
+            existingPendingOrderPos.add(String(o.order_po));
           }
         } else {
           log("list_pending_orders lookup failed; proceeding without that check: %s", listPendingResult.reason?.message);
         }
       }
 
+      const importedOrderPos = [];
+      const skippedAlreadySubmittedOrderPos = [];
+      const skippedAlreadyPendingOrderPos = [];
       for (const order of orders) {
-        if (existingOrderPos.has(String(order.order_po))) {
-          log("Skipping order_po %s — already exists in FinerWorks", order.order_po);
+        const orderPoKey = String(order.order_po);
+        if (existingRealOrderPos.has(orderPoKey)) {
+          log("Skipping order_po %s — already exists as a submitted order in FinerWorks", order.order_po);
+          skippedAlreadySubmittedOrderPos.push(order.order_po);
+          continue;
+        }
+        if (existingPendingOrderPos.has(orderPoKey)) {
+          log("Skipping order_po %s — already staged as a pending order in FinerWorks", order.order_po);
+          skippedAlreadyPendingOrderPos.push(order.order_po);
           continue;
         }
         if (Array.isArray(order.order_items)) {
@@ -830,8 +842,9 @@ exports.uploadOrdersToLocalDatabaseShopify = async (req, res) => {
         order.submittedAt = null;
         // order.source = uploadedFromAppName;
         ensureOrderItemsValidForSave(order);
+        ensureValidOrderKey(order);
         const savePayload = {
-          orders: [order],
+          orders: [sanitizeOrderStringsForFinerWorks(order)],
           source: order.source || uploadedFromAppName,
           account_key: reqBody.payment_token || reqBody.account_key || null,
         };
@@ -839,25 +852,34 @@ exports.uploadOrdersToLocalDatabaseShopify = async (req, res) => {
         const saveData = await finerworksService.SAVE_PENDING_ORDERS(savePayload);
         log("Response after save_pending_orders %s", JSON.stringify(saveData));
         order.orderFullFillmentId = extractSavedPendingOrderId(saveData);
+        importedOrderPos.push(order.order_po);
       }
       const successLog = JSON.stringify({
         level: 'INFO',
         platform: 'finerworks',
         method: req.method,
         api: req.originalUrl || req.url,
-        function: 'uploadOrdersToLocalDatabase',
+        function: 'uploadOrdersToLocalDatabaseShopify',
         operation: 'Orders uploaded to local database successfully',
         account_key: reqBody?.account_key || 'unknown',
-        result: { count: orders?.length || 0 },
+        result: {
+          count: orders?.length || 0,
+          imported: importedOrderPos.length,
+          skippedAlreadySubmitted: skippedAlreadySubmittedOrderPos.length,
+          skippedAlreadyPending: skippedAlreadyPendingOrderPos.length,
+        },
         timestamp: new Date().toISOString()
       });
       console.log(successLog);
-      log('Success in uploadOrdersToLocalDatabase: %s', successLog);
+      log('Success in uploadOrdersToLocalDatabaseShopify: %s', successLog);
       res.status(200).json({
         statusCode: 200,
         status: true,
-        message: "Orders have been submitted successfully",
+        message: `Orders processed: ${importedOrderPos.length} imported, ${skippedAlreadySubmittedOrderPos.length} skipped (already a submitted order), ${skippedAlreadyPendingOrderPos.length} skipped (already pending)`,
         data: orders,
+        imported_order_pos: importedOrderPos,
+        skipped_already_submitted_order_pos: skippedAlreadySubmittedOrderPos,
+        skipped_already_pending_order_pos: skippedAlreadyPendingOrderPos,
       });
     }
   } catch (err) {
@@ -867,15 +889,25 @@ exports.uploadOrdersToLocalDatabaseShopify = async (req, res) => {
       level: 'ERROR',
       platform: 'finerworks',
       source: isFinerworksError ? 'finerworks_api' : 'lambda',
-      function: 'uploadOrdersToLocalDatabase',
+      function: 'uploadOrdersToLocalDatabaseShopify',
       account_key: req.body?.account_key || 'unknown',
       httpStatus: err?.response?.status || null,
       message: `Failed to upload orders to local database: ${err?.message || 'Unknown error'}`,
       detail: err?.response?.data?.message || err?.response?.data?.error || null,
+      // FinerWorks returns ASP.NET-style model validation errors as { Message, ModelState:
+      // { "order.recipient.address_1": ["..."], ... } } — surface it so "The request is
+      // invalid." isn't the only thing a caller ever sees.
+      modelState: err?.response?.data?.ModelState || null,
       timestamp: new Date().toISOString()
     });
     console.error(errorJson);
-    log('Formatted error in uploadOrdersToLocalDatabase: %s', errorJson);
+    log('Formatted error in uploadOrdersToLocalDatabaseShopify: %s', errorJson);
+    res.status(err?.response?.status && err.response.status < 500 ? err.response.status : 400).json({
+      statusCode: 400,
+      status: false,
+      message: `Failed to upload orders to local database: ${err?.response?.data?.Message || err?.message || 'Unknown error'}`,
+      modelState: err?.response?.data?.ModelState || undefined,
+    });
   }
 };
 
@@ -884,6 +916,51 @@ function urlEncodeJSON(data) {
   const jsonString = JSON.stringify(data);
   const encodedString = encodeURIComponent(jsonString);
   return encodedString;
+}
+
+/**
+ * save_pending_orders builds its SQL insert server-side via raw string concatenation — an
+ * unescaped apostrophe in any text field (e.g. product_title "Summer's End") breaks their query
+ * with a 500 (confirmed: "Incorrect syntax near 's'. Unclosed quotation mark..."). Escaping to the
+ * standard SQL-literal form ('') avoids the crash and round-trips correctly (verified stored/
+ * returned as the original unescaped text). Returns a sanitized deep copy — never mutates the
+ * input, since the original order is also used in the response sent back to our caller.
+ */
+function sanitizeOrderStringsForFinerWorks(value) {
+  if (typeof value === "string") {
+    return value.replace(/'/g, "''");
+  }
+  if (Array.isArray(value)) {
+    return value.map(sanitizeOrderStringsForFinerWorks);
+  }
+  if (value && typeof value === "object") {
+    const result = {};
+    for (const [key, val] of Object.entries(value)) {
+      result[key] = sanitizeOrderStringsForFinerWorks(val);
+    }
+    return result;
+  }
+  return value;
+}
+
+/**
+ * save_pending_orders deserializes order_key as System.Nullable<Guid> and throws a 400 when it
+ * isn't a real GUID — e.g. the Mongo-style ObjectIds Squarespace/Shopify send. Replace anything
+ * that isn't already a valid GUID so the order can still be staged. The original (non-GUID) value
+ * would otherwise be lost, so it's preserved in custom_data_1 — the same field other platform
+ * order builders (squarespace-order-webhook.js, square-order-webhook.js) already use to carry an
+ * external reference id. Only stashed when custom_data_1 isn't already set by the caller.
+ */
+function ensureValidOrderKey(order) {
+  if (!order) return order;
+  if (!order.order_key || !guidRegex.test(order.order_key)) {
+    const originalOrderKey = order.order_key;
+    if (originalOrderKey && !order.custom_data_1) {
+      order.custom_data_1 = String(originalOrderKey);
+    }
+    order.order_key = generateGUID();
+  }
+  return order;
 }
 
 /**
